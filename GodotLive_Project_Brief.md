@@ -91,8 +91,23 @@ socket:
 - `remove_node(node_path)`, `reparent_node(node_path, new_parent_path)`,
   `duplicate_node(node_path)`
 - `get_node_properties(node_path)`, `list_scene_tree()` — read-back/inspection
-- `set_project_setting(key, value)` — project-wide settings (input maps,
-  rendering, autoloads)
+
+**The bar for a dedicated tool** (settled after auditing all tools built so
+far): `eval_expression` has no state between calls — each call is a fresh
+`Expression.parse()`/`execute()`, so anything needing more than one step
+costs N separate round trips, not one awkward line. A dedicated tool earns
+its place if `Expression` structurally can't do the op in one call
+(it can't parse assignment statements — confirmed by Ruake's own
+`RuakeAssignment` workaround — and can't do loops/multiple statements), if
+it needs to capture and return a result eval would otherwise discard (e.g.
+a duplicated/reparented node's new path), or if its validation prevents a
+silent failure that would otherwise cost a follow-up diagnostic eval call.
+Cut on this basis: `get_project_setting`/`set_project_setting` —
+`ProjectSettings.get_setting()`/`set_setting()` are single global-singleton
+method calls, no node context, no loop, no assignment; the tool call and
+the equivalent eval call cost the same in round trips, so the dedicated
+tool was pure tool-list token overhead. Use `eval_expression` directly for
+project settings instead.
 
 **v1.1 batch** (Node-tools-category slice, names taken from Godot MCP Pro's
 public tool directory per the Inspiration section above):
