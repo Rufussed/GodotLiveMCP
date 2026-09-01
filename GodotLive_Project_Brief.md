@@ -293,6 +293,33 @@ string bug from v1.9 — Godot's dynamic property APIs fail silently by
 design, and every tool built on top of them needs to check for that
 explicitly rather than trust a bare success return.
 
+**v1.11 — texture/resource-file assignment, and `set_property`/
+`set_properties` got the same fixes.** While answering "have we added
+texturing tools?", live-testing surfaced two more problems in the same
+family. First: `str_to_var()` can construct a path-backed resource
+reference from a bare `Resource("res://icon.svg")` literal (confirmed —
+it resolves and loads for real), but a colon-delimited nested-property
+path like `material_override:albedo_texture` is not a real property name
+`get_property_list()` recognizes, so `set_property` on it silently zeroed
+out `material_override` entirely instead of setting the sub-property —
+a live regression that undid the v1.10 fix mid-session. Second:
+`set_property`/`set_properties` themselves had never gotten the v1.10
+unknown-property-name validation, since they predate it and weren't part
+of the `_apply_properties()` refactor.
+
+Fixed both: added a `"load:res://path"` value prefix, recognized by a new
+`_decode_value()` used everywhere `str_to_var()` was previously called
+directly (`_apply_properties`, `set_property`, `set_properties`) — this
+resolves *actual files* via `load()` instead of trying to parse them as a
+Variant literal, fixing texture/resource-file assignment universally
+without a new dedicated tool. And `set_property`/`set_properties` now
+route through `_apply_properties()` too, so they get the same
+unknown-property validation and fail loudly instead of silently no-oping
+— confirmed live: `material_override:albedo_texture` as a property name
+now correctly fails with "unknown property" instead of corrupting state,
+and `load:res://icon.svg` correctly assigned and read back via
+`material_override.albedo_texture.resource_path`.
+
 ### 3. A companion Skill / CLAUDE.md (started 2026-09-01)
 
 Trigger for starting this: a real external session (a Claude Code instance

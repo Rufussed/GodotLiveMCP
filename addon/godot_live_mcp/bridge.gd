@@ -142,6 +142,15 @@ func _rel_path(node: Node) -> String:
 		return "."
 	return String(root.get_path_to(node))
 
+## A value string prefixed "load:" is loaded from disk via load() instead of
+## parsed by str_to_var() — needed for textures/resources that only exist as
+## files, since str_to_var() can't construct arbitrary resource references
+## from a bare res:// path the way it can for e.g. Vector2/Color literals.
+func _decode_value(value_str: String):
+	if value_str.begins_with("load:"):
+		return load(value_str.substr(5))
+	return str_to_var(value_str)
+
 ## Sets each property via Object.set(), which silently no-ops on an unknown
 ## name (no error). Returns any property names that don't actually exist on
 ## obj, so callers can fail loudly instead of pretending success.
@@ -156,7 +165,7 @@ func _apply_properties(obj: Object, props: Dictionary) -> Array:
 		if not valid_names.has(name_str):
 			unknown.append(name_str)
 			continue
-		obj.set(name_str, str_to_var(String(props[prop_name])))
+		obj.set(name_str, _decode_value(String(props[prop_name])))
 	return unknown
 
 ## Reads back the given property names from obj as var_to_str()-encoded values.
@@ -238,8 +247,9 @@ func _cmd_set_property(params: Dictionary):
 	if prop_name == "":
 		return _fail("property_name is required")
 
-	var value = str_to_var(value_str)
-	node.set(prop_name, value)
+	var unknown := _apply_properties(node, {prop_name: value_str})
+	if not unknown.is_empty():
+		return _fail("unknown property: %s" % prop_name)
 	return {"value": var_to_str(node.get(prop_name))}
 
 func _cmd_set_properties(params: Dictionary):
@@ -249,10 +259,13 @@ func _cmd_set_properties(params: Dictionary):
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 
+	var unknown := _apply_properties(node, properties)
+	if not unknown.is_empty():
+		return _fail("unknown properties: %s" % ", ".join(unknown))
+
 	var result := {}
 	for prop_name in properties:
 		var name_str := String(prop_name)
-		node.set(name_str, str_to_var(String(properties[prop_name])))
 		result[name_str] = var_to_str(node.get(name_str))
 	return result
 
