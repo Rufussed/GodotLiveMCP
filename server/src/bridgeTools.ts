@@ -38,6 +38,7 @@ export const bridgeToolNames = new Set([
   'get_editor_selection',
   'select_nodes',
   'clear_editor_selection',
+  'validate_script',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -269,6 +270,17 @@ export const bridgeToolDefinitions = [
     description: 'Clear the editor\'s current node selection.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'validate_script',
+    description:
+      'Check a GDScript file for parse errors by reloading it as a GDScript resource. On failure, ' +
+      'only an error code is returned — check the editor\'s Output panel for the actual message.',
+    inputSchema: {
+      type: 'object',
+      properties: { script_path: { type: 'string', description: 'res:// path to the script' } },
+      required: ['script_path'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -377,6 +389,10 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       }));
     case 'clear_editor_selection':
       return textResult(await client.call('clear_editor_selection', {}));
+    case 'validate_script':
+      return textResult(await client.call('validate_script', {
+        script_path: params.script_path,
+      }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }

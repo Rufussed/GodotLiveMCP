@@ -234,6 +234,23 @@ func _cmd_attach_script(params: Dictionary):
 	node.set_script(script)
 	return {"ok": true}
 
+func _cmd_validate_script(params: Dictionary):
+	var script_path := String(params.get("script_path", ""))
+	if not FileAccess.file_exists(script_path):
+		return _fail("script not found: %s" % script_path)
+	var f := FileAccess.open(script_path, FileAccess.READ)
+	if f == null:
+		return _fail("could not open for reading: %s (error %d)" % [script_path, FileAccess.get_open_error()])
+	var source := f.get_as_text()
+	f.close()
+
+	var scr := GDScript.new()
+	scr.source_code = source
+	var err := scr.reload()
+	if err != OK:
+		return _fail("parse failed with error code %d (see the editor's Output panel for the message)" % err)
+	return {"ok": true}
+
 func _cmd_remove_node(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var node := _resolve_node(node_path)
