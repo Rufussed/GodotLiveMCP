@@ -108,6 +108,17 @@ public tool directory per the Inspiration section above):
 - `get_editor_selection()`, `select_nodes(node_paths)`,
   `clear_editor_selection()` — read/drive the editor's own node selection
 
+**v1.2**: `validate_script(script_path)` — parse a GDScript file through
+Godot's own GDScript compiler and report success/failure. Note: plain script
+CRUD (`create_script`/`read_script`/`edit_script` from Pro's public list) was
+considered and dropped — the agent already has direct filesystem read/write
+for `.gd` files and gains nothing from routing that through the bridge.
+`validate_script` earns its place because it's the one thing only Godot's
+own parser can tell you; a plain file tool can't replicate it.
+`get_editor_errors`/`get_output_log` were also considered and dropped: Godot
+4 doesn't expose the Output panel's contents through a public GDScript API
+without a C++-level hook, so building it now would be flaky/half-working.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that
