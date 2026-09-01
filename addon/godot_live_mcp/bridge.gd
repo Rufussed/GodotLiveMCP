@@ -300,6 +300,13 @@ func _cmd_reparent_node(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	if new_parent == null:
 		return _fail("new parent not found: %s" % new_parent_path)
+	if node == new_parent:
+		return _fail("cannot reparent a node under itself: %s" % node_path)
+	if node.is_ancestor_of(new_parent):
+		return _fail("cannot reparent %s under %s: %s is already a parent of %s (cyclic)" % [node_path, new_parent_path, node_path, new_parent_path])
+	if node.get_parent() == new_parent:
+		return {"path": _rel_path(node)}
+
 	node.get_parent().remove_child(node)
 	new_parent.add_child(node)
 	return {"path": _rel_path(node)}
@@ -878,17 +885,19 @@ func _cmd_get_particle_info(params: Dictionary):
 func _load_or_create_token() -> String:
 	var override := OS.get_environment("GODOT_LIVE_MCP_TOKEN")
 	if override != "":
+		print("GodotLiveMCPBridge: using GODOT_LIVE_MCP_TOKEN from environment")
 		return override
 	var path := "user://godot_live_mcp_token.txt"
 	if FileAccess.file_exists(path):
 		var f := FileAccess.open(path, FileAccess.READ)
 		var existing := f.get_as_text().strip_edges()
 		if existing != "":
+			print("GodotLiveMCPBridge: reusing token cached at %s (no GODOT_LIVE_MCP_TOKEN in environment)" % ProjectSettings.globalize_path(path))
 			return existing
 	var generated := _generate_token()
 	var f2 := FileAccess.open(path, FileAccess.WRITE)
 	f2.store_string(generated)
-	print("GodotLiveMCPBridge: generated token, stored at %s" % ProjectSettings.globalize_path(path))
+	print("GodotLiveMCPBridge: generated token, stored at %s (no GODOT_LIVE_MCP_TOKEN in environment)" % ProjectSettings.globalize_path(path))
 	return generated
 
 func _generate_token() -> String:
