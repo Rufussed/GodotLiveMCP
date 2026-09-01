@@ -131,6 +131,12 @@ func _resolve_node(node_path: String) -> Node:
 		return root
 	return root.get_node_or_null(NodePath(node_path))
 
+func _rel_path(node: Node) -> String:
+	var root := _get_scene_root()
+	if root == null or node == root:
+		return "."
+	return String(root.get_path_to(node))
+
 # ---- Commands ----
 
 func _cmd_ping(_params: Dictionary):
@@ -165,12 +171,10 @@ func _describe_node(node: Node) -> Dictionary:
 	var children := []
 	for child in node.get_children():
 		children.append(_describe_node(child))
-	var root := _get_scene_root()
-	var rel_path := "." if node == root else String(root.get_path_to(node))
 	return {
 		"name": node.name,
 		"type": node.get_class(),
-		"path": rel_path,
+		"path": _rel_path(node),
 		"children": children,
 	}
 
@@ -252,7 +256,7 @@ func _cmd_reparent_node(params: Dictionary):
 		return _fail("new parent not found: %s" % new_parent_path)
 	node.get_parent().remove_child(node)
 	new_parent.add_child(node)
-	return {"path": String(node.get_path())}
+	return {"path": _rel_path(node)}
 
 func _cmd_duplicate_node(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -261,7 +265,7 @@ func _cmd_duplicate_node(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	var dup: Node = node.duplicate()
 	node.get_parent().add_child(dup)
-	return {"path": String(dup.get_path())}
+	return {"path": _rel_path(dup)}
 
 func _cmd_get_project_setting(params: Dictionary):
 	var key := String(params.get("key", ""))
