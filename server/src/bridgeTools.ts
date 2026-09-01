@@ -17,6 +17,10 @@ const VALUE_ENCODING_NOTE =
   ' Values are Godot\'s var_to_str() string encoding (e.g. "5", "true", "\\"hello\\"", ' +
   '"Vector2(1, 2)", "Color(1, 0, 0, 1)") — not plain JSON.';
 
+const PROPERTY_VALIDATION_NOTE =
+  ' Unknown property names fail loudly rather than silently no-oping, and the response includes a ' +
+  'readback of every value actually applied — trust that over assuming success from ok:true alone.';
+
 export const bridgeToolNames = new Set([
   'eval_expression',
   'list_scene_tree',
@@ -306,7 +310,7 @@ export const bridgeToolDefinitions = [
     description:
       'Add a CollisionShape2D/3D child (with a new shape resource) to a live CollisionObject2D/3D ' +
       '(Area2D, StaticBody2D, RigidBody3D, ...). One call instead of instantiate-shape + set-props + ' +
-      'instantiate-collision-node + assign + add_child.',
+      'instantiate-collision-node + assign + add_child.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -362,7 +366,7 @@ export const bridgeToolDefinitions = [
     name: 'add_mesh_instance',
     description:
       'Instantiate a primitive Mesh (e.g. "BoxMesh", "SphereMesh", "CapsuleMesh", "PlaneMesh") with the ' +
-      'given properties, wrap it in a new MeshInstance3D, and add that as a live child.',
+      'given properties, wrap it in a new MeshInstance3D, and add that as a live child.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -376,7 +380,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'setup_environment',
-    description: 'Configure a live WorldEnvironment node\'s Environment resource (creating one if it has none).',
+    description: 'Configure a live WorldEnvironment node\'s Environment resource (creating one if it has none).' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -391,7 +395,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_material_3d',
-    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set.',
+    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -463,7 +467,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'add_audio_bus_effect',
-    description: 'Instantiate an AudioEffect (e.g. "AudioEffectReverb") with the given properties and add it to an existing bus.',
+    description: 'Instantiate an AudioEffect (e.g. "AudioEffectReverb") with the given properties and add it to an existing bus.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -506,7 +510,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_particle_material',
-    description: 'Configure a live GPUParticles2D/3D\'s process_material as a ParticleProcessMaterial, reusing one if already set.',
+    description: 'Configure a live GPUParticles2D/3D\'s process_material as a ParticleProcessMaterial, reusing one if already set.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -568,7 +572,7 @@ export const bridgeToolDefinitions = [
     name: 'set_physics_material',
     description:
       'Configure a live PhysicsBody2D/3D\'s (RigidBody3D, StaticBody2D, ...) physics_material_override ' +
-      '(bounce, friction, ...), creating one if it has none, reusing it if it already does.',
+      '(bounce, friction, ...), creating one if it has none, reusing it if it already does.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -588,7 +592,7 @@ export const bridgeToolDefinitions = [
       'Button, or "panel" on a Panel), creating a new StyleBox resource (default "StyleBoxFlat") with the ' +
       'given properties. For a color/constant/font-size override instead, use eval_expression\'s ' +
       'add_theme_color_override/add_theme_constant_override/add_theme_font_size_override — those take plain ' +
-      'values, not a resource, and are single method calls.',
+      'values, not a resource, and are single method calls.' + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
