@@ -146,6 +146,20 @@ one call; `get_collision_info` earns its place because a shape resource's
 own properties (radius, size, ...) don't survive `var_to_str()` usefully
 when read back through `get_node_properties`.
 
+**v1.4**: `set_properties(node_path, properties)` — batch version of
+`set_property`, one round trip for N properties instead of N. Built after
+noticing Pro's `setup_camera_3d`/`setup_lighting`/`add_gridmap` were all
+really "create a node, then set several properties on it" — a gap in the
+generic tooling, not something 3D-specific. Applied that fix, then re-scoped
+the 3D Scene category down to only what still needed dedicated resource
+handling: `add_mesh_instance(parent_path, mesh_type, mesh_params,
+node_name)`, `setup_environment(node_path, environment_params)`,
+`set_material_3d(node_path, material_params)` — each creates/configures a
+Resource (Mesh, Environment, StandardMaterial3D) via loop+assignment, which
+neither raw eval nor the generic property tools can do in one call.
+`setup_camera_3d`, `setup_lighting`, `add_gridmap` dropped as now covered by
+`add_node_live` + `set_properties`.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that
