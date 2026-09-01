@@ -351,6 +351,46 @@ settings) — most 2D tinting is just `modulate`/`self_modulate`, already
 flat properties `set_property` covers; no concrete use case yet to justify
 it.
 
+**v1.13 — route property mutations through Godot's own UndoRedo.** Found
+via real use: pressing Play never offered to save, because bridge edits
+were made via raw `Object.set()`, which doesn't touch Godot's own
+dirty-tracking at all — no title-bar indicator, no save-before-Play
+prompt, and (separately, also broken) no Ctrl+Z. `save_scene_live` was
+the only way anything persisted; there was no passive safety net for
+bridge changes at all, unlike normal editor edits.
+
+Fixed the property-mutation path (not yet node CRUD — see below): wired an
+`EditorPlugin` reference into `bridge.gd` (`plugin.gd` now calls
+`_bridge.set_editor_plugin(self)`, since only `EditorPlugin` instances can
+reach `get_undo_redo()`), and added `_commit_properties(obj, values)`,
+which batches every property in one call into a single
+`EditorUndoRedoManager` action (`create_action`/`add_do_property` +
+`add_undo_property` captured from the *current* value/`commit_action`)
+instead of calling `Object.set()` directly. `_apply_properties()` now
+calls this after validating (and decoding) every property name — which
+also fixed a latent atomicity bug: the old code applied valid properties
+inline *before* checking for unknown ones, so a call with 2 valid + 1
+invalid property name partially applied the 2 valid ones even though the
+overall response reported failure. Now validates everything first,
+applies nothing at all if any name is unknown. `set_transform` (which
+didn't go through `_apply_properties`) was refactored to build a values
+dict and go through `_commit_properties` too.
+
+This covers `set_property`, `set_properties`, `set_transform`, and all 8
+`_apply_properties()`-based resource tools — the large majority of actual
+mutations. **Not yet covered**: node creation/removal/reparenting/
+duplication (`add_node_live`, `remove_node`, `reparent_node`,
+`duplicate_node`) — `UndoRedo` has no built-in scene-structure primitive,
+so those need `add_do_method`/`add_undo_method` with `Callable`s instead
+of the property-based approach, a separate follow-up.
+
+Verified live: after a `set_property` call, the scene tab showed the
+unsaved-changes indicator and Ctrl+Z correctly reverted the change;
+repeated with a `set_properties` batch call and a `set_material_3d`
+resource-tool call (both routing through the same `_commit_properties`
+path) — both also showed the indicator and stepped back correctly through
+Ctrl+Z, one action at a time.
+
 ### 3. A companion Skill / CLAUDE.md (started 2026-09-01)
 
 Trigger for starting this: a real external session (a Claude Code instance

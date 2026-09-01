@@ -8,6 +8,7 @@ var _bridge: Node
 func _enter_tree() -> void:
 	_bridge = BridgeScript.new()
 	_bridge.name = "GodotLiveMCPBridge"
+	_bridge.set_editor_plugin(self)
 	add_child(_bridge)
 
 func _exit_tree() -> void:

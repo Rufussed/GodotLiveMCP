@@ -26,6 +26,10 @@ var _peer_buffers: Dictionary = {}
 var _token: String = ""
 var _port: int = DEFAULT_PORT
 var _scene_root: Node = null
+var _editor_plugin: EditorPlugin = null
+
+func set_editor_plugin(plugin: EditorPlugin) -> void:
+	_editor_plugin = plugin
 
 func _ready() -> void:
 	_token = _load_or_create_token()
@@ -151,21 +155,48 @@ func _decode_value(value_str: String):
 		return load(value_str.substr(5))
 	return str_to_var(value_str)
 
-## Sets each property via Object.set(), which silently no-ops on an unknown
-## name (no error). Returns any property names that don't actually exist on
-## obj, so callers can fail loudly instead of pretending success.
+## Applies already-decoded values (no unknown-property check — caller's
+## responsibility) through the editor's UndoRedo, batched as one action, so
+## Godot's own dirty-tracking / save-prompt / Ctrl+Z all see the change.
+## Falls back to a direct Object.set() loop if no EditorPlugin is wired up
+## (shouldn't happen in normal operation, but keeps this safe either way).
+func _commit_properties(obj: Object, values: Dictionary) -> void:
+	if values.is_empty():
+		return
+	if _editor_plugin:
+		var undo_redo := _editor_plugin.get_undo_redo()
+		undo_redo.create_action("GodotLiveMCP: set properties")
+		for name_str in values:
+			undo_redo.add_do_property(obj, name_str, values[name_str])
+			undo_redo.add_undo_property(obj, name_str, obj.get(name_str))
+		undo_redo.commit_action()
+	else:
+		for name_str in values:
+			obj.set(name_str, values[name_str])
+
+## Sets each property via Object.set() (through _commit_properties, so it's
+## undo/dirty-tracked). Object.set() silently no-ops on an unknown name (no
+## error), so this validates every name against obj.get_property_list()
+## FIRST and applies nothing at all if any are unknown — atomic, rather
+## than partially applying the valid ones before reporting failure.
+## Returns any property names that don't actually exist on obj.
 func _apply_properties(obj: Object, props: Dictionary) -> Array:
 	var valid_names := {}
 	for p in obj.get_property_list():
 		valid_names[p.name] = true
 
 	var unknown := []
+	var to_apply := {}
 	for prop_name in props:
 		var name_str := String(prop_name)
 		if not valid_names.has(name_str):
 			unknown.append(name_str)
 			continue
-		obj.set(name_str, _decode_value(String(props[prop_name])))
+		to_apply[name_str] = _decode_value(String(props[prop_name]))
+	if not unknown.is_empty():
+		return unknown
+
+	_commit_properties(obj, to_apply)
 	return unknown
 
 ## Reads back the given property names from obj as var_to_str()-encoded values.
@@ -277,12 +308,14 @@ func _cmd_set_transform(params: Dictionary):
 	if not (node is Node2D or node is Node3D):
 		return _fail("node is not a Node2D or Node3D: %s" % node_path)
 
+	var values := {}
 	if params.has("position"):
-		node.position = str_to_var(String(params["position"]))
+		values["position"] = str_to_var(String(params["position"]))
 	if params.has("rotation"):
-		node.rotation = float(str_to_var(String(params["rotation"])))
+		values["rotation"] = float(str_to_var(String(params["rotation"])))
 	if params.has("scale"):
-		node.scale = str_to_var(String(params["scale"]))
+		values["scale"] = str_to_var(String(params["scale"]))
+	_commit_properties(node, values)
 	return {"ok": true}
 
 func _cmd_attach_script(params: Dictionary):
