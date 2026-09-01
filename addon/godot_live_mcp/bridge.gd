@@ -15,6 +15,11 @@ extends Node
 const DEFAULT_PORT := 9080
 const HOST := "127.0.0.1"
 
+## Global singletons exposed by name to eval_expression, in the same order
+## as the values built alongside them (see _cmd_eval_expression). Without
+## this, Expression has no way to resolve "ProjectSettings", "ClassDB", etc.
+const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance"]
+
 var _server: TCPServer
 var _peers: Array = []
 var _peer_buffers: Dictionary = {}
@@ -149,12 +154,18 @@ func _cmd_eval_expression(params: Dictionary):
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 
+	var input_names: Array = _SINGLETON_NAMES.duplicate()
+	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance]
+	if Engine.is_editor_hint():
+		input_names.append("EditorInterface")
+		input_values.append(EditorInterface)
+
 	var expr := Expression.new()
-	var parse_err := expr.parse(expr_src, [])
+	var parse_err := expr.parse(expr_src, input_names)
 	if parse_err != OK:
 		return _fail("parse error: %s" % expr.get_error_text())
 
-	var value = expr.execute([], node, true)
+	var value = expr.execute(input_values, node, true)
 	if expr.has_execute_failed():
 		return _fail("execute error: %s" % expr.get_error_text())
 
@@ -283,18 +294,6 @@ func _cmd_duplicate_node(params: Dictionary):
 	var dup: Node = node.duplicate()
 	node.get_parent().add_child(dup)
 	return {"path": _rel_path(dup)}
-
-func _cmd_get_project_setting(params: Dictionary):
-	var key := String(params.get("key", ""))
-	if not ProjectSettings.has_setting(key):
-		return _fail("setting not found: %s" % key)
-	return {"value": var_to_str(ProjectSettings.get_setting(key))}
-
-func _cmd_set_project_setting(params: Dictionary):
-	var key := String(params.get("key", ""))
-	var value_str := String(params.get("value", ""))
-	ProjectSettings.set_setting(key, str_to_var(value_str))
-	return {"ok": true}
 
 func _cmd_add_node_live(params: Dictionary):
 	var parent_path := String(params.get("parent_path", "."))

@@ -27,8 +27,6 @@ export const bridgeToolNames = new Set([
   'remove_node',
   'reparent_node',
   'duplicate_node',
-  'get_project_setting',
-  'set_project_setting',
   'add_node_live',
   'rename_node',
   'connect_signal',
@@ -55,7 +53,11 @@ export const bridgeToolDefinitions = [
     description:
       'Evaluate an arbitrary GDScript expression against a node in the live scene tree, running ' +
       'in the Godot editor, and return the result. Use this for anything the structured tools ' +
-      "don't cover. The expression runs with the target node as `self`." + VALUE_ENCODING_NOTE,
+      "don't cover. The expression runs with the target node as `self`, and also has direct " +
+      'access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, and (in-editor) ' +
+      'EditorInterface, e.g. "ProjectSettings.get_setting(\\"physics/2d/default_gravity\\")". ' +
+      'Note: Expression syntax cannot parse assignment statements or loops — for those, use a ' +
+      'structured tool.' + VALUE_ENCODING_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -153,27 +155,6 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: { ...NODE_PATH_PROPERTY },
       required: ['node_path'],
-    },
-  },
-  {
-    name: 'get_project_setting',
-    description: 'Read a live project setting by key (e.g. "physics/2d/default_gravity").' + VALUE_ENCODING_NOTE,
-    inputSchema: {
-      type: 'object',
-      properties: { key: { type: 'string', description: 'Project setting key' } },
-      required: ['key'],
-    },
-  },
-  {
-    name: 'set_project_setting',
-    description: 'Set a live project setting by key.' + VALUE_ENCODING_NOTE,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        key: { type: 'string', description: 'Project setting key' },
-        value: { type: 'string', description: 'New value, var_to_str()-encoded' },
-      },
-      required: ['key', 'value'],
     },
   },
   {
@@ -398,15 +379,6 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'duplicate_node':
       return textResult(await client.call('duplicate_node', {
         node_path: params.node_path,
-      }));
-    case 'get_project_setting':
-      return textResult(await client.call('get_project_setting', {
-        key: params.key,
-      }));
-    case 'set_project_setting':
-      return textResult(await client.call('set_project_setting', {
-        key: params.key,
-        value: params.value,
       }));
     case 'add_node_live':
       return textResult(await client.call('add_node_live', {
