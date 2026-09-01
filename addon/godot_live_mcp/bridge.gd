@@ -448,6 +448,19 @@ func _cmd_clear_editor_selection(_params: Dictionary):
 	EditorInterface.get_selection().clear()
 	return {"ok": true}
 
+func _cmd_save_scene_live(params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("save_scene_live is only available inside the editor")
+	var path := String(params.get("path", ""))
+	var err: int
+	if path == "":
+		err = EditorInterface.save_scene()
+	else:
+		err = EditorInterface.save_scene_as(path)
+	if err != OK:
+		return _fail("save failed with error code %d" % err)
+	return {"ok": true}
+
 const _SHAPE_2D_TYPES := [
 	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D", "SegmentShape2D",
 	"SeparationRayShape2D", "ConvexPolygonShape2D", "ConcavePolygonShape2D",

@@ -235,6 +235,20 @@ with no distinguishing log line, making a real cross-project setup issue
 (env var not reaching an app-launcher-spawned Godot process due to systemd
 user-session timing) hard to diagnose from the Output panel alone.
 
+**Second gap found via the same real session**: every bridge edit is
+in-memory only in the running editor — nothing persists until the scene is
+saved, and closing/reloading the editor silently discards it all. godot-mcp's
+inherited `save_scene` tool doesn't help: it resaves a scene *file* through a
+headless CLI subprocess and has no visibility into the live editor's memory,
+so calling it wouldn't persist bridge changes at all — and worse, the name
+collision could make an agent believe it had saved when it hadn't. Added
+`save_scene_live(path?)`, wrapping `EditorInterface.save_scene()`/
+`save_scene_as()`, with the disambiguating name matching the
+`add_node_live` precedent. This is the one case where a single-eval-call
+op got a dedicated tool anyway despite otherwise clearing the "redundant"
+bar — justified by how safety-critical and easy to silently get wrong it
+is, not by round-trip cost.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that
