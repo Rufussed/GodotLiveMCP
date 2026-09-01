@@ -2,3 +2,8 @@ node_modules/
 build/
 *.log
 .DS_Store
+
+# Godot editor cache/import artifacts
+test_project/.godot/
+test_project/*.import
+test_project/export_presets.cfg
