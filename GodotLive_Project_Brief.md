@@ -272,20 +272,35 @@ they're still single `eval_expression` calls with no dedicated tool needed
 — the earlier screening was right about those, just wrong to lump
 stylebox overrides in with them without testing.
 
-### 3. (Later) A companion Skill / CLAUDE.md
+### 3. A companion Skill / CLAUDE.md (started 2026-09-01)
 
-Once the server is working end to end, write a `CLAUDE.md` / skill file that
-teaches an agent working in this repo:
+Trigger for starting this: a real external session (a Claude Code instance
+in `test-godot-mcp`, not our own testing) built a working start-button UI
+end to end, hit a Godot "reload from disk?" prompt partway through because
+bridge edits are memory-only and nothing had told it to save at
+checkpoints — a concrete usage pattern to write guidance from, not a
+speculative one.
 
-- When to prefer a structured tool vs. `eval_expression`
-- Project-specific scene/node conventions as they get established
-- A lightweight self-improvement rule: after any request that required falling
-  back to `eval_expression` for something structured tools don't cover, if the
-  pattern looks likely to recur (not a one-off), suggest to the user that it be
-  promoted into a dedicated tool. Do not ask this after every single prompt —
-  only when a repeatable gap is actually observed.
+Lives at [`addon/godot_live_mcp/CLAUDE.md.template`](../addon/godot_live_mcp/CLAUDE.md.template)
+— copied into each Godot project's root as `CLAUDE.md` (step 5 of the
+addon README's install instructions), not into this repo's own root,
+since it needs to reach agents working in *target* Godot projects, not
+GodotLiveMCP itself. Currently covers:
 
-This is explicitly a later step. Do not build it before the server itself works.
+- When to call `save_scene_live` (checkpoints, not every call) and why
+  saving the scene doesn't prevent Godot's external-file-change reload
+  prompt when a script file was also written directly (different Godot
+  code path: file-watch vs. in-memory scene state)
+- When to prefer a structured tool vs. `eval_expression`, and which
+  singletons `eval_expression` can already reach
+- The self-improvement rule: after any request that required falling
+  back to `eval_expression` for something structured tools don't cover, if
+  the pattern looks likely to recur (not a one-off), suggest to the user
+  that it be promoted into a dedicated tool. Do not ask this after every
+  single prompt — only when a repeatable gap is actually observed.
+
+Project-specific scene/node conventions were deferred — none have emerged
+yet across the two test projects to document.
 
 ## Suggested build order
 
