@@ -119,6 +119,18 @@ own parser can tell you; a plain file tool can't replicate it.
 4 doesn't expose the Output panel's contents through a public GDScript API
 without a C++-level hook, so building it now would be flaky/half-working.
 
+**v1.3** (Physics-tools slice): `setup_collision(node_path, shape_type,
+shape_params)`, `get_collision_info(node_path)`, `set_physics_layers`/
+`get_physics_layers(node_path, layers)` (as human layer numbers 1-32, not
+raw bitmasks). Pro's `setup_physics_body` and `add_raycast` were considered
+and dropped as redundant with the existing generic `set_property` /
+`add_node_live` — those need no dedicated wrapper. `setup_collision` earns
+its place because it's a multi-step operation (instantiate a Shape
+*resource*, not just a node, and assign it) that generic tools can't do in
+one call; `get_collision_info` earns its place because a shape resource's
+own properties (radius, size, ...) don't survive `var_to_str()` usefully
+when read back through `get_node_properties`.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that

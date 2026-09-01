@@ -424,6 +424,109 @@ func _cmd_clear_editor_selection(_params: Dictionary):
 	EditorInterface.get_selection().clear()
 	return {"ok": true}
 
+const _SHAPE_2D_TYPES := [
+	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D", "SegmentShape2D",
+	"SeparationRayShape2D", "ConvexPolygonShape2D", "ConcavePolygonShape2D",
+]
+const _SHAPE_3D_TYPES := [
+	"BoxShape3D", "SphereShape3D", "CapsuleShape3D", "CylinderShape3D",
+	"SeparationRayShape3D", "ConvexPolygonShape3D", "ConcavePolygonShape3D", "WorldBoundaryShape3D",
+]
+
+func _cmd_setup_collision(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var shape_type := String(params.get("shape_type", ""))
+	var shape_params: Dictionary = params.get("shape_params", {})
+	var parent := _resolve_node(node_path)
+	if parent == null:
+		return _fail("node not found: %s" % node_path)
+
+	var collision_node_type := ""
+	if shape_type in _SHAPE_2D_TYPES:
+		collision_node_type = "CollisionShape2D"
+	elif shape_type in _SHAPE_3D_TYPES:
+		collision_node_type = "CollisionShape3D"
+	else:
+		return _fail("unknown or unsupported shape_type: %s" % shape_type)
+
+	if not (parent is CollisionObject2D or parent is CollisionObject3D):
+		return _fail("node is not a CollisionObject2D/3D (e.g. Area2D, StaticBody2D, RigidBody3D): %s" % node_path)
+
+	var shape: Resource = ClassDB.instantiate(shape_type)
+	for prop_name in shape_params:
+		shape.set(String(prop_name), str_to_var(String(shape_params[prop_name])))
+
+	var collision_node: Node = ClassDB.instantiate(collision_node_type)
+	collision_node.shape = shape
+	parent.add_child(collision_node)
+	var root := _get_scene_root()
+	if root:
+		collision_node.owner = root
+
+	return {"path": _rel_path(collision_node)}
+
+func _cmd_get_collision_info(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is CollisionShape2D or node is CollisionShape3D):
+		return _fail("node is not a CollisionShape2D/3D: %s" % node_path)
+	if node.shape == null:
+		return {"shape_type": null, "properties": {}}
+
+	var shape: Resource = node.shape
+	var props := {}
+	for prop in shape.get_property_list():
+		if prop.usage & PROPERTY_USAGE_EDITOR == 0:
+			continue
+		props[prop.name] = var_to_str(shape.get(prop.name))
+	return {"shape_type": shape.get_class(), "properties": props}
+
+func _layers_to_bitmask(layers: Array) -> int:
+	var mask := 0
+	for layer in layers:
+		var n := int(layer)
+		if n >= 1 and n <= 32:
+			mask |= (1 << (n - 1))
+	return mask
+
+func _bitmask_to_layers(mask: int) -> Array:
+	var layers := []
+	for i in range(1, 33):
+		if mask & (1 << (i - 1)) != 0:
+			layers.append(i)
+	return layers
+
+func _cmd_set_physics_layers(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not ("collision_layer" in node):
+		return _fail("node has no collision_layer/collision_mask (not a CollisionObject2D/3D or similar): %s" % node_path)
+
+	if params.has("layers"):
+		node.collision_layer = _layers_to_bitmask(params["layers"])
+	if params.has("mask"):
+		node.collision_mask = _layers_to_bitmask(params["mask"])
+	return {
+		"layers": _bitmask_to_layers(node.collision_layer),
+		"mask": _bitmask_to_layers(node.collision_mask),
+	}
+
+func _cmd_get_physics_layers(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not ("collision_layer" in node):
+		return _fail("node has no collision_layer/collision_mask (not a CollisionObject2D/3D or similar): %s" % node_path)
+	return {
+		"layers": _bitmask_to_layers(node.collision_layer),
+		"mask": _bitmask_to_layers(node.collision_mask),
+	}
+
 # ---- Token / port setup ----
 
 func _load_or_create_token() -> String:
