@@ -645,6 +645,28 @@ func _cmd_set_physics_material(params: Dictionary):
 	node.set("physics_material_override", mat)
 	return {"ok": true}
 
+func _cmd_set_theme_stylebox_override(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var override_name := String(params.get("override_name", ""))
+	var style_type := String(params.get("style_type", "StyleBoxFlat"))
+	var style_params: Dictionary = params.get("style_params", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is Control):
+		return _fail("node is not a Control: %s" % node_path)
+	if override_name == "":
+		return _fail("override_name is required")
+	if not ClassDB.class_exists(style_type) or not ClassDB.is_parent_class(style_type, "StyleBox"):
+		return _fail("not a StyleBox subclass: %s" % style_type)
+	if not ClassDB.can_instantiate(style_type):
+		return _fail("cannot instantiate style type: %s" % style_type)
+
+	var stylebox: StyleBox = ClassDB.instantiate(style_type)
+	_apply_properties(stylebox, style_params)
+	node.add_theme_stylebox_override(override_name, stylebox)
+	return {"ok": true}
+
 const _TRACK_TYPES := {
 	"value": Animation.TYPE_VALUE,
 	"position_3d": Animation.TYPE_POSITION_3D,

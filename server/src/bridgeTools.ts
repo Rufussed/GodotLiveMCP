@@ -58,6 +58,7 @@ export const bridgeToolNames = new Set([
   'get_particle_info',
   'save_scene_live',
   'set_physics_material',
+  'set_theme_stylebox_override',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -580,6 +581,28 @@ export const bridgeToolDefinitions = [
       required: ['node_path', 'material_params'],
     },
   },
+  {
+    name: 'set_theme_stylebox_override',
+    description:
+      'Set a live Control\'s per-instance theme stylebox override (e.g. "normal"/"hover"/"pressed" on a ' +
+      'Button, or "panel" on a Panel), creating a new StyleBox resource (default "StyleBoxFlat") with the ' +
+      'given properties. For a color/constant/font-size override instead, use eval_expression\'s ' +
+      'add_theme_color_override/add_theme_constant_override/add_theme_font_size_override — those take plain ' +
+      'values, not a resource, and are single method calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        override_name: { type: 'string', description: 'Theme override slot name, e.g. "normal", "panel"' },
+        style_type: { type: 'string', description: 'StyleBox subclass to instantiate (default "StyleBoxFlat")' },
+        style_params: {
+          type: 'object',
+          description: 'Properties to set on the StyleBox, var_to_str()-encoded, e.g. {"bg_color": "Color(0.2, 0.2, 0.2, 1)", "corner_radius_top_left": "8"}',
+        },
+      },
+      required: ['node_path', 'override_name'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -793,6 +816,13 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('set_physics_material', {
         node_path: params.node_path ?? '.',
         material_params: params.material_params ?? {},
+      }));
+    case 'set_theme_stylebox_override':
+      return textResult(await client.call('set_theme_stylebox_override', {
+        node_path: params.node_path ?? '.',
+        override_name: params.override_name,
+        style_type: params.style_type ?? 'StyleBoxFlat',
+        style_params: params.style_params ?? {},
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
