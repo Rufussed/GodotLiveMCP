@@ -1,0 +1,46 @@
+# Working with GodotLiveMCP in this project
+
+This project has the GodotLiveMCP bridge addon enabled — the Godot editor
+is live and reachable through MCP tools while it's open. A few things that
+make this work well, learned from real use:
+
+## Save at checkpoints, not on every call
+
+Every `eval_expression`/`set_property`/`add_node_live`/etc. call only
+changes the running editor's **in-memory** scene. Nothing reaches disk
+until `save_scene_live` is called (or the user saves manually). Closing or
+reloading the editor without saving silently discards all of it.
+
+- Call `save_scene_live` after finishing each meaningful step of a task —
+  not after every trivial property tweak (wasteful, and can itself trigger
+  Godot's file-watcher).
+- If a step also involves writing or editing a `.gd` script file directly
+  (normal Read/Write/Edit — that's correct, scripts are files, not bridge
+  state), be aware Godot may prompt "reload from disk?" if it detects that
+  external file change while the scene itself has unsaved bridge edits.
+  Saving the scene doesn't prevent that prompt (it's a different Godot
+  code path — external file-watch, not in-memory scene state) but keeps
+  the *scene* changes safe regardless of how the user answers it.
+
+## eval_expression vs. a structured tool
+
+- Prefer a structured tool when one exists for the operation — it's
+  schema-validated and usually cheaper in round trips than hand-writing
+  GDScript.
+- Use `eval_expression` for one-offs, reads, or anything reachable as a
+  single method call (no assignment, no loop needed) — GDScript's
+  `Expression` class can't parse assignment statements or run loops, so
+  multi-step or looping operations need a structured tool, not eval.
+- `eval_expression` has direct access to `ProjectSettings`, `ClassDB`,
+  `Engine`, `Input`, `OS`, `Time`, `Performance`, `AudioServer`, and
+  (in-editor) `EditorInterface` as bare identifiers — no need to look up a
+  dedicated tool for anything reachable through those singletons in one
+  call, e.g. `ProjectSettings.get_setting("physics/2d/default_gravity")`.
+
+## Self-improvement rule
+
+If a request required falling back to `eval_expression` for something the
+structured tools don't cover, and the pattern looks likely to recur (not a
+one-off), say so and suggest promoting it into a dedicated tool in
+GodotLiveMCP — don't build it silently into this project, and don't ask
+after every single prompt, only when a repeatable gap is actually observed.

@@ -17,7 +17,18 @@ live eval, scene tree inspection, node/property editing.
 4. The bridge generates an auth token on first run and stores it at
    `user://godot_live_mcp_token.txt` (its Output panel line shows the
    globalized path). Read that file and set it as `GODOT_LIVE_MCP_TOKEN` in
-   the MCP server's environment.
+   the MCP server's environment — or set `GODOT_LIVE_MCP_TOKEN` in your own
+   environment *before* launching Godot, so every project uses the same
+   fixed token and you never have to re-read a per-project generated one.
+   The Output panel tells you which source it used
+   (`_load_or_create_token()` logs it either way).
+5. Copy [`CLAUDE.md.template`](CLAUDE.md.template) to your Godot project's
+   root as `CLAUDE.md` (or merge it into an existing one). It teaches an
+   agent working in that project when to call `save_scene_live`, when to
+   prefer a structured tool vs. `eval_expression`, and what singletons
+   `eval_expression` can already reach — without it, bridge edits can be
+   silently lost on editor reload since nothing warns the agent that
+   they're memory-only.
 
 ## Configuration
 
