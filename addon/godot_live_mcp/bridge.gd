@@ -279,6 +279,134 @@ func _cmd_set_project_setting(params: Dictionary):
 	ProjectSettings.set_setting(key, str_to_var(value_str))
 	return {"ok": true}
 
+func _cmd_add_node_live(params: Dictionary):
+	var parent_path := String(params.get("parent_path", "."))
+	var node_type := String(params.get("node_type", ""))
+	var node_name := String(params.get("node_name", ""))
+	var parent := _resolve_node(parent_path)
+	if parent == null:
+		return _fail("parent not found: %s" % parent_path)
+	if not ClassDB.class_exists(node_type) or not ClassDB.can_instantiate(node_type):
+		return _fail("cannot instantiate node type: %s" % node_type)
+
+	var new_node: Node = ClassDB.instantiate(node_type)
+	if node_name != "":
+		new_node.name = node_name
+	parent.add_child(new_node)
+	var root := _get_scene_root()
+	if root:
+		new_node.owner = root
+	return {"path": _rel_path(new_node)}
+
+func _cmd_rename_node(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var new_name := String(params.get("new_name", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if new_name == "":
+		return _fail("new_name is required")
+	node.name = new_name
+	return {"path": _rel_path(node)}
+
+func _cmd_connect_signal(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var signal_name := String(params.get("signal_name", ""))
+	var target_node_path := String(params.get("target_node_path", ""))
+	var method_name := String(params.get("method_name", ""))
+	var node := _resolve_node(node_path)
+	var target := _resolve_node(target_node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if target == null:
+		return _fail("target node not found: %s" % target_node_path)
+	if not node.has_signal(signal_name):
+		return _fail("node has no signal: %s" % signal_name)
+	if not target.has_method(method_name):
+		return _fail("target node has no method: %s" % method_name)
+	var callable := Callable(target, method_name)
+	if node.is_connected(signal_name, callable):
+		return _fail("already connected")
+	var err := node.connect(signal_name, callable)
+	if err != OK:
+		return _fail("connect failed with error code %d" % err)
+	return {"ok": true}
+
+func _cmd_disconnect_signal(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var signal_name := String(params.get("signal_name", ""))
+	var target_node_path := String(params.get("target_node_path", ""))
+	var method_name := String(params.get("method_name", ""))
+	var node := _resolve_node(node_path)
+	var target := _resolve_node(target_node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if target == null:
+		return _fail("target node not found: %s" % target_node_path)
+	var callable := Callable(target, method_name)
+	if not node.is_connected(signal_name, callable):
+		return _fail("not connected")
+	node.disconnect(signal_name, callable)
+	return {"ok": true}
+
+func _cmd_get_node_groups(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	var groups := []
+	for g in node.get_groups():
+		var g_str := String(g)
+		if not g_str.begins_with("_"):
+			groups.append(g_str)
+	return {"groups": groups}
+
+func _cmd_set_node_groups(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	var new_groups: Array = params.get("groups", [])
+	for g in node.get_groups():
+		var g_str := String(g)
+		if not g_str.begins_with("_"):
+			node.remove_from_group(g_str)
+	for g in new_groups:
+		node.add_to_group(String(g))
+	return {"ok": true}
+
+func _cmd_get_editor_selection(_params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("editor selection is only available inside the editor")
+	var selection := EditorInterface.get_selection()
+	var paths := []
+	for node in selection.get_selected_nodes():
+		paths.append(_rel_path(node))
+	return {"selected": paths}
+
+func _cmd_select_nodes(params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("editor selection is only available inside the editor")
+	var node_paths: Array = params.get("node_paths", [])
+	var nodes := []
+	for p in node_paths:
+		var node := _resolve_node(String(p))
+		if node == null:
+			return _fail("node not found: %s" % String(p))
+		nodes.append(node)
+
+	var selection := EditorInterface.get_selection()
+	selection.clear()
+	for node in nodes:
+		selection.add_node(node)
+	return {"ok": true}
+
+func _cmd_clear_editor_selection(_params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("editor selection is only available inside the editor")
+	EditorInterface.get_selection().clear()
+	return {"ok": true}
+
 # ---- Token / port setup ----
 
 func _load_or_create_token() -> String:
