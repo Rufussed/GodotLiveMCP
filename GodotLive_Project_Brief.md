@@ -160,6 +160,36 @@ neither raw eval nor the generic property tools can do in one call.
 `setup_camera_3d`, `setup_lighting`, `add_gridmap` dropped as now covered by
 `add_node_live` + `set_properties`.
 
+**v1.5** (Animation + Audio, applying the bar at design time): before
+building Pro's Audio-tools category, checked for the same hidden gap as
+`ProjectSettings` — confirmed `AudioServer` (bus volume/mute/solo/effects,
+all single method calls) also wasn't reachable from `eval_expression`.
+Added it to the singleton list, same fix as before. That left only:
+`add_audio_bus(bus_name)` (bundles `AudioServer.add_bus()` +
+`set_bus_name()` with the computed index — needs the result of the first
+call to do the second, and `eval_expression` has no state across calls, so
+this is genuinely 2 round trips otherwise), `add_audio_bus_effect(bus_name,
+effect_type, effect_params)` (resource creation + loop, like
+`setup_collision`), `get_audio_bus_layout()` (loop over every bus).
+`add_audio_player`, `set_audio_bus`, `get_audio_info` dropped: the first is
+covered by `add_node_live`/`set_properties`, the second is now a single
+`eval_expression` call now that `AudioServer` is reachable, the third was
+redundant with `get_node_properties`.
+
+Animation tools: `create_animation(node_path, anim_name, length,
+library_name)` (creates an `Animation` resource + `AnimationLibrary`
+bookkeeping — assignment + resource creation), `add_animation_track(...)`
+(returns `track_index`, needed because a later `track_insert_key` call has
+to reference it and calls can't share state), `get_animation_info(...)`
+(loops every track and every keyframe). `list_animations`,
+`set_animation_keyframe`, `remove_animation` dropped: each is a single
+method-chain call once the animation/track is already known
+(`get_animation_list()`,
+`get_animation(name).track_insert_key(idx, time, value)`,
+`get_animation_library(lib).remove_animation(name)`) — no loop, no
+assignment, no cross-call state needed, so a raw `eval_expression` call is
+strictly cheaper than a dedicated tool for these.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that

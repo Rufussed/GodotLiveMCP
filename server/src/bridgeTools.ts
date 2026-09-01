@@ -45,6 +45,12 @@ export const bridgeToolNames = new Set([
   'add_mesh_instance',
   'setup_environment',
   'set_material_3d',
+  'create_animation',
+  'add_animation_track',
+  'get_animation_info',
+  'add_audio_bus',
+  'add_audio_bus_effect',
+  'get_audio_bus_layout',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -58,8 +64,8 @@ export const bridgeToolDefinitions = [
       'Evaluate an arbitrary GDScript expression against a node in the live scene tree, running ' +
       'in the Godot editor, and return the result. Use this for anything the structured tools ' +
       "don't cover. The expression runs with the target node as `self`, and also has direct " +
-      'access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, and (in-editor) ' +
-      'EditorInterface, e.g. "ProjectSettings.get_setting(\\"physics/2d/default_gravity\\")". ' +
+      'access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, and ' +
+      '(in-editor) EditorInterface, e.g. "AudioServer.set_bus_volume_db(AudioServer.get_bus_index(\\"Music\\"), -6.0)". ' +
       'Note: Expression syntax cannot parse assignment statements or loops — for those, use a ' +
       'structured tool.' + VALUE_ENCODING_NOTE,
     inputSchema: {
@@ -390,6 +396,81 @@ export const bridgeToolDefinitions = [
       required: ['node_path', 'material_params'],
     },
   },
+  {
+    name: 'create_animation',
+    description: 'Create a new Animation on a live AnimationPlayer (in the given animation library, default "").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        anim_name: { type: 'string', description: 'Name for the new animation' },
+        length: { type: 'number', description: 'Animation length in seconds (default 1.0)' },
+        library_name: { type: 'string', description: 'Animation library name (default "")' },
+      },
+      required: ['node_path', 'anim_name'],
+    },
+  },
+  {
+    name: 'add_animation_track',
+    description:
+      'Add a track to an existing animation and return its track_index (needed for follow-up ' +
+      'eval_expression calls like get_animation(name).track_insert_key(track_index, time, value)).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        anim_name: { type: 'string', description: 'Name of the existing animation' },
+        library_name: { type: 'string', description: 'Animation library name (default "")' },
+        track_type: {
+          type: 'string',
+          enum: ['value', 'position_3d', 'rotation_3d', 'scale_3d', 'blend_shape', 'method', 'bezier', 'audio', 'animation'],
+          description: 'Track type',
+        },
+        track_node_path: { type: 'string', description: 'NodePath the track targets, e.g. "Sprite2D:modulate"' },
+      },
+      required: ['node_path', 'anim_name', 'track_type', 'track_node_path'],
+    },
+  },
+  {
+    name: 'get_animation_info',
+    description: 'Get an animation\'s length and all tracks with every keyframe (time + value).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        anim_name: { type: 'string', description: 'Name of the animation' },
+        library_name: { type: 'string', description: 'Animation library name (default "")' },
+      },
+      required: ['node_path', 'anim_name'],
+    },
+  },
+  {
+    name: 'add_audio_bus',
+    description: 'Add a new audio bus (appended at the end) and name it. Returns its bus_index.',
+    inputSchema: {
+      type: 'object',
+      properties: { bus_name: { type: 'string', description: 'Name for the new bus' } },
+      required: ['bus_name'],
+    },
+  },
+  {
+    name: 'add_audio_bus_effect',
+    description: 'Instantiate an AudioEffect (e.g. "AudioEffectReverb") with the given properties and add it to an existing bus.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bus_name: { type: 'string', description: 'Name of the existing bus' },
+        effect_type: { type: 'string', description: 'AudioEffect subclass to instantiate, e.g. "AudioEffectReverb"' },
+        effect_params: { type: 'object', description: 'Properties to set on the effect, var_to_str()-encoded' },
+      },
+      required: ['bus_name', 'effect_type'],
+    },
+  },
+  {
+    name: 'get_audio_bus_layout',
+    description: 'List every audio bus with its volume/mute/solo/bypass/send settings and attached effect types.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -535,6 +616,39 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         node_path: params.node_path ?? '.',
         material_params: params.material_params ?? {},
       }));
+    case 'create_animation':
+      return textResult(await client.call('create_animation', {
+        node_path: params.node_path ?? '.',
+        anim_name: params.anim_name,
+        length: params.length ?? 1.0,
+        library_name: params.library_name ?? '',
+      }));
+    case 'add_animation_track':
+      return textResult(await client.call('add_animation_track', {
+        node_path: params.node_path ?? '.',
+        anim_name: params.anim_name,
+        library_name: params.library_name ?? '',
+        track_type: params.track_type,
+        track_node_path: params.track_node_path,
+      }));
+    case 'get_animation_info':
+      return textResult(await client.call('get_animation_info', {
+        node_path: params.node_path ?? '.',
+        anim_name: params.anim_name,
+        library_name: params.library_name ?? '',
+      }));
+    case 'add_audio_bus':
+      return textResult(await client.call('add_audio_bus', {
+        bus_name: params.bus_name,
+      }));
+    case 'add_audio_bus_effect':
+      return textResult(await client.call('add_audio_bus_effect', {
+        bus_name: params.bus_name,
+        effect_type: params.effect_type,
+        effect_params: params.effect_params ?? {},
+      }));
+    case 'get_audio_bus_layout':
+      return textResult(await client.call('get_audio_bus_layout', {}));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }
