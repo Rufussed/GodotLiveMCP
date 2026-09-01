@@ -22,6 +22,7 @@ export const bridgeToolNames = new Set([
   'list_scene_tree',
   'get_node_properties',
   'set_property',
+  'set_properties',
   'set_transform',
   'attach_script',
   'remove_node',
@@ -41,6 +42,9 @@ export const bridgeToolNames = new Set([
   'get_collision_info',
   'set_physics_layers',
   'get_physics_layers',
+  'add_mesh_instance',
+  'setup_environment',
+  'set_material_3d',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -99,6 +103,23 @@ export const bridgeToolDefinitions = [
         value: { type: 'string', description: 'New value, var_to_str()-encoded' },
       },
       required: ['property_name', 'value'],
+    },
+  },
+  {
+    name: 'set_properties',
+    description:
+      'Set multiple properties on a live node in one call. Prefer this over repeated set_property ' +
+      'calls whenever configuring more than one property on the same node.' + VALUE_ENCODING_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        properties: {
+          type: 'object',
+          description: 'Map of property_name -> var_to_str()-encoded value',
+        },
+      },
+      required: ['properties'],
     },
   },
   {
@@ -323,6 +344,52 @@ export const bridgeToolDefinitions = [
       required: ['node_path'],
     },
   },
+  {
+    name: 'add_mesh_instance',
+    description:
+      'Instantiate a primitive Mesh (e.g. "BoxMesh", "SphereMesh", "CapsuleMesh", "PlaneMesh") with the ' +
+      'given properties, wrap it in a new MeshInstance3D, and add that as a live child.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_path: { type: 'string', description: 'Path to the parent node, relative to the scene root, or "." for the root' },
+        mesh_type: { type: 'string', description: 'Mesh subclass to instantiate, e.g. "BoxMesh"' },
+        mesh_params: { type: 'object', description: 'Properties to set on the mesh, var_to_str()-encoded, e.g. {"size": "Vector3(1, 1, 1)"}' },
+        node_name: { type: 'string', description: 'Optional name for the new MeshInstance3D' },
+      },
+      required: ['parent_path', 'mesh_type'],
+    },
+  },
+  {
+    name: 'setup_environment',
+    description: 'Configure a live WorldEnvironment node\'s Environment resource (creating one if it has none).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        environment_params: {
+          type: 'object',
+          description: 'Properties to set on the Environment resource, var_to_str()-encoded, e.g. {"background_mode": "2", "ambient_light_color": "Color(0.2, 0.2, 0.3, 1)"}',
+        },
+      },
+      required: ['node_path', 'environment_params'],
+    },
+  },
+  {
+    name: 'set_material_3d',
+    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        material_params: {
+          type: 'object',
+          description: 'Properties to set on the StandardMaterial3D, var_to_str()-encoded, e.g. {"albedo_color": "Color(1, 0, 0, 1)"}',
+        },
+      },
+      required: ['node_path', 'material_params'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -354,6 +421,11 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         node_path: params.node_path ?? '.',
         property_name: params.property_name,
         value: params.value,
+      }));
+    case 'set_properties':
+      return textResult(await client.call('set_properties', {
+        node_path: params.node_path ?? '.',
+        properties: params.properties ?? {},
       }));
     case 'set_transform':
       return textResult(await client.call('set_transform', {
@@ -445,6 +517,23 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'get_physics_layers':
       return textResult(await client.call('get_physics_layers', {
         node_path: params.node_path ?? '.',
+      }));
+    case 'add_mesh_instance':
+      return textResult(await client.call('add_mesh_instance', {
+        parent_path: params.parent_path ?? '.',
+        mesh_type: params.mesh_type,
+        mesh_params: params.mesh_params ?? {},
+        node_name: params.node_name ?? '',
+      }));
+    case 'setup_environment':
+      return textResult(await client.call('setup_environment', {
+        node_path: params.node_path ?? '.',
+        environment_params: params.environment_params ?? {},
+      }));
+    case 'set_material_3d':
+      return textResult(await client.call('set_material_3d', {
+        node_path: params.node_path ?? '.',
+        material_params: params.material_params ?? {},
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);

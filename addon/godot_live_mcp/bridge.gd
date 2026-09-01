@@ -142,6 +142,10 @@ func _rel_path(node: Node) -> String:
 		return "."
 	return String(root.get_path_to(node))
 
+func _apply_properties(obj: Object, props: Dictionary) -> void:
+	for prop_name in props:
+		obj.set(String(prop_name), str_to_var(String(props[prop_name])))
+
 # ---- Commands ----
 
 func _cmd_ping(_params: Dictionary):
@@ -216,6 +220,20 @@ func _cmd_set_property(params: Dictionary):
 	var value = str_to_var(value_str)
 	node.set(prop_name, value)
 	return {"value": var_to_str(node.get(prop_name))}
+
+func _cmd_set_properties(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var properties: Dictionary = params.get("properties", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	var result := {}
+	for prop_name in properties:
+		var name_str := String(prop_name)
+		node.set(name_str, str_to_var(String(properties[prop_name])))
+		result[name_str] = var_to_str(node.get(name_str))
+	return result
 
 func _cmd_set_transform(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -452,8 +470,7 @@ func _cmd_setup_collision(params: Dictionary):
 		return _fail("node is not a CollisionObject2D/3D (e.g. Area2D, StaticBody2D, RigidBody3D): %s" % node_path)
 
 	var shape: Resource = ClassDB.instantiate(shape_type)
-	for prop_name in shape_params:
-		shape.set(String(prop_name), str_to_var(String(shape_params[prop_name])))
+	_apply_properties(shape, shape_params)
 
 	var collision_node: Node = ClassDB.instantiate(collision_node_type)
 	collision_node.shape = shape
@@ -525,6 +542,69 @@ func _cmd_get_physics_layers(params: Dictionary):
 		"layers": _bitmask_to_layers(node.collision_layer),
 		"mask": _bitmask_to_layers(node.collision_mask),
 	}
+
+func _cmd_add_mesh_instance(params: Dictionary):
+	var parent_path := String(params.get("parent_path", "."))
+	var mesh_type := String(params.get("mesh_type", ""))
+	var mesh_params: Dictionary = params.get("mesh_params", {})
+	var node_name := String(params.get("node_name", ""))
+	var parent := _resolve_node(parent_path)
+	if parent == null:
+		return _fail("parent not found: %s" % parent_path)
+	if not ClassDB.class_exists(mesh_type) or not ClassDB.is_parent_class(mesh_type, "Mesh"):
+		return _fail("not a Mesh subclass: %s" % mesh_type)
+	if not ClassDB.can_instantiate(mesh_type):
+		return _fail("cannot instantiate mesh type: %s" % mesh_type)
+
+	var mesh: Mesh = ClassDB.instantiate(mesh_type)
+	_apply_properties(mesh, mesh_params)
+
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.mesh = mesh
+	if node_name != "":
+		mesh_instance.name = node_name
+	parent.add_child(mesh_instance)
+	var root := _get_scene_root()
+	if root:
+		mesh_instance.owner = root
+
+	return {"path": _rel_path(mesh_instance)}
+
+func _cmd_setup_environment(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var environment_params: Dictionary = params.get("environment_params", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is WorldEnvironment):
+		return _fail("node is not a WorldEnvironment: %s" % node_path)
+
+	var env: Environment = node.environment
+	if env == null:
+		env = Environment.new()
+	_apply_properties(env, environment_params)
+	node.environment = env
+
+	return {"ok": true}
+
+func _cmd_set_material_3d(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var material_params: Dictionary = params.get("material_params", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is GeometryInstance3D):
+		return _fail("node is not a GeometryInstance3D (e.g. MeshInstance3D): %s" % node_path)
+
+	var mat: StandardMaterial3D
+	if node.material_override is StandardMaterial3D:
+		mat = node.material_override
+	else:
+		mat = StandardMaterial3D.new()
+	_apply_properties(mat, material_params)
+	node.material_override = mat
+
+	return {"ok": true}
 
 # ---- Token / port setup ----
 
