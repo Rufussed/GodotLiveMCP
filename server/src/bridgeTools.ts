@@ -21,6 +21,13 @@ const PROPERTY_VALIDATION_NOTE =
   ' Unknown property names fail loudly rather than silently no-oping, and the response includes a ' +
   'readback of every value actually applied — trust that over assuming success from ok:true alone.';
 
+const LOAD_PREFIX_NOTE =
+  ' A value of the form "load:res://path/to/file" is resolved via load() instead of var_to_str() ' +
+  'decoding — use this to assign an existing texture or other resource file, e.g. ' +
+  '{"albedo_texture": "load:res://icon.svg"}. Nested colon-path property names like ' +
+  '"material_override:albedo_texture" are NOT supported — resolve the underlying node/resource and ' +
+  'target the property directly instead.';
+
 export const bridgeToolNames = new Set([
   'eval_expression',
   'list_scene_tree',
@@ -112,7 +119,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_property',
-    description: 'Set an arbitrary property on a live node.' + VALUE_ENCODING_NOTE,
+    description: 'Set an arbitrary property on a live node.' + VALUE_ENCODING_NOTE + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -127,7 +134,7 @@ export const bridgeToolDefinitions = [
     name: 'set_properties',
     description:
       'Set multiple properties on a live node in one call. Prefer this over repeated set_property ' +
-      'calls whenever configuring more than one property on the same node.' + VALUE_ENCODING_NOTE,
+      'calls whenever configuring more than one property on the same node.' + VALUE_ENCODING_NOTE + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -310,7 +317,7 @@ export const bridgeToolDefinitions = [
     description:
       'Add a CollisionShape2D/3D child (with a new shape resource) to a live CollisionObject2D/3D ' +
       '(Area2D, StaticBody2D, RigidBody3D, ...). One call instead of instantiate-shape + set-props + ' +
-      'instantiate-collision-node + assign + add_child.' + PROPERTY_VALIDATION_NOTE,
+      'instantiate-collision-node + assign + add_child.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -366,7 +373,7 @@ export const bridgeToolDefinitions = [
     name: 'add_mesh_instance',
     description:
       'Instantiate a primitive Mesh (e.g. "BoxMesh", "SphereMesh", "CapsuleMesh", "PlaneMesh") with the ' +
-      'given properties, wrap it in a new MeshInstance3D, and add that as a live child.' + PROPERTY_VALIDATION_NOTE,
+      'given properties, wrap it in a new MeshInstance3D, and add that as a live child.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -380,7 +387,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'setup_environment',
-    description: 'Configure a live WorldEnvironment node\'s Environment resource (creating one if it has none).' + PROPERTY_VALIDATION_NOTE,
+    description: 'Configure a live WorldEnvironment node\'s Environment resource (creating one if it has none).' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -395,7 +402,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_material_3d',
-    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set.' + PROPERTY_VALIDATION_NOTE,
+    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -467,7 +474,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'add_audio_bus_effect',
-    description: 'Instantiate an AudioEffect (e.g. "AudioEffectReverb") with the given properties and add it to an existing bus.' + PROPERTY_VALIDATION_NOTE,
+    description: 'Instantiate an AudioEffect (e.g. "AudioEffectReverb") with the given properties and add it to an existing bus.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -510,7 +517,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_particle_material',
-    description: 'Configure a live GPUParticles2D/3D\'s process_material as a ParticleProcessMaterial, reusing one if already set.' + PROPERTY_VALIDATION_NOTE,
+    description: 'Configure a live GPUParticles2D/3D\'s process_material as a ParticleProcessMaterial, reusing one if already set.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -572,7 +579,7 @@ export const bridgeToolDefinitions = [
     name: 'set_physics_material',
     description:
       'Configure a live PhysicsBody2D/3D\'s (RigidBody3D, StaticBody2D, ...) physics_material_override ' +
-      '(bounce, friction, ...), creating one if it has none, reusing it if it already does.' + PROPERTY_VALIDATION_NOTE,
+      '(bounce, friction, ...), creating one if it has none, reusing it if it already does.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -592,7 +599,7 @@ export const bridgeToolDefinitions = [
       'Button, or "panel" on a Panel), creating a new StyleBox resource (default "StyleBoxFlat") with the ' +
       'given properties. For a color/constant/font-size override instead, use eval_expression\'s ' +
       'add_theme_color_override/add_theme_constant_override/add_theme_font_size_override — those take plain ' +
-      'values, not a resource, and are single method calls.' + PROPERTY_VALIDATION_NOTE,
+      'values, not a resource, and are single method calls.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
