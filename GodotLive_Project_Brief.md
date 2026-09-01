@@ -218,6 +218,23 @@ access — a fixed recipe some agent/user might want and another might not.
 That kind of thing belongs in the later Skill/CLAUDE.md layer (§3) as a
 documented pattern, not baked into the bridge as fixed values.
 
+**First real external bug report** (from an actual agent-driven session, not
+our own live tests): `reparent_node` had no cycle check.
+`node.get_parent().remove_child(node)` ran *before* `new_parent.add_child(node)`
+was attempted, so when an agent tried to reparent a mesh under a physics body
+that was itself already a child of that mesh, Godot's own `add_child()`
+correctly refused the cycle — but the node had already been ripped out of its
+old parent by then, leaving it orphaned mid-tree and triggering a cascade of
+"node not in scene tree" errors in the editor's Scene dock. Fixed by checking
+`node == new_parent` and `node.is_ancestor_of(new_parent)` *before* removing
+anything, plus a no-op short-circuit if the node's already under that parent.
+Also fixed the token-source ambiguity in the addon's own logging (see
+`_load_or_create_token()`): it printed a message on generating a *new* token,
+but silently reused both an env override and a cached per-project token file
+with no distinguishing log line, making a real cross-project setup issue
+(env var not reaching an app-launcher-spawned Godot process due to systemd
+user-session timing) hard to diagnose from the Output panel alone.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that
