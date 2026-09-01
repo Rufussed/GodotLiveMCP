@@ -29,6 +29,15 @@ export const bridgeToolNames = new Set([
   'duplicate_node',
   'get_project_setting',
   'set_project_setting',
+  'add_node_live',
+  'rename_node',
+  'connect_signal',
+  'disconnect_signal',
+  'get_node_groups',
+  'set_node_groups',
+  'get_editor_selection',
+  'select_nodes',
+  'clear_editor_selection',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -162,6 +171,104 @@ export const bridgeToolDefinitions = [
       required: ['key', 'value'],
     },
   },
+  {
+    name: 'add_node_live',
+    description:
+      'Instantiate a Godot class (e.g. "Sprite2D", "RigidBody2D") and add it as a live child of ' +
+      'parent_path. Distinct from godot-mcp\'s file-based add_node, which edits a .tscn on disk ' +
+      'rather than the live tree.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_path: { type: 'string', description: 'Path to the parent node, relative to the scene root, or "." for the root' },
+        node_type: { type: 'string', description: 'Godot class name to instantiate, e.g. "Sprite2D"' },
+        node_name: { type: 'string', description: 'Optional name for the new node' },
+      },
+      required: ['parent_path', 'node_type'],
+    },
+  },
+  {
+    name: 'rename_node',
+    description: 'Rename a live node.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        new_name: { type: 'string', description: 'New name for the node' },
+      },
+      required: ['node_path', 'new_name'],
+    },
+  },
+  {
+    name: 'connect_signal',
+    description: 'Connect a live node\'s signal to a method on another live node.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        signal_name: { type: 'string', description: 'Name of the signal on node_path, e.g. "pressed"' },
+        target_node_path: { type: 'string', description: 'Path to the node whose method should be called' },
+        method_name: { type: 'string', description: 'Name of the method on the target node' },
+      },
+      required: ['node_path', 'signal_name', 'target_node_path', 'method_name'],
+    },
+  },
+  {
+    name: 'disconnect_signal',
+    description: 'Disconnect a previously connected live signal.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        signal_name: { type: 'string', description: 'Name of the signal on node_path' },
+        target_node_path: { type: 'string', description: 'Path to the connected target node' },
+        method_name: { type: 'string', description: 'Name of the connected method' },
+      },
+      required: ['node_path', 'signal_name', 'target_node_path', 'method_name'],
+    },
+  },
+  {
+    name: 'get_node_groups',
+    description: 'Get the groups a live node belongs to (internal editor groups are filtered out).',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: [],
+    },
+  },
+  {
+    name: 'set_node_groups',
+    description: 'Replace a live node\'s group membership with the given list.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        groups: { type: 'array', items: { type: 'string' }, description: 'Full list of groups the node should belong to' },
+      },
+      required: ['groups'],
+    },
+  },
+  {
+    name: 'get_editor_selection',
+    description: 'Get the paths of nodes currently selected in the editor.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'select_nodes',
+    description: 'Select the given live nodes in the editor (replaces the current selection).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_paths: { type: 'array', items: { type: 'string' }, description: 'Paths of nodes to select' },
+      },
+      required: ['node_paths'],
+    },
+  },
+  {
+    name: 'clear_editor_selection',
+    description: 'Clear the editor\'s current node selection.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -228,6 +335,48 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         key: params.key,
         value: params.value,
       }));
+    case 'add_node_live':
+      return textResult(await client.call('add_node_live', {
+        parent_path: params.parent_path ?? '.',
+        node_type: params.node_type,
+        node_name: params.node_name ?? '',
+      }));
+    case 'rename_node':
+      return textResult(await client.call('rename_node', {
+        node_path: params.node_path ?? '.',
+        new_name: params.new_name,
+      }));
+    case 'connect_signal':
+      return textResult(await client.call('connect_signal', {
+        node_path: params.node_path ?? '.',
+        signal_name: params.signal_name,
+        target_node_path: params.target_node_path,
+        method_name: params.method_name,
+      }));
+    case 'disconnect_signal':
+      return textResult(await client.call('disconnect_signal', {
+        node_path: params.node_path ?? '.',
+        signal_name: params.signal_name,
+        target_node_path: params.target_node_path,
+        method_name: params.method_name,
+      }));
+    case 'get_node_groups':
+      return textResult(await client.call('get_node_groups', {
+        node_path: params.node_path ?? '.',
+      }));
+    case 'set_node_groups':
+      return textResult(await client.call('set_node_groups', {
+        node_path: params.node_path ?? '.',
+        groups: params.groups ?? [],
+      }));
+    case 'get_editor_selection':
+      return textResult(await client.call('get_editor_selection', {}));
+    case 'select_nodes':
+      return textResult(await client.call('select_nodes', {
+        node_paths: params.node_paths ?? [],
+      }));
+    case 'clear_editor_selection':
+      return textResult(await client.call('clear_editor_selection', {}));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }

@@ -29,15 +29,22 @@ and forth.
 - No existing Godot MCP server offers live REPL/eval against a running scene.
   This is the genuine gap and the main point of differentiation.
 
-<!--
-## Inspiration (deferred — not in scope for v1)
+## Inspiration
 
 For which API calls to expose as MCP tools, reference only Godot MCP Pro's
-publicly documented tool list (names/descriptions of what it offers) — never
-its source code. It is proprietary and not a legitimate base for this project
-(see above); using its docs for naming/coverage ideas is fine, reimplementing
-from or referencing its actual implementation is not.
--->
+publicly documented tool list (names/descriptions of what it offers, from its
+own README at github.com/youichi-uda/godot-mcp-pro) — never its source code.
+It is proprietary and not a legitimate base for this project (see above);
+using its docs for naming/coverage ideas is fine, reimplementing from or
+referencing its actual implementation is not.
+
+Its public list groups ~175 tools into 23 categories (Project, Scene, Node,
+Script, Editor, Input, Runtime, Animation, TileMap, Theme/UI, Profiling,
+Batch/Refactoring, Shader, Export, Resource, Physics, 3D Scene, Particle,
+Navigation, Audio, AnimationTree, State Machine, Blend Tree, Analysis,
+Testing/QA). v1 covers a slice of Node/Editor tools; later passes can pull
+further category names as needed — same rule applies each time: names and
+one-line descriptions only.
 
 ## Components to build
 
@@ -86,6 +93,20 @@ socket:
 - `get_node_properties(node_path)`, `list_scene_tree()` — read-back/inspection
 - `set_project_setting(key, value)` — project-wide settings (input maps,
   rendering, autoloads)
+
+**v1.1 batch** (Node-tools-category slice, names taken from Godot MCP Pro's
+public tool directory per the Inspiration section above):
+
+- `add_node_live(parent_path, node_type, node_name)` — instantiate a
+  ClassDB type and add it as a live child (distinct name from godot-mcp's
+  existing file-based `add_node`, which edits a .tscn on disk, not the live
+  tree)
+- `rename_node(node_path, new_name)`
+- `connect_signal(node_path, signal_name, target_node_path, method_name)`,
+  `disconnect_signal(...)` — live signal wiring
+- `get_node_groups(node_path)`, `set_node_groups(node_path, groups)`
+- `get_editor_selection()`, `select_nodes(node_paths)`,
+  `clear_editor_selection()` — read/drive the editor's own node selection
 
 ### 3. (Later) A companion Skill / CLAUDE.md
 

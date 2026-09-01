@@ -24,4 +24,4 @@ enabled=PackedStringArray("res://addons/godot_live_mcp/plugin.cfg")
 
 [physics]
 
-2d/default_gravity=1000.0
+2d/default_gravity=9800.0
