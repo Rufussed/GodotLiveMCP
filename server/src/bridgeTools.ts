@@ -57,6 +57,7 @@ export const bridgeToolNames = new Set([
   'set_particle_color_gradient',
   'get_particle_info',
   'save_scene_live',
+  'set_physics_material',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -562,6 +563,23 @@ export const bridgeToolDefinitions = [
       required: [],
     },
   },
+  {
+    name: 'set_physics_material',
+    description:
+      'Configure a live PhysicsBody2D/3D\'s (RigidBody3D, StaticBody2D, ...) physics_material_override ' +
+      '(bounce, friction, ...), creating one if it has none, reusing it if it already does.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        material_params: {
+          type: 'object',
+          description: 'Properties to set on the PhysicsMaterial, var_to_str()-encoded, e.g. {"bounce": "0.9", "friction": "0.5"}',
+        },
+      },
+      required: ['node_path', 'material_params'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -770,6 +788,11 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'save_scene_live':
       return textResult(await client.call('save_scene_live', {
         path: params.path ?? '',
+      }));
+    case 'set_physics_material':
+      return textResult(await client.call('set_physics_material', {
+        node_path: params.node_path ?? '.',
+        material_params: params.material_params ?? {},
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);

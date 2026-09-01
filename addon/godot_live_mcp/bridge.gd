@@ -626,6 +626,25 @@ func _cmd_set_material_3d(params: Dictionary):
 
 	return {"ok": true}
 
+func _cmd_set_physics_material(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var material_params: Dictionary = params.get("material_params", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is PhysicsBody2D or node is PhysicsBody3D):
+		return _fail("node is not a PhysicsBody2D/3D (e.g. RigidBody3D, StaticBody2D): %s" % node_path)
+
+	var mat: PhysicsMaterial
+	var current = node.get("physics_material_override")
+	if current is PhysicsMaterial:
+		mat = current
+	else:
+		mat = PhysicsMaterial.new()
+	_apply_properties(mat, material_params)
+	node.set("physics_material_override", mat)
+	return {"ok": true}
+
 const _TRACK_TYPES := {
 	"value": Animation.TYPE_VALUE,
 	"position_3d": Animation.TYPE_POSITION_3D,
