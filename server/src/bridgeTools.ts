@@ -56,6 +56,7 @@ export const bridgeToolNames = new Set([
   'set_particle_material',
   'set_particle_color_gradient',
   'get_particle_info',
+  'save_scene_live',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -544,6 +545,23 @@ export const bridgeToolDefinitions = [
       required: ['node_path'],
     },
   },
+  {
+    name: 'save_scene_live',
+    description:
+      'Save the currently edited scene to disk from the running editor, persisting every live change ' +
+      'made through this bridge (eval_expression, set_property, add_node_live, ...). Distinct from ' +
+      'godot-mcp\'s file-based save_scene tool, which resaves a scene FILE via a headless CLI process and ' +
+      'has no knowledge of live in-memory changes — it will NOT persist bridge edits. Bridge edits only ' +
+      'exist in the running editor\'s memory until this is called (or the user manually saves); closing ' +
+      'or reloading the editor without saving discards them.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Optional res:// path to "save as". Omit to save to the scene\'s current path.' },
+      },
+      required: [],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -748,6 +766,10 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'get_particle_info':
       return textResult(await client.call('get_particle_info', {
         node_path: params.node_path ?? '.',
+      }));
+    case 'save_scene_live':
+      return textResult(await client.call('save_scene_live', {
+        path: params.path ?? '',
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
