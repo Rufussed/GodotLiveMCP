@@ -118,7 +118,7 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 
 func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 	var text := JSON.stringify(payload) + "\n"
-	peer.put_utf8_string(text)
+	peer.put_data(text.to_utf8_buffer())
 
 func _fail(msg: String) -> Dictionary:
 	return {"__error__": msg}
@@ -165,10 +165,12 @@ func _describe_node(node: Node) -> Dictionary:
 	var children := []
 	for child in node.get_children():
 		children.append(_describe_node(child))
+	var root := _get_scene_root()
+	var rel_path := "." if node == root else String(root.get_path_to(node))
 	return {
 		"name": node.name,
 		"type": node.get_class(),
-		"path": String(node.get_path()),
+		"path": rel_path,
 		"children": children,
 	}
 
