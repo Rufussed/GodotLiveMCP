@@ -753,6 +753,126 @@ func _cmd_get_audio_bus_layout(_params: Dictionary):
 		})
 	return {"buses": buses}
 
+func _cmd_tilemap_fill_rect(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is TileMapLayer):
+		return _fail("node is not a TileMapLayer: %s" % node_path)
+	var layer: TileMapLayer = node
+
+	var pos: Vector2i = str_to_var(String(params.get("position", "Vector2i(0, 0)")))
+	var size: Vector2i = str_to_var(String(params.get("size", "Vector2i(1, 1)")))
+	var atlas_coords: Vector2i = str_to_var(String(params.get("atlas_coords", "Vector2i(0, 0)")))
+	var source_id := int(params.get("source_id", 0))
+	var alternative_tile := int(params.get("alternative_tile", 0))
+	if size.x <= 0 or size.y <= 0:
+		return _fail("size must have positive x and y")
+
+	var count := 0
+	for x in range(pos.x, pos.x + size.x):
+		for y in range(pos.y, pos.y + size.y):
+			layer.set_cell(Vector2i(x, y), source_id, atlas_coords, alternative_tile)
+			count += 1
+	return {"ok": true, "cells_set": count}
+
+func _cmd_tilemap_get_info(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is TileMapLayer):
+		return _fail("node is not a TileMapLayer: %s" % node_path)
+	var layer: TileMapLayer = node
+
+	var sources := []
+	var tile_set := layer.tile_set
+	if tile_set:
+		for i in range(tile_set.get_source_count()):
+			sources.append(tile_set.get_source_id(i))
+
+	return {
+		"used_rect": var_to_str(layer.get_used_rect()),
+		"used_cells_count": layer.get_used_cells().size(),
+		"tile_set_sources": sources,
+	}
+
+func _get_or_create_particle_material(node: Node) -> ParticleProcessMaterial:
+	var current = node.get("process_material")
+	if current is ParticleProcessMaterial:
+		return current
+	return ParticleProcessMaterial.new()
+
+func _cmd_set_particle_material(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var material_params: Dictionary = params.get("material_params", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is GPUParticles2D or node is GPUParticles3D):
+		return _fail("node is not a GPUParticles2D/3D: %s" % node_path)
+
+	var mat := _get_or_create_particle_material(node)
+	_apply_properties(mat, material_params)
+	node.set("process_material", mat)
+	return {"ok": true}
+
+func _cmd_set_particle_color_gradient(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var points: Array = params.get("points", [])
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is GPUParticles2D or node is GPUParticles3D):
+		return _fail("node is not a GPUParticles2D/3D: %s" % node_path)
+	if points.is_empty():
+		return _fail("points must be a non-empty array of {offset, color}")
+
+	var offsets := PackedFloat32Array()
+	var colors := PackedColorArray()
+	for pt in points:
+		var p: Dictionary = pt
+		offsets.append(float(p.get("offset", 0.0)))
+		colors.append(str_to_var(String(p.get("color", "Color(1, 1, 1, 1)"))))
+
+	var gradient := Gradient.new()
+	gradient.offsets = offsets
+	gradient.colors = colors
+	var gradient_texture := GradientTexture1D.new()
+	gradient_texture.gradient = gradient
+
+	var mat := _get_or_create_particle_material(node)
+	mat.color_ramp = gradient_texture
+	node.set("process_material", mat)
+	return {"ok": true}
+
+func _cmd_get_particle_info(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is GPUParticles2D or node is GPUParticles3D):
+		return _fail("node is not a GPUParticles2D/3D: %s" % node_path)
+
+	var mat_props := {}
+	var mat_type = null
+	var mat = node.get("process_material")
+	if mat:
+		mat_type = mat.get_class()
+		for prop in mat.get_property_list():
+			if prop.usage & PROPERTY_USAGE_EDITOR == 0:
+				continue
+			mat_props[prop.name] = var_to_str(mat.get(prop.name))
+
+	return {
+		"amount": node.get("amount"),
+		"lifetime": node.get("lifetime"),
+		"emitting": node.get("emitting"),
+		"process_material_type": mat_type,
+		"process_material_properties": mat_props,
+	}
+
 # ---- Token / port setup ----
 
 func _load_or_create_token() -> String:
