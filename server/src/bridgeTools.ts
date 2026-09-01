@@ -39,6 +39,10 @@ export const bridgeToolNames = new Set([
   'select_nodes',
   'clear_editor_selection',
   'validate_script',
+  'setup_collision',
+  'get_collision_info',
+  'set_physics_layers',
+  'get_physics_layers',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -281,6 +285,63 @@ export const bridgeToolDefinitions = [
       required: ['script_path'],
     },
   },
+  {
+    name: 'setup_collision',
+    description:
+      'Add a CollisionShape2D/3D child (with a new shape resource) to a live CollisionObject2D/3D ' +
+      '(Area2D, StaticBody2D, RigidBody3D, ...). One call instead of instantiate-shape + set-props + ' +
+      'instantiate-collision-node + assign + add_child.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        shape_type: {
+          type: 'string',
+          description: 'Shape class to create, e.g. "RectangleShape2D", "CircleShape2D", "BoxShape3D", "SphereShape3D"',
+        },
+        shape_params: {
+          type: 'object',
+          description: 'Properties to set on the shape, var_to_str()-encoded, e.g. {"size": "Vector2(32, 32)"} or {"radius": "16.0"}',
+        },
+      },
+      required: ['node_path', 'shape_type'],
+    },
+  },
+  {
+    name: 'get_collision_info',
+    description:
+      'Read a live CollisionShape2D/3D\'s shape resource type and its own properties (radius, size, ...) ' +
+      '- not reconstructable from get_node_properties, since var_to_str() doesn\'t round-trip in-memory resources.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: ['node_path'],
+    },
+  },
+  {
+    name: 'set_physics_layers',
+    description:
+      'Set a live CollisionObject2D/3D\'s collision_layer/collision_mask using human layer numbers ' +
+      '(1-32) instead of raw bitmasks. Either or both of layers/mask may be given.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        layers: { type: 'array', items: { type: 'integer' }, description: 'Layer numbers (1-32) this node occupies' },
+        mask: { type: 'array', items: { type: 'integer' }, description: 'Layer numbers (1-32) this node detects' },
+      },
+      required: ['node_path'],
+    },
+  },
+  {
+    name: 'get_physics_layers',
+    description: 'Get a live CollisionObject2D/3D\'s collision_layer/collision_mask as human layer numbers (1-32).',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: ['node_path'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -392,6 +453,26 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'validate_script':
       return textResult(await client.call('validate_script', {
         script_path: params.script_path,
+      }));
+    case 'setup_collision':
+      return textResult(await client.call('setup_collision', {
+        node_path: params.node_path ?? '.',
+        shape_type: params.shape_type,
+        shape_params: params.shape_params ?? {},
+      }));
+    case 'get_collision_info':
+      return textResult(await client.call('get_collision_info', {
+        node_path: params.node_path ?? '.',
+      }));
+    case 'set_physics_layers':
+      return textResult(await client.call('set_physics_layers', {
+        node_path: params.node_path ?? '.',
+        layers: params.layers,
+        mask: params.mask,
+      }));
+    case 'get_physics_layers':
+      return textResult(await client.call('get_physics_layers', {
+        node_path: params.node_path ?? '.',
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
