@@ -218,6 +218,8 @@ access — a fixed recipe some agent/user might want and another might not.
 That kind of thing belongs in the later Skill/CLAUDE.md layer (§3) as a
 documented pattern, not baked into the bridge as fixed values.
 
+**v1.7 — first real external use, two bugs found.**
+
 **First real external bug report** (from an actual agent-driven session, not
 our own live tests): `reparent_node` had no cycle check.
 `node.get_parent().remove_child(node)` ran *before* `new_parent.add_child(node)`
@@ -248,6 +250,27 @@ collision could make an agent believe it had saved when it hadn't. Added
 op got a dedicated tool anyway despite otherwise clearing the "redundant"
 bar — justified by how safety-critical and easy to silently get wrong it
 is, not by round-trip cost.
+
+**v1.8: `set_physics_material(node_path, material_params)`** — same shape
+as `setup_collision`/`set_material_3d`: `PhysicsMaterial` (bounce,
+friction) lives on `PhysicsBody2D/3D.physics_material_override`, a
+resource that needs creating and assigning, unreachable via a single
+`eval_expression` call or `set_property`. Built on request to make a
+RigidBody3D bouncy.
+
+**v1.9: Theme/UI, revisited.** The original v1.6 call to drop Theme/UI
+entirely was too broad — live-tested it (add a `Button`, try to style it)
+and found the real gap: `set_property` with a `StyleBoxFlat.new()`-style
+string silently failed, since `str_to_var()` only parses Variant literals,
+not resource-constructor calls — no error surfaced, it just set the
+property to nothing. That's a genuine resource-creation case, same family
+as `setup_collision`. Added `set_theme_stylebox_override(node_path,
+override_name, style_type, style_params)`. Left everything else from that
+category dropped: `add_theme_color_override`/`add_theme_constant_override`/
+`add_theme_font_size_override` take plain values (not a resource), so
+they're still single `eval_expression` calls with no dedicated tool needed
+— the earlier screening was right about those, just wrong to lump
+stylebox overrides in with them without testing.
 
 ### 3. (Later) A companion Skill / CLAUDE.md
 
