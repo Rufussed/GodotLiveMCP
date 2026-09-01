@@ -656,6 +656,26 @@ func _cmd_set_material_3d(params: Dictionary):
 	if not (node is GeometryInstance3D):
 		return _fail("node is not a GeometryInstance3D (e.g. MeshInstance3D): %s" % node_path)
 
+	if params.has("surface_index"):
+		if not (node is MeshInstance3D):
+			return _fail("surface_index requires a MeshInstance3D: %s" % node_path)
+		var mesh_instance: MeshInstance3D = node
+		var idx := int(params["surface_index"])
+		if idx < 0 or idx >= mesh_instance.get_surface_override_material_count():
+			return _fail("surface_index %d out of range (mesh has %d surfaces)" % [idx, mesh_instance.get_surface_override_material_count()])
+
+		var surf_mat: StandardMaterial3D
+		var current_surf = mesh_instance.get_surface_override_material(idx)
+		if current_surf is StandardMaterial3D:
+			surf_mat = current_surf
+		else:
+			surf_mat = StandardMaterial3D.new()
+		var surf_unknown := _apply_properties(surf_mat, material_params)
+		if not surf_unknown.is_empty():
+			return _fail("unknown material properties: %s" % ", ".join(surf_unknown))
+		mesh_instance.set_surface_override_material(idx, surf_mat)
+		return {"ok": true, "material": _read_back(surf_mat, material_params.keys())}
+
 	var mat: StandardMaterial3D
 	if node.material_override is StandardMaterial3D:
 		mat = node.material_override
@@ -712,6 +732,74 @@ func _cmd_set_theme_stylebox_override(params: Dictionary):
 		return _fail("unknown style properties for %s: %s" % [style_type, ", ".join(unknown)])
 	node.add_theme_stylebox_override(override_name, stylebox)
 	return {"ok": true, "style": _read_back(stylebox, style_params.keys())}
+
+## Resolves which property holds a node's material: material_override for
+## 3D GeometryInstance3D, material for 2D CanvasItem. Returns "" if neither.
+func _material_property_for(node: Node) -> String:
+	if node is GeometryInstance3D:
+		return "material_override"
+	if node is CanvasItem:
+		return "material"
+	return ""
+
+func _cmd_set_shader_material(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var shader_path := String(params.get("shader_path", ""))
+	var shader_params: Dictionary = params.get("shader_params", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	var prop_name := _material_property_for(node)
+	if prop_name == "":
+		return _fail("node is not a GeometryInstance3D or CanvasItem: %s" % node_path)
+
+	var mat: ShaderMaterial
+	var current = node.get(prop_name)
+	if current is ShaderMaterial:
+		mat = current
+	else:
+		mat = ShaderMaterial.new()
+
+	if shader_path != "":
+		if not ResourceLoader.exists(shader_path):
+			return _fail("shader not found: %s" % shader_path)
+		mat.shader = load(shader_path)
+	if mat.shader == null:
+		return _fail("no shader set — pass shader_path, or the node's existing material must already have one")
+
+	var applied := {}
+	for pname in shader_params:
+		var pname_str := String(pname)
+		mat.set_shader_parameter(pname_str, _decode_value(String(shader_params[pname])))
+		applied[pname_str] = var_to_str(mat.get_shader_parameter(pname_str))
+
+	node.set(prop_name, mat)
+	return {"ok": true, "shader_path": mat.shader.resource_path, "shader_params": applied}
+
+func _cmd_get_shader_material_info(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	var prop_name := _material_property_for(node)
+	if prop_name == "":
+		return _fail("node is not a GeometryInstance3D or CanvasItem: %s" % node_path)
+
+	var mat = node.get(prop_name)
+	if not (mat is ShaderMaterial):
+		return {"has_shader_material": false}
+
+	var shader_path := ""
+	var uniforms := {}
+	if mat.shader:
+		shader_path = mat.shader.resource_path
+		for u in mat.shader.get_shader_uniform_list():
+			var uname: String = u.name
+			uniforms[uname] = var_to_str(mat.get_shader_parameter(uname))
+
+	return {"has_shader_material": true, "shader_path": shader_path, "shader_params": uniforms}
 
 const _TRACK_TYPES := {
 	"value": Animation.TYPE_VALUE,

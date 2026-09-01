@@ -70,6 +70,8 @@ export const bridgeToolNames = new Set([
   'save_scene_live',
   'set_physics_material',
   'set_theme_stylebox_override',
+  'set_shader_material',
+  'get_shader_material_info',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -402,7 +404,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_material_3d',
-    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
+    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set. Pass surface_index to target one surface of a multi-surface MeshInstance3D (via set_surface_override_material) instead of the whole mesh.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -411,6 +413,7 @@ export const bridgeToolDefinitions = [
           type: 'object',
           description: 'Properties to set on the StandardMaterial3D, var_to_str()-encoded, e.g. {"albedo_color": "Color(1, 0, 0, 1)"}',
         },
+        surface_index: { type: 'integer', description: 'Optional: target this surface (MeshInstance3D only) instead of the whole mesh\'s material_override' },
       },
       required: ['node_path', 'material_params'],
     },
@@ -614,6 +617,35 @@ export const bridgeToolDefinitions = [
       required: ['node_path', 'override_name'],
     },
   },
+  {
+    name: 'set_shader_material',
+    description:
+      'Assign/configure a live ShaderMaterial on a GeometryInstance3D\'s material_override or a ' +
+      'CanvasItem\'s material, setting shader uniforms via set_shader_parameter() — a method call, not a ' +
+      'property, so shader uniforms are unreachable through set_property/set_properties or ' +
+      'get_node_properties. Reuses the node\'s existing ShaderMaterial if it already has one.' + LOAD_PREFIX_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        shader_path: { type: 'string', description: 'res:// path to a .gdshader file. Optional if the node already has a ShaderMaterial with a shader set.' },
+        shader_params: {
+          type: 'object',
+          description: 'Map of uniform name -> var_to_str()-encoded value (or "load:res://..." for a sampler2D texture uniform)',
+        },
+      },
+      required: ['node_path'],
+    },
+  },
+  {
+    name: 'get_shader_material_info',
+    description: 'Read a live node\'s ShaderMaterial: shader path and every uniform\'s current value.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: ['node_path'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -758,6 +790,7 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('set_material_3d', {
         node_path: params.node_path ?? '.',
         material_params: params.material_params ?? {},
+        surface_index: params.surface_index,
       }));
     case 'create_animation':
       return textResult(await client.call('create_animation', {
@@ -834,6 +867,16 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         override_name: params.override_name,
         style_type: params.style_type ?? 'StyleBoxFlat',
         style_params: params.style_params ?? {},
+      }));
+    case 'set_shader_material':
+      return textResult(await client.call('set_shader_material', {
+        node_path: params.node_path ?? '.',
+        shader_path: params.shader_path ?? '',
+        shader_params: params.shader_params ?? {},
+      }));
+    case 'get_shader_material_info':
+      return textResult(await client.call('get_shader_material_info', {
+        node_path: params.node_path ?? '.',
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);

@@ -320,6 +320,25 @@ now correctly fails with "unknown property" instead of corrupting state,
 and `load:res://icon.svg` correctly assigned and read back via
 `material_override.albedo_texture.resource_path`.
 
+**v1.12 — shader materials + multi-surface meshes.** Regular
+texture/material assignment was already well-covered (`set_material_3d` +
+`load:`, plus flat properties like `Sprite2D.texture`), so screened what
+was left before building anything: shader uniforms are set via
+`ShaderMaterial.set_shader_parameter(name, value)` — a method call, not a
+property — so `_apply_properties()`/`get_node_properties()` structurally
+can't reach them at all, in either direction. Added
+`set_shader_material(node_path, shader_path, shader_params)` and
+`get_shader_material_info(node_path)`, working on either
+`GeometryInstance3D.material_override` (3D) or `CanvasItem.material` (2D)
+via a shared `_material_property_for()` helper. Also extended
+`set_material_3d` with an optional `surface_index` — imported models with
+multiple mesh surfaces need `MeshInstance3D.set_surface_override_material(idx, mat)`,
+another method call `material_override` alone can't reach. Skipped a
+dedicated 2D material tool (`CanvasItemMaterial` blend/light-mode
+settings) — most 2D tinting is just `modulate`/`self_modulate`, already
+flat properties `set_property` covers; no concrete use case yet to justify
+it.
+
 ### 3. A companion Skill / CLAUDE.md (started 2026-09-01)
 
 Trigger for starting this: a real external session (a Claude Code instance
