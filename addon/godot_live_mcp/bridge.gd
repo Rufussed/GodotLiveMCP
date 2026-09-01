@@ -452,13 +452,13 @@ func _cmd_save_scene_live(params: Dictionary):
 	if not Engine.is_editor_hint():
 		return _fail("save_scene_live is only available inside the editor")
 	var path := String(params.get("path", ""))
-	var err: int
 	if path == "":
-		err = EditorInterface.save_scene()
+		var err: int = EditorInterface.save_scene()
+		if err != OK:
+			return _fail("save failed with error code %d" % err)
 	else:
-		err = EditorInterface.save_scene_as(path)
-	if err != OK:
-		return _fail("save failed with error code %d" % err)
+		# save_scene_as() returns void, unlike save_scene() — no error code to check.
+		EditorInterface.save_scene_as(path)
 	return {"ok": true}
 
 const _SHAPE_2D_TYPES := [
