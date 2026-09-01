@@ -272,6 +272,27 @@ they're still single `eval_expression` calls with no dedicated tool needed
 — the earlier screening was right about those, just wrong to lump
 stylebox overrides in with them without testing.
 
+**v1.10 — silent property-name failures fixed across every resource
+tool.** Found via another real external session: asked to recolor a
+sphere red, an agent called `set_material_3d`, got `{"ok": true}` back,
+and reported success — but nothing changed. Root cause: `_apply_properties()`
+(shared by `setup_collision`, `add_mesh_instance`, `setup_environment`,
+`set_material_3d`, `set_physics_material`, `set_theme_stylebox_override`,
+`add_audio_bus_effect`, `set_particle_material`) sets properties via
+`Object.set(name, value)`, which **silently no-ops on an unrecognized
+property name** — no error, nothing — and none of these tools echoed back
+the values they'd actually applied, so there was no way for the caller to
+notice the mistake short of a manual follow-up read. Fixed at the root:
+`_apply_properties()` now checks each name against
+`obj.get_property_list()` first and returns any that don't exist; every
+call site fails loudly (`_fail(...)`) if any are unknown, and every
+successful call now returns a readback of what was actually set (e.g.
+`{"material": {"albedo_color": "Color(1, 0, 0, 1)"}}`) instead of a bare
+`{"ok": true}`. This is the same failure shape as the `StyleBoxFlat.new()`
+string bug from v1.9 — Godot's dynamic property APIs fail silently by
+design, and every tool built on top of them needs to check for that
+explicitly rather than trust a bare success return.
+
 ### 3. A companion Skill / CLAUDE.md (started 2026-09-01)
 
 Trigger for starting this: a real external session (a Claude Code instance

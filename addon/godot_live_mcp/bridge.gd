@@ -142,9 +142,30 @@ func _rel_path(node: Node) -> String:
 		return "."
 	return String(root.get_path_to(node))
 
-func _apply_properties(obj: Object, props: Dictionary) -> void:
+## Sets each property via Object.set(), which silently no-ops on an unknown
+## name (no error). Returns any property names that don't actually exist on
+## obj, so callers can fail loudly instead of pretending success.
+func _apply_properties(obj: Object, props: Dictionary) -> Array:
+	var valid_names := {}
+	for p in obj.get_property_list():
+		valid_names[p.name] = true
+
+	var unknown := []
 	for prop_name in props:
-		obj.set(String(prop_name), str_to_var(String(props[prop_name])))
+		var name_str := String(prop_name)
+		if not valid_names.has(name_str):
+			unknown.append(name_str)
+			continue
+		obj.set(name_str, str_to_var(String(props[prop_name])))
+	return unknown
+
+## Reads back the given property names from obj as var_to_str()-encoded values.
+func _read_back(obj: Object, prop_names) -> Dictionary:
+	var result := {}
+	for prop_name in prop_names:
+		var name_str := String(prop_name)
+		result[name_str] = var_to_str(obj.get(name_str))
+	return result
 
 # ---- Commands ----
 
@@ -490,7 +511,9 @@ func _cmd_setup_collision(params: Dictionary):
 		return _fail("node is not a CollisionObject2D/3D (e.g. Area2D, StaticBody2D, RigidBody3D): %s" % node_path)
 
 	var shape: Resource = ClassDB.instantiate(shape_type)
-	_apply_properties(shape, shape_params)
+	var unknown := _apply_properties(shape, shape_params)
+	if not unknown.is_empty():
+		return _fail("unknown shape properties for %s: %s" % [shape_type, ", ".join(unknown)])
 
 	var collision_node: Node = ClassDB.instantiate(collision_node_type)
 	collision_node.shape = shape
@@ -499,7 +522,7 @@ func _cmd_setup_collision(params: Dictionary):
 	if root:
 		collision_node.owner = root
 
-	return {"path": _rel_path(collision_node)}
+	return {"path": _rel_path(collision_node), "shape": _read_back(shape, shape_params.keys())}
 
 func _cmd_get_collision_info(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -577,7 +600,9 @@ func _cmd_add_mesh_instance(params: Dictionary):
 		return _fail("cannot instantiate mesh type: %s" % mesh_type)
 
 	var mesh: Mesh = ClassDB.instantiate(mesh_type)
-	_apply_properties(mesh, mesh_params)
+	var unknown := _apply_properties(mesh, mesh_params)
+	if not unknown.is_empty():
+		return _fail("unknown mesh properties for %s: %s" % [mesh_type, ", ".join(unknown)])
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = mesh
@@ -588,7 +613,7 @@ func _cmd_add_mesh_instance(params: Dictionary):
 	if root:
 		mesh_instance.owner = root
 
-	return {"path": _rel_path(mesh_instance)}
+	return {"path": _rel_path(mesh_instance), "mesh": _read_back(mesh, mesh_params.keys())}
 
 func _cmd_setup_environment(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -602,10 +627,12 @@ func _cmd_setup_environment(params: Dictionary):
 	var env: Environment = node.environment
 	if env == null:
 		env = Environment.new()
-	_apply_properties(env, environment_params)
+	var unknown := _apply_properties(env, environment_params)
+	if not unknown.is_empty():
+		return _fail("unknown environment properties: %s" % ", ".join(unknown))
 	node.environment = env
 
-	return {"ok": true}
+	return {"ok": true, "environment": _read_back(env, environment_params.keys())}
 
 func _cmd_set_material_3d(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -621,10 +648,12 @@ func _cmd_set_material_3d(params: Dictionary):
 		mat = node.material_override
 	else:
 		mat = StandardMaterial3D.new()
-	_apply_properties(mat, material_params)
+	var unknown := _apply_properties(mat, material_params)
+	if not unknown.is_empty():
+		return _fail("unknown material properties: %s" % ", ".join(unknown))
 	node.material_override = mat
 
-	return {"ok": true}
+	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
 func _cmd_set_physics_material(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -641,9 +670,11 @@ func _cmd_set_physics_material(params: Dictionary):
 		mat = current
 	else:
 		mat = PhysicsMaterial.new()
-	_apply_properties(mat, material_params)
+	var unknown := _apply_properties(mat, material_params)
+	if not unknown.is_empty():
+		return _fail("unknown physics material properties: %s" % ", ".join(unknown))
 	node.set("physics_material_override", mat)
-	return {"ok": true}
+	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
 func _cmd_set_theme_stylebox_override(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -663,9 +694,11 @@ func _cmd_set_theme_stylebox_override(params: Dictionary):
 		return _fail("cannot instantiate style type: %s" % style_type)
 
 	var stylebox: StyleBox = ClassDB.instantiate(style_type)
-	_apply_properties(stylebox, style_params)
+	var unknown := _apply_properties(stylebox, style_params)
+	if not unknown.is_empty():
+		return _fail("unknown style properties for %s: %s" % [style_type, ", ".join(unknown)])
 	node.add_theme_stylebox_override(override_name, stylebox)
-	return {"ok": true}
+	return {"ok": true, "style": _read_back(stylebox, style_params.keys())}
 
 const _TRACK_TYPES := {
 	"value": Animation.TYPE_VALUE,
@@ -792,9 +825,11 @@ func _cmd_add_audio_bus_effect(params: Dictionary):
 		return _fail("cannot instantiate effect type: %s" % effect_type)
 
 	var effect: AudioEffect = ClassDB.instantiate(effect_type)
-	_apply_properties(effect, effect_params)
+	var unknown := _apply_properties(effect, effect_params)
+	if not unknown.is_empty():
+		return _fail("unknown effect properties for %s: %s" % [effect_type, ", ".join(unknown)])
 	AudioServer.add_bus_effect(idx, effect)
-	return {"ok": true, "bus_index": idx}
+	return {"ok": true, "bus_index": idx, "effect": _read_back(effect, effect_params.keys())}
 
 func _cmd_get_audio_bus_layout(_params: Dictionary):
 	var buses := []
@@ -875,9 +910,11 @@ func _cmd_set_particle_material(params: Dictionary):
 		return _fail("node is not a GPUParticles2D/3D: %s" % node_path)
 
 	var mat := _get_or_create_particle_material(node)
-	_apply_properties(mat, material_params)
+	var unknown := _apply_properties(mat, material_params)
+	if not unknown.is_empty():
+		return _fail("unknown particle material properties: %s" % ", ".join(unknown))
 	node.set("process_material", mat)
-	return {"ok": true}
+	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
 func _cmd_set_particle_color_gradient(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
