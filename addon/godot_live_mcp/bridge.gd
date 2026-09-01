@@ -18,7 +18,7 @@ const HOST := "127.0.0.1"
 ## Global singletons exposed by name to eval_expression, in the same order
 ## as the values built alongside them (see _cmd_eval_expression). Without
 ## this, Expression has no way to resolve "ProjectSettings", "ClassDB", etc.
-const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance"]
+const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance", "AudioServer"]
 
 var _server: TCPServer
 var _peers: Array = []
@@ -159,7 +159,7 @@ func _cmd_eval_expression(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
-	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance]
+	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
 	if Engine.is_editor_hint():
 		input_names.append("EditorInterface")
 		input_values.append(EditorInterface)
@@ -605,6 +605,153 @@ func _cmd_set_material_3d(params: Dictionary):
 	node.material_override = mat
 
 	return {"ok": true}
+
+const _TRACK_TYPES := {
+	"value": Animation.TYPE_VALUE,
+	"position_3d": Animation.TYPE_POSITION_3D,
+	"rotation_3d": Animation.TYPE_ROTATION_3D,
+	"scale_3d": Animation.TYPE_SCALE_3D,
+	"blend_shape": Animation.TYPE_BLEND_SHAPE,
+	"method": Animation.TYPE_METHOD,
+	"bezier": Animation.TYPE_BEZIER,
+	"audio": Animation.TYPE_AUDIO,
+	"animation": Animation.TYPE_ANIMATION,
+}
+
+func _get_or_create_library(player: AnimationPlayer, library_name: String) -> AnimationLibrary:
+	if player.has_animation_library(library_name):
+		return player.get_animation_library(library_name)
+	var library := AnimationLibrary.new()
+	player.add_animation_library(library_name, library)
+	return library
+
+func _cmd_create_animation(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var anim_name := String(params.get("anim_name", ""))
+	var length := float(params.get("length", 1.0))
+	var library_name := String(params.get("library_name", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is AnimationPlayer):
+		return _fail("node is not an AnimationPlayer: %s" % node_path)
+	if anim_name == "":
+		return _fail("anim_name is required")
+
+	var player: AnimationPlayer = node
+	var library := _get_or_create_library(player, library_name)
+	if library.has_animation(anim_name):
+		return _fail("animation already exists: %s" % anim_name)
+
+	var anim := Animation.new()
+	anim.length = length
+	library.add_animation(anim_name, anim)
+	return {"ok": true}
+
+func _cmd_add_animation_track(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var anim_name := String(params.get("anim_name", ""))
+	var library_name := String(params.get("library_name", ""))
+	var track_type := String(params.get("track_type", ""))
+	var track_node_path := String(params.get("track_node_path", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is AnimationPlayer):
+		return _fail("node is not an AnimationPlayer: %s" % node_path)
+	if not _TRACK_TYPES.has(track_type):
+		return _fail("unknown track_type: %s (expected one of %s)" % [track_type, ", ".join(_TRACK_TYPES.keys())])
+	var player: AnimationPlayer = node
+	if not player.has_animation_library(library_name):
+		return _fail("animation library not found: %s" % library_name)
+	var library: AnimationLibrary = player.get_animation_library(library_name)
+	if not library.has_animation(anim_name):
+		return _fail("animation not found: %s" % anim_name)
+
+	var anim: Animation = library.get_animation(anim_name)
+	var idx: int = anim.add_track(_TRACK_TYPES[track_type])
+	anim.track_set_path(idx, NodePath(track_node_path))
+	return {"track_index": idx}
+
+func _cmd_get_animation_info(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var anim_name := String(params.get("anim_name", ""))
+	var library_name := String(params.get("library_name", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is AnimationPlayer):
+		return _fail("node is not an AnimationPlayer: %s" % node_path)
+	var player: AnimationPlayer = node
+	if not player.has_animation_library(library_name):
+		return _fail("animation library not found: %s" % library_name)
+	var library: AnimationLibrary = player.get_animation_library(library_name)
+	if not library.has_animation(anim_name):
+		return _fail("animation not found: %s" % anim_name)
+
+	var anim: Animation = library.get_animation(anim_name)
+	var tracks := []
+	for i in range(anim.get_track_count()):
+		var keys := []
+		for k in range(anim.track_get_key_count(i)):
+			keys.append({
+				"time": anim.track_get_key_time(i, k),
+				"value": var_to_str(anim.track_get_key_value(i, k)),
+			})
+		tracks.append({
+			"index": i,
+			"type": _TRACK_TYPES.find_key(anim.track_get_type(i)),
+			"path": String(anim.track_get_path(i)),
+			"keys": keys,
+		})
+	return {"length": anim.length, "tracks": tracks}
+
+func _cmd_add_audio_bus(params: Dictionary):
+	var bus_name := String(params.get("bus_name", ""))
+	if bus_name == "":
+		return _fail("bus_name is required")
+	if AudioServer.get_bus_index(bus_name) != -1:
+		return _fail("bus already exists: %s" % bus_name)
+
+	AudioServer.add_bus()
+	var idx := AudioServer.bus_count - 1
+	AudioServer.set_bus_name(idx, bus_name)
+	return {"bus_index": idx}
+
+func _cmd_add_audio_bus_effect(params: Dictionary):
+	var bus_name := String(params.get("bus_name", ""))
+	var effect_type := String(params.get("effect_type", ""))
+	var effect_params: Dictionary = params.get("effect_params", {})
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx == -1:
+		return _fail("bus not found: %s" % bus_name)
+	if not ClassDB.class_exists(effect_type) or not ClassDB.is_parent_class(effect_type, "AudioEffect"):
+		return _fail("not an AudioEffect subclass: %s" % effect_type)
+	if not ClassDB.can_instantiate(effect_type):
+		return _fail("cannot instantiate effect type: %s" % effect_type)
+
+	var effect: AudioEffect = ClassDB.instantiate(effect_type)
+	_apply_properties(effect, effect_params)
+	AudioServer.add_bus_effect(idx, effect)
+	return {"ok": true, "bus_index": idx}
+
+func _cmd_get_audio_bus_layout(_params: Dictionary):
+	var buses := []
+	for i in range(AudioServer.bus_count):
+		var effects := []
+		for e in range(AudioServer.get_bus_effect_count(i)):
+			effects.append(AudioServer.get_bus_effect(i, e).get_class())
+		buses.append({
+			"index": i,
+			"name": AudioServer.get_bus_name(i),
+			"volume_db": AudioServer.get_bus_volume_db(i),
+			"mute": AudioServer.is_bus_mute(i),
+			"solo": AudioServer.is_bus_solo(i),
+			"bypass_effects": AudioServer.is_bus_bypassing_effects(i),
+			"send": AudioServer.get_bus_send(i),
+			"effects": effects,
+		})
+	return {"buses": buses}
 
 # ---- Token / port setup ----
 
