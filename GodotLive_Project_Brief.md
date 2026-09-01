@@ -26,8 +26,20 @@ and forth.
 - A paid option exists (Godot MCP Pro, ~175 tools) but is **proprietary** —
   purchasing it does not grant rights to fork, redistribute, or build derivative
   works from its source. It is not a legitimate base for this project.
-- No existing Godot MCP server offers live REPL/eval against a running scene.
-  This is the genuine gap and the main point of differentiation.
+- **Correction (added 2026-09-01, after actually reading Pro's public tool
+  list for the Inspiration section):** the claim below was wrong for Pro
+  specifically. Pro's own public tool directory lists `execute_editor_script`
+  (live in-editor eval) and a 19-tool Runtime category (`execute_game_script`,
+  `get_game_scene_tree`, etc.) for live *running-game* access — a capability
+  this project doesn't have yet (see "Out of scope for v1"). It stood
+  uncorrected in this file for the whole session and got repeated as a
+  differentiator before the user's question forced a re-check. ~~No existing
+  Godot MCP server offers live REPL/eval against a running scene. This is the
+  genuine gap and the main point of differentiation.~~ True only against the
+  free base (`Coding-Solo/godot-mcp`, genuinely file/CLI-only, no live access
+  at all) — not against Pro. Against Pro, the honest pitch is free/open-source
+  vs. $15 proprietary, and a tool set sized to a measurable efficiency bar
+  rather than 175 tools, not "does something Pro can't."
 
 ## Inspiration
 
