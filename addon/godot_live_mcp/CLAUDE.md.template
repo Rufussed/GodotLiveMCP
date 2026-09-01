@@ -37,6 +37,31 @@ reloading the editor without saving silently discards all of it.
   dedicated tool for anything reachable through those singletons in one
   call, e.g. `ProjectSettings.get_setting("physics/2d/default_gravity")`.
 
+## Verify property changes, don't trust ok:true blindly
+
+`set_property`/`set_properties` and every resource-configuring tool
+(`setup_collision`, `set_material_3d`, `setup_environment`,
+`set_physics_material`, `set_theme_stylebox_override`,
+`add_audio_bus_effect`, `set_particle_material`) validate property names
+and return a readback of what was actually applied — trust that readback,
+not just `ok: true`. If a property name is wrong, the call now fails
+loudly with "unknown property/properties: ..." rather than silently doing
+nothing (this was a real bug: an agent recolored a sphere with the wrong
+property name, got `ok: true`, and nothing changed).
+
+To assign an *existing* texture or resource file (not a freshly-created
+one), use a value of the form `"load:res://path/to/file"` — this resolves
+via `load()` instead of trying to parse the string as a Variant literal,
+e.g. `{"albedo_texture": "load:res://player_skin.png"}`.
+
+**Never use a colon-path property name** like
+`"material_override:albedo_texture"` — that is not a real property name
+and will fail (or, before this was fixed, could silently corrupt the
+parent property instead). Resolve the underlying resource
+(`node.material_override`, `node.mesh`, etc.) and target its own property
+directly instead — via a structured tool if one creates/configures that
+resource type, or via `eval_expression` for a plain-value read.
+
 ## Self-improvement rule
 
 If a request required falling back to `eval_expression` for something the
