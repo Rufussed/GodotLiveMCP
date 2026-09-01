@@ -51,6 +51,11 @@ export const bridgeToolNames = new Set([
   'add_audio_bus',
   'add_audio_bus_effect',
   'get_audio_bus_layout',
+  'tilemap_fill_rect',
+  'tilemap_get_info',
+  'set_particle_material',
+  'set_particle_color_gradient',
+  'get_particle_info',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -471,6 +476,74 @@ export const bridgeToolDefinitions = [
     description: 'List every audio bus with its volume/mute/solo/bypass/send settings and attached effect types.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'tilemap_fill_rect',
+    description: 'Fill a rectangular region of a live TileMapLayer with one tile, cell by cell.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        position: { type: 'string', description: 'var_to_str()-encoded Vector2i top-left cell, e.g. "Vector2i(0, 0)"' },
+        size: { type: 'string', description: 'var_to_str()-encoded Vector2i cell count, e.g. "Vector2i(5, 3)"' },
+        source_id: { type: 'integer', description: 'Tile set source id' },
+        atlas_coords: { type: 'string', description: 'var_to_str()-encoded Vector2i atlas coordinates, e.g. "Vector2i(0, 0)"' },
+        alternative_tile: { type: 'integer', description: 'Alternative tile id (default 0)' },
+      },
+      required: ['node_path', 'position', 'size', 'source_id', 'atlas_coords'],
+    },
+  },
+  {
+    name: 'tilemap_get_info',
+    description: 'Get a live TileMapLayer\'s used rect, used cell count, and tile set source ids.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: ['node_path'],
+    },
+  },
+  {
+    name: 'set_particle_material',
+    description: 'Configure a live GPUParticles2D/3D\'s process_material as a ParticleProcessMaterial, reusing one if already set.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        material_params: { type: 'object', description: 'Properties to set on the ParticleProcessMaterial, var_to_str()-encoded' },
+      },
+      required: ['node_path', 'material_params'],
+    },
+  },
+  {
+    name: 'set_particle_color_gradient',
+    description: 'Set a live GPUParticles2D/3D\'s color ramp from a list of gradient points.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        points: {
+          type: 'array',
+          description: 'Gradient points, e.g. [{"offset": 0, "color": "Color(1, 1, 0, 1)"}, {"offset": 1, "color": "Color(1, 0, 0, 0)"}]',
+          items: {
+            type: 'object',
+            properties: {
+              offset: { type: 'number', description: 'Position along the gradient, 0.0-1.0' },
+              color: { type: 'string', description: 'var_to_str()-encoded Color' },
+            },
+          },
+        },
+      },
+      required: ['node_path', 'points'],
+    },
+  },
+  {
+    name: 'get_particle_info',
+    description: 'Get a live GPUParticles2D/3D\'s amount/lifetime/emitting and its process_material\'s own properties.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: ['node_path'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -649,6 +722,33 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       }));
     case 'get_audio_bus_layout':
       return textResult(await client.call('get_audio_bus_layout', {}));
+    case 'tilemap_fill_rect':
+      return textResult(await client.call('tilemap_fill_rect', {
+        node_path: params.node_path ?? '.',
+        position: params.position,
+        size: params.size,
+        source_id: params.source_id,
+        atlas_coords: params.atlas_coords,
+        alternative_tile: params.alternative_tile ?? 0,
+      }));
+    case 'tilemap_get_info':
+      return textResult(await client.call('tilemap_get_info', {
+        node_path: params.node_path ?? '.',
+      }));
+    case 'set_particle_material':
+      return textResult(await client.call('set_particle_material', {
+        node_path: params.node_path ?? '.',
+        material_params: params.material_params ?? {},
+      }));
+    case 'set_particle_color_gradient':
+      return textResult(await client.call('set_particle_color_gradient', {
+        node_path: params.node_path ?? '.',
+        points: params.points ?? [],
+      }));
+    case 'get_particle_info':
+      return textResult(await client.call('get_particle_info', {
+        node_path: params.node_path ?? '.',
+      }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }

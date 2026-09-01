@@ -190,6 +190,34 @@ method-chain call once the animation/track is already known
 assignment, no cross-call state needed, so a raw `eval_expression` call is
 strictly cheaper than a dedicated tool for these.
 
+**v1.6** (TileMap + Particle, and one category dropped outright): screened
+Pro's Theme/UI-tools category first and skipped it entirely —
+`set_theme_color`/`set_theme_constant`/`set_theme_font_size` are single
+method calls on an already-loaded `Theme` resource (`theme.set_color(...)`,
+no assignment needed), and `create_theme` is a single
+`ResourceSaver.save(Theme.new(), path)` eval line; none needed a dedicated
+tool, and Theme/UI editing isn't central to this project's purpose anyway.
+
+TileMap: `tilemap_fill_rect(node_path, position, size, source_id,
+atlas_coords, alternative_tile)` (needs a nested loop over every cell —
+`tilemap_set_cell`/`tilemap_get_cell`/`tilemap_clear`/`tilemap_get_used_cells`
+from Pro's list were all dropped as single `TileMapLayer` method calls
+reachable directly via eval), `tilemap_get_info(node_path)` (loops the tile
+set's sources).
+
+Particle: `set_particle_material(node_path, material_params)` and
+`get_particle_info(node_path)` (same shape as `setup_collision`/
+`get_collision_info` — a `ParticleProcessMaterial` resource needs
+creation/loop-assignment, and its own properties don't survive
+`var_to_str()` through generic tools), `set_particle_color_gradient(...)`
+(builds a `Gradient` + `GradientTexture1D` from a list of points — loop
+required). `create_particles` dropped as redundant with `add_node_live`.
+`apply_particle_preset` (canned "fire"/"smoke"/"sparks" property bundles)
+dropped on a different basis: it's opinionated content, not mechanical API
+access — a fixed recipe some agent/user might want and another might not.
+That kind of thing belongs in the later Skill/CLAUDE.md layer (§3) as a
+documented pattern, not baked into the bridge as fixed values.
+
 ### 3. (Later) A companion Skill / CLAUDE.md
 
 Once the server is working end to end, write a `CLAUDE.md` / skill file that
