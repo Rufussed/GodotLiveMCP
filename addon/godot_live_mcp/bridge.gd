@@ -15,6 +15,10 @@ extends Node
 const DEFAULT_PORT := 9080
 const HOST := "127.0.0.1"
 
+## The addons/<name>/plugin.cfg folder name — what EditorInterface.set_plugin_enabled()
+## expects, not plugin.cfg's display "name" field. Used by _cmd_reload_plugin.
+const PLUGIN_ADDON_NAME := "godot_live_mcp"
+
 ## Global singletons exposed by name to eval_expression, in the same order
 ## as the values built alongside them (see _cmd_eval_expression). Without
 ## this, Expression has no way to resolve "ProjectSettings", "ClassDB", etc.
@@ -41,6 +45,26 @@ func _ready() -> void:
 		return
 	print("GodotLiveMCPBridge: listening on %s:%d" % [HOST, _port])
 	set_process(true)
+
+## Releases the listening socket synchronously. Must be called before
+## freeing the bridge (plugin.gd's _exit_tree) — queue_free() alone defers
+## actual destruction to the next idle frame, which can race a fresh
+## bridge's _ready() trying to bind the same port on plugin re-enable: the
+## new bridge's listen() fails silently (a push_error, easy to miss in the
+## Output panel) and the OLD bridge — with whatever code was loaded before
+## the edit that prompted the reload — is left as the only thing serving
+## requests, with no obvious symptom besides "unknown command" for anything
+## added since.
+func stop() -> void:
+	set_process(false)
+	for peer in _peers:
+		var stream: StreamPeerTCP = peer
+		stream.disconnect_from_host()
+	_peers.clear()
+	_peer_buffers.clear()
+	if _server:
+		_server.stop()
+		_server = null
 
 func set_scene_root(root: Node) -> void:
 	_scene_root = root
@@ -300,6 +324,102 @@ func _cmd_set_properties(params: Dictionary):
 		result[name_str] = var_to_str(node.get(name_str))
 	return result
 
+## Sets a property reached through a colon-separated path (e.g.
+## "material_override:albedo_color"), the same path shape the editor
+## inspector's own revert-arrow UI uses. Object.set() treats a colon-path as
+## a single literal property name, which either fails as "unknown" (now
+## caught) or — before that validation existed — silently zeroed the
+## top-level property instead of touching the sub-property. This walks each
+## intermediate segment via .get(), requires every intermediate value to be
+## an Object (a Resource, typically) since only reference types alias back
+## into the original — a Vector2/Rect2/etc. intermediate is a copy and
+## can't be mutated in place, so those fail loudly instead of silently
+## no-oping. The final segment is applied through the same validated,
+## UndoRedo-tracked path as set_property.
+func _cmd_set_nested_property(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var property_path := String(params.get("property_path", ""))
+	var value_str := String(params.get("value", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if property_path == "":
+		return _fail("property_path is required")
+
+	var parts := property_path.split(":")
+	if parts.size() < 2:
+		return _fail('property_path must contain at least one ":" (e.g. "material_override:albedo_color")')
+
+	var obj: Object = node
+	var resolved_path := node_path
+	for i in range(parts.size() - 1):
+		var seg := parts[i]
+		var valid_names := {}
+		for p in obj.get_property_list():
+			valid_names[p.name] = true
+		if not valid_names.has(seg):
+			return _fail("unknown property: %s (in path %s)" % [seg, property_path])
+		var next = obj.get(seg)
+		resolved_path += ":" + seg
+		if next == null:
+			return _fail("%s is null — assign/create the resource first (e.g. via set_resource_property) before setting a nested property on it" % resolved_path)
+		if not (next is Object):
+			return _fail("%s is a %s value, not an Object — nested set only works through Resource/Object-typed intermediate properties" % [resolved_path, type_string(typeof(next))])
+		obj = next
+
+	var last_prop := parts[parts.size() - 1]
+	var unknown := _apply_properties(obj, {last_prop: value_str})
+	if not unknown.is_empty():
+		return _fail("unknown property: %s (on %s)" % [last_prop, resolved_path])
+	return {"value": var_to_str(obj.get(last_prop))}
+
+## Generic resource-property setter: instantiates a fresh Resource of any
+## class by name, applies properties to it through the same validated path
+## as every other resource tool, and assigns it to a node property. This is
+## the generalized version of the ad hoc pattern used by
+## set_theme_stylebox_override/set_shader_material/set_physics_material/
+## setup_environment (each hardcoded to one resource type) — covers any
+## Resource subclass without a dedicated tool. Reuses the node's existing
+## resource in place (rather than replacing it) when it's already the
+## requested type, matching those tools' behavior.
+func _cmd_set_resource_property(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var property_name := String(params.get("property_name", ""))
+	var resource_type := String(params.get("resource_type", ""))
+	var resource_params: Dictionary = params.get("resource_params", {})
+	var reuse_existing := bool(params.get("reuse_existing", true))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if property_name == "":
+		return _fail("property_name is required")
+	if resource_type == "":
+		return _fail("resource_type is required")
+
+	var valid_names := {}
+	for p in node.get_property_list():
+		valid_names[p.name] = true
+	if not valid_names.has(property_name):
+		return _fail("unknown property: %s" % property_name)
+	if not ClassDB.class_exists(resource_type) or not ClassDB.is_parent_class(resource_type, "Resource"):
+		return _fail("not a Resource subclass: %s" % resource_type)
+	if not ClassDB.can_instantiate(resource_type):
+		return _fail("cannot instantiate resource type: %s" % resource_type)
+
+	var res: Resource
+	var current = node.get(property_name)
+	if reuse_existing and current != null and current.get_class() == resource_type:
+		res = current
+	else:
+		res = ClassDB.instantiate(resource_type)
+
+	var unknown := _apply_properties(res, resource_params)
+	if not unknown.is_empty():
+		return _fail("unknown %s properties: %s" % [resource_type, ", ".join(unknown)])
+
+	_commit_properties(node, {property_name: res})
+	return {"ok": true, "resource_type": res.get_class(), "resource": _read_back(res, resource_params.keys())}
+
 func _cmd_set_transform(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var node := _resolve_node(node_path)
@@ -527,6 +647,26 @@ func _cmd_save_scene_live(params: Dictionary):
 		# save_scene_as() returns void, unlike save_scene() — no error code to check.
 		EditorInterface.save_scene_as(path)
 	return {"ok": true}
+
+## Toggles the plugin off/on via EditorInterface.set_plugin_enabled(), the
+## same call the manual Project Settings > Plugins checkbox makes — so new
+## bridge.gd code can take effect without a manual reload. Deferred to the
+## next idle frame: disabling frees `self` via stop()+queue_free() inside
+## plugin.gd's _exit_tree(), and queue_free() only marks the object for
+## deletion at end-of-frame, so it's safe to keep running (including the
+## re-enable call) for the rest of this call — but not safe to run
+## synchronously inside the request handler that's still using this same
+## peer/socket. The response is sent before the reload actually happens, so
+## the calling client should expect the connection to drop and reconnect.
+func _cmd_reload_plugin(_params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("reload_plugin is only available inside the editor")
+	call_deferred("_do_reload_plugin")
+	return {"ok": true, "note": "plugin reloading — the connection will drop; reconnect after a moment"}
+
+func _do_reload_plugin() -> void:
+	EditorInterface.set_plugin_enabled(PLUGIN_ADDON_NAME, false)
+	EditorInterface.set_plugin_enabled(PLUGIN_ADDON_NAME, true)
 
 const _SHAPE_2D_TYPES := [
 	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D", "SegmentShape2D",

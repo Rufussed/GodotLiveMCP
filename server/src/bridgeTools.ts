@@ -25,8 +25,7 @@ const LOAD_PREFIX_NOTE =
   ' A value of the form "load:res://path/to/file" is resolved via load() instead of var_to_str() ' +
   'decoding — use this to assign an existing texture or other resource file, e.g. ' +
   '{"albedo_texture": "load:res://icon.svg"}. Nested colon-path property names like ' +
-  '"material_override:albedo_texture" are NOT supported — resolve the underlying node/resource and ' +
-  'target the property directly instead.';
+  '"material_override:albedo_texture" are NOT supported here — use set_nested_property for those instead.';
 
 export const bridgeToolNames = new Set([
   'eval_expression',
@@ -72,6 +71,9 @@ export const bridgeToolNames = new Set([
   'set_theme_stylebox_override',
   'set_shader_material',
   'get_shader_material_info',
+  'set_nested_property',
+  'set_resource_property',
+  'reload_plugin',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -646,6 +648,73 @@ export const bridgeToolDefinitions = [
       required: ['node_path'],
     },
   },
+  {
+    name: 'set_nested_property',
+    description:
+      'Set a property reached through a colon-separated path, e.g. "material_override:albedo_color" — ' +
+      'the same path shape shown by the Godot inspector\'s own revert-arrow UI. set_property/set_properties ' +
+      'treat a colon-path as one literal (unknown) property name, so use this instead whenever the target is ' +
+      'a sub-property of a resource already assigned to the node (a material, a shape, a stylebox, ...). Every ' +
+      'intermediate segment must already hold a non-null Resource/Object — this cannot create one along the ' +
+      'way; use set_resource_property first if the intermediate resource does not exist yet.' +
+      VALUE_ENCODING_NOTE +
+      ' A value of the form "load:res://path/to/file" is resolved via load() instead of var_to_str() decoding.' +
+      PROPERTY_VALIDATION_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        property_path: {
+          type: 'string',
+          description: 'Colon-separated property path, e.g. "material_override:albedo_color" or "shape:radius"',
+        },
+        value: { type: 'string', description: 'New value, var_to_str()-encoded (or "load:res://..." for a resource file)' },
+      },
+      required: ['property_path', 'value'],
+    },
+  },
+  {
+    name: 'set_resource_property',
+    description:
+      'Set a node property to a freshly-constructed Resource of any class (e.g. property_name ' +
+      '"shape", resource_type "SphereShape3D"), applying resource_params to it first. This is the generic ' +
+      'form of set_theme_stylebox_override/set_shader_material/set_physics_material/setup_environment — those ' +
+      'exist as convenience wrappers for common cases, but this works for any Resource subclass, closing the ' +
+      'gap where a resource-typed property needs a brand-new (unsaved, path-less) resource that ' +
+      'str_to_var()/"load:" can\'t construct. Reuses the node\'s existing resource in place if it is already ' +
+      'the requested type (set reuse_existing to false to always replace it).' + PROPERTY_VALIDATION_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        property_name: { type: 'string', description: 'Node property to assign the resource to, e.g. "shape", "material_override"' },
+        resource_type: { type: 'string', description: 'Resource subclass to instantiate, e.g. "SphereShape3D", "StyleBoxFlat"' },
+        resource_params: {
+          type: 'object',
+          description: 'Properties to set on the new resource, var_to_str()-encoded, e.g. {"radius": "1.5"}',
+        },
+        reuse_existing: {
+          type: 'boolean',
+          description: 'Reuse the node\'s existing resource if it\'s already resource_type, instead of replacing it (default true)',
+        },
+      },
+      required: ['node_path', 'property_name', 'resource_type'],
+    },
+  },
+  {
+    name: 'reload_plugin',
+    description:
+      'Disable and re-enable the GodotLiveMCP editor plugin, the same effect as toggling it by hand in ' +
+      'Project Settings > Plugins. Use this after any bridge.gd change so new/updated bridge commands take ' +
+      'effect without manual intervention. The TCP connection drops as part of the reload — expect the next ' +
+      'call to this server to reconnect automatically; a call issued immediately after this one may need a ' +
+      'short retry if it lands before the new plugin instance is listening again.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -878,6 +947,22 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('get_shader_material_info', {
         node_path: params.node_path ?? '.',
       }));
+    case 'set_nested_property':
+      return textResult(await client.call('set_nested_property', {
+        node_path: params.node_path ?? '.',
+        property_path: params.property_path,
+        value: params.value,
+      }));
+    case 'set_resource_property':
+      return textResult(await client.call('set_resource_property', {
+        node_path: params.node_path ?? '.',
+        property_name: params.property_name,
+        resource_type: params.resource_type,
+        resource_params: params.resource_params ?? {},
+        reuse_existing: params.reuse_existing ?? true,
+      }));
+    case 'reload_plugin':
+      return textResult(await client.call('reload_plugin', {}));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }
