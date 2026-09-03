@@ -81,6 +81,10 @@ export const bridgeToolNames = new Set([
   'batch_set_properties',
   'get_editor_screenshot',
   'get_material_info',
+  'add_animation_state',
+  'add_animation_transition',
+  'setup_navigation',
+  'get_resource_dependencies',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -494,6 +498,43 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'add_animation_state',
+    description:
+      'Add a state to a live AnimationTree\'s state machine (AnimationNodeStateMachine.add_node()) — a ' +
+      'method call, unreachable through set_property/set_resource_property. tree_root must already be an ' +
+      'AnimationNodeStateMachine (set it first via set_resource_property with property_name "tree_root", ' +
+      'resource_type "AnimationNodeStateMachine").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        state_name: { type: 'string', description: 'Name for the new state' },
+        animation_name: { type: 'string', description: 'Name of the animation this state plays (optional)' },
+      },
+      required: ['node_path', 'state_name'],
+    },
+  },
+  {
+    name: 'add_animation_transition',
+    description:
+      'Add a transition between two states in a live AnimationTree\'s state machine ' +
+      '(AnimationNodeStateMachine.add_transition()) — a method call, unreachable through property tools.' +
+      LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        from_state: { type: 'string', description: 'Name of the source state (must already exist)' },
+        to_state: { type: 'string', description: 'Name of the target state (must already exist)' },
+        transition_params: {
+          type: 'object',
+          description: 'Properties to set on the AnimationNodeStateMachineTransition, var_to_str()-encoded, e.g. {"xfade_time": "0.2"}',
+        },
+      },
+      required: ['node_path', 'from_state', 'to_state'],
+    },
+  },
+  {
     name: 'add_audio_bus',
     description: 'Add a new audio bus (appended at the end) and name it. Returns its bus_index.',
     inputSchema: {
@@ -833,6 +874,43 @@ export const bridgeToolDefinitions = [
       required: [],
     },
   },
+  {
+    name: 'setup_navigation',
+    description:
+      'Configure and bake a live NavigationRegion2D/3D\'s nav polygon/mesh in one call — creating the ' +
+      'resource, applying properties, and baking are three separate steps otherwise, and baking specifically ' +
+      'is a method call (bake_navigation_mesh()/bake_navigation_polygon()), unreachable through property ' +
+      'tools. Bakes synchronously (blocks briefly) so the response reflects the finished result, rather than ' +
+      'the default threaded bake this bridge has no way to await. Bakes from whatever geometry already ' +
+      'exists under the region node in the scene, same as the editor\'s manual bake button.' +
+      LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        nav_params: {
+          type: 'object',
+          description: 'Properties to set on the NavigationMesh (3D) or NavigationPolygon (2D), var_to_str()-encoded, e.g. {"cell_size": "0.25"}',
+        },
+        bake: { type: 'boolean', description: 'Bake after configuring (default true)' },
+      },
+      required: ['node_path'],
+    },
+  },
+  {
+    name: 'get_resource_dependencies',
+    description:
+      'List a resource file\'s dependencies (other files it references) via ResourceLoader.get_dependencies() ' +
+      '— a genuine capability gap, nothing else exposes a project\'s resource dependency graph. Useful before ' +
+      'deleting or moving a file, to see what would break.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'res:// path to the resource file, e.g. "res://level1.tscn"' },
+      },
+      required: ['path'],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -1112,6 +1190,29 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('get_material_info', {
         node_path: params.node_path ?? '.',
         surface_index: params.surface_index,
+      }));
+    case 'add_animation_state':
+      return textResult(await client.call('add_animation_state', {
+        node_path: params.node_path ?? '.',
+        state_name: params.state_name,
+        animation_name: params.animation_name ?? '',
+      }));
+    case 'add_animation_transition':
+      return textResult(await client.call('add_animation_transition', {
+        node_path: params.node_path ?? '.',
+        from_state: params.from_state,
+        to_state: params.to_state,
+        transition_params: params.transition_params ?? {},
+      }));
+    case 'setup_navigation':
+      return textResult(await client.call('setup_navigation', {
+        node_path: params.node_path ?? '.',
+        nav_params: params.nav_params ?? {},
+        bake: params.bake ?? true,
+      }));
+    case 'get_resource_dependencies':
+      return textResult(await client.call('get_resource_dependencies', {
+        path: params.path,
       }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
