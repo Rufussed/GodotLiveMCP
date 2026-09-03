@@ -595,7 +595,28 @@ func _cmd_reparent_node(params: Dictionary):
 
 	node.get_parent().remove_child(node)
 	new_parent.add_child(node)
+
+	# Godot's scene serializer silently drops any node whose `owner` isn't
+	# set to the scene root — confirmed live: reparenting without this left
+	# nodes fully visible and working in the live editor, but they never
+	# made it into the saved .tscn at all, so every actual play session was
+	# missing them entirely, with no error anywhere. add_node_live already
+	# set this for newly-created nodes; reparent_node never did for moved
+	# ones. Fixed recursively over the whole moved subtree (not just the
+	# top node), matching what the editor's own "Move to New Parent"
+	# operation does, since a multi-node subtree can have its own owned
+	# descendants that need the same fix.
+	var root := _get_scene_root()
+	if root:
+		_fix_owner_recursive(node, root)
+
 	return {"path": _rel_path(node)}
+
+func _fix_owner_recursive(node: Node, root: Node) -> void:
+	if node != root:
+		node.owner = root
+	for child in node.get_children():
+		_fix_owner_recursive(child, root)
 
 func _cmd_duplicate_node(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
