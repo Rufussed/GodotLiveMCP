@@ -324,18 +324,50 @@ func _cmd_set_properties(params: Dictionary):
 		result[name_str] = var_to_str(node.get(name_str))
 	return result
 
+func _is_indexable_container(value) -> bool:
+	return typeof(value) == TYPE_ARRAY or typeof(value) == TYPE_DICTIONARY
+
+## Reads `key` out of an Array (parsed as an integer index) or Dictionary
+## (used as a literal string key). Returns [ok, value, error_message].
+func _container_get(container, key: String) -> Array:
+	if container is Array:
+		if not key.is_valid_int():
+			return [false, null, "array index must be an integer: %s" % key]
+		var idx := int(key)
+		if idx < 0 or idx >= container.size():
+			return [false, null, "array index out of range: %d (size %d)" % [idx, container.size()]]
+		return [true, container[idx], ""]
+	# Dictionary
+	if not container.has(key):
+		return [false, null, "dictionary has no key: %s" % key]
+	return [true, container[key], ""]
+
 ## Sets a property reached through a colon-separated path (e.g.
-## "material_override:albedo_color"), the same path shape the editor
-## inspector's own revert-arrow UI uses. Object.set() treats a colon-path as
-## a single literal property name, which either fails as "unknown" (now
-## caught) or — before that validation existed — silently zeroed the
-## top-level property instead of touching the sub-property. This walks each
-## intermediate segment via .get(), requires every intermediate value to be
-## an Object (a Resource, typically) since only reference types alias back
-## into the original — a Vector2/Rect2/etc. intermediate is a copy and
-## can't be mutated in place, so those fail loudly instead of silently
-## no-oping. The final segment is applied through the same validated,
-## UndoRedo-tracked path as set_property.
+## "material_override:albedo_color", or "items:0:color" through an Array,
+## or "presets:default:radius" through a Dictionary), the same shape the
+## editor inspector's own revert-arrow UI uses for sub-resource properties.
+## Object.set() treats a colon-path as a single literal property name,
+## which either fails as "unknown" (now caught) or — before that
+## validation existed — silently zeroed the top-level property instead of
+## touching the sub-property.
+##
+## Root cause found live (after three failed attempts across a full
+## session): Godot returns an @export'd Array/Dictionary property via
+## Object.get() as READ-ONLY (confirmed: items.is_read_only() == true even
+## though var_to_str() prints it normally and a PURELY LOCAL Array/
+## Dictionary is never read-only) — mutating it directly throws a runtime
+## error that our own dispatcher can't distinguish from a legitimate null
+## return (a real gap in _handle_line, noted but not fixed here), which is
+## why every earlier attempt silently no-oped no matter how the UndoRedo
+## side was wired. The fix: duplicate the top-level Array/Dictionary
+## (.duplicate(true), confirmed live to produce a genuinely mutable copy),
+## replay the same path segments through the duplicate to reach the
+## corresponding mutable nested container, mutate THAT, and commit the
+## whole duplicate back through the standard add_do_property/
+## add_undo_property path — never mutate the original read-only reference.
+## Object-typed intermediates (Resources) don't have this problem — those
+## are still walked and mutated via the existing validated
+## _apply_properties path, unchanged.
 func _cmd_set_nested_property(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var property_path := String(params.get("property_path", ""))
@@ -348,30 +380,80 @@ func _cmd_set_nested_property(params: Dictionary):
 
 	var parts := property_path.split(":")
 	if parts.size() < 2:
-		return _fail('property_path must contain at least one ":" (e.g. "material_override:albedo_color")')
+		return _fail('property_path must contain at least one ":" (e.g. "material_override:albedo_color" or "items:0:color")')
 
-	var obj: Object = node
+	var obj = node
 	var resolved_path := node_path
+	var owner: Object = node
+	var owner_prop := ""
+	var container_start := -1
 	for i in range(parts.size() - 1):
 		var seg := parts[i]
-		var valid_names := {}
-		for p in obj.get_property_list():
-			valid_names[p.name] = true
-		if not valid_names.has(seg):
-			return _fail("unknown property: %s (in path %s)" % [seg, property_path])
-		var next = obj.get(seg)
+		var next
+		if obj is Object:
+			var valid_names := {}
+			for p in obj.get_property_list():
+				valid_names[p.name] = true
+			if not valid_names.has(seg):
+				return _fail("unknown property: %s (in path %s)" % [seg, property_path])
+			next = obj.get(seg)
+			owner = obj
+			owner_prop = seg
+			container_start = i + 1
+		elif _is_indexable_container(obj):
+			var res := _container_get(obj, seg)
+			if not res[0]:
+				return _fail("%s (in path %s)" % [res[2], property_path])
+			next = res[1]
+		else:
+			return _fail("%s is a %s value — can't index into it (only Object properties, Array indices, and Dictionary keys are supported)" % [resolved_path, type_string(typeof(obj))])
 		resolved_path += ":" + seg
 		if next == null:
-			return _fail("%s is null — assign/create the resource first (e.g. via set_resource_property) before setting a nested property on it" % resolved_path)
-		if not (next is Object):
-			return _fail("%s is a %s value, not an Object — nested set only works through Resource/Object-typed intermediate properties" % [resolved_path, type_string(typeof(next))])
+			return _fail("%s is null — assign/create it first (e.g. via set_resource_property) before setting a nested property on it" % resolved_path)
+		if not (next is Object or _is_indexable_container(next)):
+			return _fail("%s is a %s value, not an Object/Array/Dictionary — nested set only works through those container types" % [resolved_path, type_string(typeof(next))])
 		obj = next
 
-	var last_prop := parts[parts.size() - 1]
-	var unknown := _apply_properties(obj, {last_prop: value_str})
-	if not unknown.is_empty():
-		return _fail("unknown property: %s (on %s)" % [last_prop, resolved_path])
-	return {"value": var_to_str(obj.get(last_prop))}
+	var last := parts[parts.size() - 1]
+	if obj is Object:
+		var unknown := _apply_properties(obj, {last: value_str})
+		if not unknown.is_empty():
+			return _fail("unknown property: %s (on %s)" % [last, resolved_path])
+		return {"value": var_to_str(obj.get(last))}
+
+	# obj is an Array/Dictionary reached through owner.owner_prop, possibly
+	# read-only — duplicate the top-level container and replay the
+	# container-only segments (container_start .. second-to-last) through
+	# the duplicate to find the mutable counterpart of `obj`.
+	var old_top = owner.get(owner_prop)
+	var new_top = old_top.duplicate(true)
+	var mutable_target = new_top
+	for i in range(container_start, parts.size() - 1):
+		var seg = parts[i]
+		if mutable_target is Array:
+			mutable_target = mutable_target[int(seg)]
+		else:
+			mutable_target = mutable_target[seg]
+
+	var decoded = _decode_value(value_str)
+	if mutable_target is Array:
+		if not last.is_valid_int():
+			return _fail("array index must be an integer: %s (on %s)" % [last, resolved_path])
+		var idx := int(last)
+		if idx < 0 or idx >= mutable_target.size():
+			return _fail("array index out of range: %d (size %d, on %s)" % [idx, mutable_target.size(), resolved_path])
+		mutable_target[idx] = decoded
+	else:
+		# Dictionary — assigning a new key is always valid, unlike
+		# Object.set()'s unknown-property landmine, so no existence check
+		# is needed before writing.
+		mutable_target[last] = decoded
+
+	_commit_properties(owner, {owner_prop: new_top})
+
+	if mutable_target is Array:
+		return {"value": var_to_str(mutable_target[int(last)])}
+	return {"value": var_to_str(mutable_target[last])}
 
 ## Generic resource-property setter: instantiates a fresh Resource of any
 ## class by name, applies properties to it through the same validated path
