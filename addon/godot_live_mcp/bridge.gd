@@ -1303,6 +1303,76 @@ func _cmd_get_animation_info(params: Dictionary):
 		})
 	return {"length": anim.length, "tracks": tracks}
 
+## Resolves an AnimationTree node's tree_root, requiring it to already be an
+## AnimationNodeStateMachine — set via set_resource_property first if it
+## isn't (e.g. resource_type "AnimationNodeStateMachine" on property
+## "tree_root"). Shared by add_animation_state/add_animation_transition.
+func _resolve_state_machine(node_path: String):
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is AnimationTree):
+		return _fail("node is not an AnimationTree: %s" % node_path)
+	var root = node.tree_root
+	if not (root is AnimationNodeStateMachine):
+		return _fail("AnimationTree's tree_root is not an AnimationNodeStateMachine — set it first via set_resource_property (property_name \"tree_root\", resource_type \"AnimationNodeStateMachine\")")
+	return root
+
+## Adds a state to an AnimationTree's state machine — a method call
+## (AnimationNodeStateMachine.add_node()), not a property, so unreachable
+## through set_property/set_resource_property. Wraps the named animation in
+## a fresh AnimationNodeAnimation, matching what the state machine editor
+## UI creates when you drag an animation into the graph.
+func _cmd_add_animation_state(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var state_name := String(params.get("state_name", ""))
+	var animation_name := String(params.get("animation_name", ""))
+	if state_name == "":
+		return _fail("state_name is required")
+
+	var root = _resolve_state_machine(node_path)
+	if root is Dictionary:
+		return root
+
+	if root.has_node(state_name):
+		return _fail("state already exists: %s" % state_name)
+
+	var anim_node := AnimationNodeAnimation.new()
+	if animation_name != "":
+		anim_node.animation = animation_name
+	root.add_node(state_name, anim_node)
+	return {"ok": true}
+
+## Adds a transition between two states in an AnimationTree's state
+## machine — a method call (AnimationNodeStateMachine.add_transition()),
+## not a property. The transition itself is a generic Resource
+## (AnimationNodeStateMachineTransition), so its properties (switch_mode,
+## advance_mode, xfade_time, ...) go through the same validated
+## _apply_properties path as everything else.
+func _cmd_add_animation_transition(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var from_state := String(params.get("from_state", ""))
+	var to_state := String(params.get("to_state", ""))
+	var transition_params: Dictionary = params.get("transition_params", {})
+	if from_state == "" or to_state == "":
+		return _fail("from_state and to_state are required")
+
+	var root = _resolve_state_machine(node_path)
+	if root is Dictionary:
+		return root
+
+	if not root.has_node(from_state):
+		return _fail("unknown from_state: %s" % from_state)
+	if not root.has_node(to_state):
+		return _fail("unknown to_state: %s" % to_state)
+
+	var transition := AnimationNodeStateMachineTransition.new()
+	var unknown := _apply_properties(transition, transition_params)
+	if not unknown.is_empty():
+		return _fail("unknown transition properties: %s" % ", ".join(unknown))
+	root.add_transition(from_state, to_state, transition)
+	return {"ok": true, "transition": _read_back(transition, transition_params.keys())}
+
 func _cmd_add_audio_bus(params: Dictionary):
 	var bus_name := String(params.get("bus_name", ""))
 	if bus_name == "":
@@ -1473,6 +1543,73 @@ func _cmd_get_particle_info(params: Dictionary):
 		"process_material_type": mat_type,
 		"process_material_properties": mat_props,
 	}
+
+## Configures and bakes a NavigationRegion2D/3D's nav mesh/polygon in one
+## call — creating the resource, applying properties to it, and baking are
+## three separate steps otherwise, and baking specifically is a method call
+## (bake_navigation_mesh()/bake_navigation_polygon()), unreachable through
+## property tools. Forces on_thread=false (synchronous) rather than the
+## default threaded bake, since this is a request/response bridge with no
+## way to push a bake_finished signal back to the caller — the response
+## only means something if baking has actually completed by the time it's
+## sent. Bakes from whatever geometry already exists under the region node
+## in the scene tree, same as the manual "Bake NavigationMesh" editor button.
+func _cmd_setup_navigation(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var nav_params: Dictionary = params.get("nav_params", {})
+	var bake := bool(params.get("bake", true))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	if node is NavigationRegion3D:
+		var navmesh: NavigationMesh = node.navigation_mesh
+		if navmesh == null:
+			navmesh = NavigationMesh.new()
+		var unknown := _apply_properties(navmesh, nav_params)
+		if not unknown.is_empty():
+			return _fail("unknown navigation mesh properties: %s" % ", ".join(unknown))
+		node.navigation_mesh = navmesh
+		if bake:
+			node.bake_navigation_mesh(false)
+		return {"ok": true, "baked": bake, "navigation_mesh": _read_back(navmesh, nav_params.keys())}
+
+	if node is NavigationRegion2D:
+		var navpoly: NavigationPolygon = node.navigation_polygon
+		if navpoly == null:
+			navpoly = NavigationPolygon.new()
+		var unknown := _apply_properties(navpoly, nav_params)
+		if not unknown.is_empty():
+			return _fail("unknown navigation polygon properties: %s" % ", ".join(unknown))
+		node.navigation_polygon = navpoly
+		if bake:
+			node.bake_navigation_polygon(false)
+		return {"ok": true, "baked": bake, "navigation_polygon": _read_back(navpoly, nav_params.keys())}
+
+	return _fail("node is not a NavigationRegion2D/3D: %s" % node_path)
+
+## Returns a resource file's dependencies (other files it references) via
+## ResourceLoader.get_dependencies() — a genuine capability gap, nothing
+## else exposes a project's resource dependency graph. Each raw entry is
+## either a plain path or "uid://...::TypeHint::fallback/path" — this
+## splits out the path/uid for a cleaner response rather than making the
+## caller parse Godot's "::"-joined format.
+func _cmd_get_resource_dependencies(params: Dictionary):
+	var path := String(params.get("path", ""))
+	if path == "":
+		return _fail("path is required")
+	if not ResourceLoader.exists(path):
+		return _fail("resource not found: %s" % path)
+
+	var deps := []
+	for raw in ResourceLoader.get_dependencies(path):
+		var raw_str := String(raw)
+		var parts := raw_str.split("::")
+		if parts.size() >= 3:
+			deps.append({"uid": parts[0], "type_hint": parts[1], "path": parts[2]})
+		else:
+			deps.append({"uid": "", "type_hint": "", "path": raw_str})
+	return {"dependencies": deps}
 
 # ---- Token / port setup ----
 
