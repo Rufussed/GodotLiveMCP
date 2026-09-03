@@ -23,6 +23,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { bridgeToolDefinitions, handleBridgeTool, isBridgeTool } from './bridgeTools.js';
+import { runtimeToolDefinitions, handleRuntimeTool, isRuntimeTool } from './runtimeTools.js';
 import { logEvent } from './callLog.js';
 
 // Check if debug mode is enabled
@@ -927,6 +928,7 @@ class GodotServer {
           },
         },
         ...bridgeToolDefinitions,
+        ...runtimeToolDefinitions,
       ],
     }));
 
@@ -971,6 +973,9 @@ class GodotServer {
   private async dispatchTool(name: string, args: any): Promise<any> {
     if (isBridgeTool(name)) {
       return await handleBridgeTool(name, args);
+    }
+    if (isRuntimeTool(name)) {
+      return await handleRuntimeTool(name, args);
     }
     {
       const request = { params: { name, arguments: args } };
