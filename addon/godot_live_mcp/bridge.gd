@@ -686,6 +686,105 @@ func _cmd_restart_editor(params: Dictionary):
 func _do_restart_editor(save: bool) -> void:
 	EditorInterface.restart_editor(save)
 
+## Rescans the project filesystem so Godot notices externally-edited files
+## (e.g. a script edited on disk outside the editor) without a full
+## restart_editor. This is the reload_project counterpart to reload_plugin
+## and restart_editor: cheapest first, escalate only if it isn't enough.
+func _cmd_reload_project(_params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("reload_project is only available inside the editor")
+	EditorInterface.get_resource_filesystem().scan()
+	return {"ok": true}
+
+## Lists every signal a node declares, and every live connection on each —
+## one structured call replacing get_signal_list() + a get_signal_connection_list()
+## call per signal, each returning raw Dictionaries that would need manual
+## parsing. Connection targets are reported as a scene-relative path when
+## they're a Node under the current scene root, else by class name.
+func _cmd_get_signals(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	var signals := []
+	for sig in node.get_signal_list():
+		var sig_name: String = sig.name
+		var connections := []
+		for conn in node.get_signal_connection_list(sig_name):
+			var callable: Callable = conn["callable"]
+			var target: Object = callable.get_object()
+			var target_desc := "<freed>"
+			if target:
+				if target is Node and _get_scene_root() and (target == _get_scene_root() or _get_scene_root().is_ancestor_of(target)):
+					target_desc = _rel_path(target)
+				else:
+					target_desc = "<%s>" % target.get_class()
+			connections.append({
+				"target": target_desc,
+				"method": String(callable.get_method()),
+			})
+		signals.append({"name": sig_name, "connections": connections})
+	return {"signals": signals}
+
+## Recursively finds nodes under node_path matching a type and/or name glob
+## pattern, returning just matching paths — not the whole subtree like
+## list_scene_tree, which matters once a scene has more than a handful of
+## nodes. type_filter uses Object.is_class() (inheritance-aware: "Control"
+## matches a Button). name_pattern uses String.match() glob syntax ("*" and
+## "?"). Either or both may be given; neither given returns every descendant.
+func _cmd_find_nodes(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var type_filter := String(params.get("type", ""))
+	var name_pattern := String(params.get("name_pattern", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	var matches := []
+	_find_nodes_recursive(node, type_filter, name_pattern, matches)
+	return {"matches": matches}
+
+func _find_nodes_recursive(node: Node, type_filter: String, name_pattern: String, matches: Array) -> void:
+	for child in node.get_children():
+		var type_ok := type_filter == "" or child.is_class(type_filter)
+		var name_ok := name_pattern == "" or String(child.name).match(name_pattern)
+		if type_ok and name_ok:
+			matches.append({"name": child.name, "type": child.get_class(), "path": _rel_path(child)})
+		_find_nodes_recursive(child, type_filter, name_pattern, matches)
+
+## Captures the live editor viewport as a PNG, base64-encoded — genuine
+## visual awareness with no other path to it (nothing exposes the Output
+## panel's pixels or the 3D/2D viewport render through get_node_properties
+## or eval_expression). max_dimension downscales before encoding so a
+## screenshot doesn't dominate the response with a multi-megabyte payload;
+## aspect ratio is preserved.
+func _cmd_get_editor_screenshot(params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("get_editor_screenshot is only available inside the editor")
+	var max_dimension := int(params.get("max_dimension", 800))
+
+	var viewport := EditorInterface.get_editor_viewport_3d(0)
+	if viewport == null:
+		return _fail("no 3D editor viewport available")
+	var img := viewport.get_texture().get_image()
+	if img == null:
+		return _fail("could not capture viewport image")
+
+	var w := img.get_width()
+	var h := img.get_height()
+	if max_dimension > 0 and max(w, h) > max_dimension:
+		var scale: float = float(max_dimension) / float(max(w, h))
+		img.resize(int(w * scale), int(h * scale))
+
+	var png_bytes := img.save_png_to_buffer()
+	return {
+		"format": "png",
+		"base64": Marshalls.raw_to_base64(png_bytes),
+		"width": img.get_width(),
+		"height": img.get_height(),
+	}
+
 const _SHAPE_2D_TYPES := [
 	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D", "SegmentShape2D",
 	"SeparationRayShape2D", "ConvexPolygonShape2D", "ConcavePolygonShape2D",
