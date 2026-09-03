@@ -54,13 +54,38 @@ one), use a value of the form `"load:res://path/to/file"` — this resolves
 via `load()` instead of trying to parse the string as a Variant literal,
 e.g. `{"albedo_texture": "load:res://player_skin.png"}`.
 
-**Never use a colon-path property name** like
-`"material_override:albedo_texture"` — that is not a real property name
-and will fail (or, before this was fixed, could silently corrupt the
-parent property instead). Resolve the underlying resource
-(`node.material_override`, `node.mesh`, etc.) and target its own property
-directly instead — via a structured tool if one creates/configures that
-resource type, or via `eval_expression` for a plain-value read.
+**Use `set_nested_property` for a colon-path property name** like
+`"material_override:albedo_color"` — `set_property`/`set_properties`
+treat a colon-path as one literal (unknown) property name and will fail,
+but `set_nested_property` walks it correctly, including through Array
+indices and Dictionary keys (`"items:0:color"`, `"presets:default:radius"`).
+If an intermediate resource doesn't exist yet, create it first with
+`set_resource_property`.
+
+## Live running-game control (if `runtime_bridge.gd` is set up)
+
+If the project has `runtime_bridge.gd` added as an Autoload (check
+Project Settings > Autoload, or just try a `game_*` tool), a running game
+instance is reachable too — a genuinely separate process from the editor,
+with its own tool set: `game_eval_expression`, `game_list_scene_tree`,
+`game_get_node_properties`, `game_set_property`/`game_set_properties`,
+`get_game_screenshot`, `simulate_key`/`simulate_mouse_button`/
+`simulate_mouse_motion`, and `wait_for_game_condition` (polls a boolean
+expression once per frame instead of one round trip per frame — use this
+instead of manually looping `game_eval_expression` calls).
+
+- Prefer `play_scene`/`stop_scene` over godot-mcp's inherited
+  `run_project` — the latter spawns a separate CLI process this MCP
+  server owns directly, which proved unreliable in practice (the process
+  can vanish mid-session with no crash trace). `play_scene`/`stop_scene`
+  reuse the editor's own Play/Stop mechanism instead.
+- Editor tools (`eval_expression`, `set_property`, ...) have **no effect**
+  on a running game and vice versa — they're different processes with
+  independent state. Don't expect a `set_property` call to be visible via
+  `game_get_node_properties` or vice versa.
+- Runtime property mutations are NOT undo-tracked (no `EditorUndoRedoManager`
+  at runtime) and are never persisted to the scene file — they're
+  ephemeral, live only as long as the game keeps running.
 
 ## Self-improvement rule
 
