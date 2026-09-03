@@ -8,29 +8,12 @@
 
 import { connect, Socket } from 'net';
 import { randomUUID } from 'crypto';
-import { appendFile, mkdir } from 'fs/promises';
-import { join } from 'path';
-import { homedir } from 'os';
 
-// Fixed path outside any project repo: every workspace pointing at this
-// shared server instance (registered at Claude Code user scope, one copy
-// for all projects) logs to the same file, so calls from any consuming
-// workspace can be reviewed together later to spot patterns worth turning
-// into a dedicated tool. Best-effort — a logging failure never affects the
-// actual bridge call.
-const CALL_LOG_DIR = join(homedir(), '.local', 'share', 'godot-live-mcp');
-const CALL_LOG_PATH = join(CALL_LOG_DIR, 'calls.ndjson');
-let logDirReady: Promise<void> | null = null;
-
-async function logCall(entry: Record<string, any>): Promise<void> {
-  try {
-    if (!logDirReady) logDirReady = mkdir(CALL_LOG_DIR, { recursive: true }).then(() => undefined);
-    await logDirReady;
-    await appendFile(CALL_LOG_PATH, JSON.stringify(entry) + '\n', 'utf8');
-  } catch {
-    // Logging is diagnostic-only — never let a filesystem hiccup break a bridge call.
-  }
-}
+// Call-level usage logging (for reviewing what tools get used and how)
+// lives one layer up, in index.ts's single CallToolRequestSchema handler —
+// that's the one choke point every tool call passes through, bridge-backed
+// or not, so logging there covers both without double-logging bridge calls
+// here too. See callLog.ts.
 
 export interface BridgeRequest {
   command: string;
@@ -67,36 +50,6 @@ export class BridgeClient {
   }
 
   async call(command: string, params: Record<string, any> = {}): Promise<any> {
-    const startedAt = Date.now();
-    try {
-      const result = await this._rawCall(command, params);
-      await logCall({
-        ts: new Date().toISOString(),
-        cwd: process.cwd(),
-        pid: process.pid,
-        command,
-        params,
-        ok: true,
-        result,
-        duration_ms: Date.now() - startedAt,
-      });
-      return result;
-    } catch (err: any) {
-      await logCall({
-        ts: new Date().toISOString(),
-        cwd: process.cwd(),
-        pid: process.pid,
-        command,
-        params,
-        ok: false,
-        error: err?.message ?? String(err),
-        duration_ms: Date.now() - startedAt,
-      });
-      throw err;
-    }
-  }
-
-  private async _rawCall(command: string, params: Record<string, any> = {}): Promise<any> {
     if (!this.token) {
       throw new BridgeError(
         'No bridge token configured. Set GODOT_LIVE_MCP_TOKEN to the token printed/stored ' +

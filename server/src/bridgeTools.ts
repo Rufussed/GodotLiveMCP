@@ -5,6 +5,14 @@
  */
 
 import { BridgeClient } from './bridgeClient.js';
+import { readFile, stat } from 'fs/promises';
+
+// Per-log-path read cursor for get_editor_errors, so repeated calls during a
+// long session only return lines appended since the last check instead of
+// re-reading (and re-costing tokens on) the whole growing file each time.
+// In-memory/per-server-process — resets if the MCP server restarts, which
+// just means the next call re-reads from the start, not a correctness issue.
+const editorErrorCursors = new Map<string, number>();
 
 const NODE_PATH_PROPERTY = {
   node_path: {
@@ -75,6 +83,11 @@ export const bridgeToolNames = new Set([
   'set_resource_property',
   'reload_plugin',
   'restart_editor',
+  'reload_project',
+  'get_signals',
+  'find_nodes',
+  'get_editor_screenshot',
+  'get_editor_errors',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -733,6 +746,80 @@ export const bridgeToolDefinitions = [
       required: [],
     },
   },
+  {
+    name: 'reload_project',
+    description:
+      'Rescan the project filesystem (EditorFileSystem.scan()) so the editor notices externally-edited ' +
+      'files, e.g. a script edited on disk outside the editor. Cheaper than restart_editor and doesn\'t drop ' +
+      'the connection — try this first; escalate to restart_editor only if a change still isn\'t recognized ' +
+      '(e.g. a boot-only project setting, or a change to bridge.gd itself, which needs reload_plugin instead).',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_signals',
+    description:
+      'List every signal a live node declares and every live connection on each (target + method). One call ' +
+      'instead of get_signal_list() plus a get_signal_connection_list() call per signal via eval_expression, ' +
+      'each returning a raw Dictionary that would need manual parsing.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: [],
+    },
+  },
+  {
+    name: 'find_nodes',
+    description:
+      'Recursively find nodes under node_path matching a type and/or name pattern, returning just the ' +
+      'matching paths — not the whole subtree like list_scene_tree, which matters once a scene has more than ' +
+      'a handful of nodes. type uses inheritance-aware matching ("Control" matches a Button). name_pattern ' +
+      'uses glob syntax ("*" and "?"). Either or both may be given.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        type: { type: 'string', description: 'Class name to match, inheritance-aware, e.g. "Button" or "Control"' },
+        name_pattern: { type: 'string', description: 'Glob pattern for node name, e.g. "Enemy*"' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_editor_screenshot',
+    description:
+      'Capture the live editor\'s 3D viewport as a PNG image — the only way to get visual state, since ' +
+      'nothing else exposes rendered pixels through get_node_properties or eval_expression. Returned as an ' +
+      'image content block, not JSON.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        max_dimension: { type: 'integer', description: 'Downscale so neither dimension exceeds this (default 800); pass 0 for full resolution' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_editor_errors',
+    description:
+      'Read new lines from the live editor\'s Output panel (mirrored to a file via the project\'s ' +
+      'debug/file_logging/enable_file_logging setting) since the last call to this tool — not the whole ' +
+      'growing log file, so repeated calls during a long session stay cheap. Requires that project setting ' +
+      'to be enabled (it is in this repo\'s test projects); if the log file doesn\'t exist yet, says so rather ' +
+      'than erroring. Resolves the log path itself via one eval_expression call, so this is a single call for ' +
+      'the caller despite doing that internally.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level: {
+          type: 'string',
+          enum: ['errors', 'all'],
+          description: '"errors" (default) returns only ERROR:/WARNING:/SCRIPT ERROR lines; "all" returns every new line',
+        },
+        reset: { type: 'boolean', description: 'Ignore the remembered cursor and read from the start of the file (default false)' },
+      },
+      required: [],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -985,9 +1072,83 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('restart_editor', {
         save: params.save ?? true,
       }));
+    case 'reload_project':
+      return textResult(await client.call('reload_project', {}));
+    case 'get_signals':
+      return textResult(await client.call('get_signals', {
+        node_path: params.node_path ?? '.',
+      }));
+    case 'find_nodes':
+      return textResult(await client.call('find_nodes', {
+        node_path: params.node_path ?? '.',
+        type: params.type ?? '',
+        name_pattern: params.name_pattern ?? '',
+      }));
+    case 'get_editor_screenshot':
+      return imageResult(await client.call('get_editor_screenshot', {
+        max_dimension: params.max_dimension ?? 800,
+      }));
+    case 'get_editor_errors':
+      return textResult(await getEditorErrors(client, params.level ?? 'errors', params.reset ?? false));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }
+}
+
+async function getEditorErrors(client: BridgeClient, level: string, reset: boolean): Promise<any> {
+  const pathResult = await client.call('eval_expression', {
+    node_path: '.',
+    expression: 'ProjectSettings.globalize_path("user://logs/godot.log")',
+  });
+  // eval_expression returns { value: <var_to_str()-encoded string> }, e.g. '"/home/.../godot.log"'.
+  const encoded = String(pathResult?.value ?? '');
+  const logPath = encoded.startsWith('"') && encoded.endsWith('"') ? encoded.slice(1, -1) : encoded;
+  if (!logPath) {
+    return { lines: [], note: 'could not resolve the log path' };
+  }
+
+  let size: number;
+  try {
+    size = (await stat(logPath)).size;
+  } catch {
+    return {
+      lines: [],
+      path: logPath,
+      note: 'log file does not exist yet — ensure debug/file_logging/enable_file_logging is set in ' +
+        'project.godot and the editor has been restarted since',
+    };
+  }
+
+  const cursorKey = logPath;
+  let start = reset ? 0 : (editorErrorCursors.get(cursorKey) ?? 0);
+  if (start > size) start = 0; // file was rotated/truncated (e.g. editor restart) — read from the top again
+
+  if (start === size) {
+    editorErrorCursors.set(cursorKey, size);
+    return { lines: [], path: logPath };
+  }
+
+  const buf = await readFile(logPath, 'utf8');
+  const newText = buf.slice(start);
+  editorErrorCursors.set(cursorKey, size);
+
+  let lines = newText.split('\n').filter((l) => l.length > 0);
+  if (level !== 'all') {
+    lines = lines.filter((l) => l.includes('ERROR:') || l.includes('WARNING:') || l.includes('SCRIPT ERROR'));
+  }
+  return { lines, path: logPath };
+}
+
+function imageResult(result: { base64: string; format: string }) {
+  return {
+    content: [
+      {
+        type: 'image',
+        data: result.base64,
+        mimeType: `image/${result.format}`,
+      },
+    ],
+  };
 }
 
 function textResult(result: any) {

@@ -23,6 +23,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { bridgeToolDefinitions, handleBridgeTool, isBridgeTool } from './bridgeTools.js';
+import { logEvent } from './callLog.js';
 
 // Check if debug mode is enabled
 const DEBUG_MODE: boolean = process.env.DEBUG === 'true';
@@ -932,9 +933,47 @@ class GodotServer {
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       this.logDebug(`Handling tool request: ${request.params.name}`);
-      if (isBridgeTool(request.params.name)) {
-        return await handleBridgeTool(request.params.name, request.params.arguments);
+      const startedAt = Date.now();
+      try {
+        const response = await this.dispatchTool(request.params.name, request.params.arguments);
+        await logEvent({
+          type: 'tool_call',
+          tool: request.params.name,
+          args: request.params.arguments,
+          ok: true,
+          cwd: process.cwd(),
+          pid: process.pid,
+          duration_ms: Date.now() - startedAt,
+        });
+        return response;
+      } catch (err: any) {
+        await logEvent({
+          type: 'tool_call',
+          tool: request.params.name,
+          args: request.params.arguments,
+          ok: false,
+          error: err?.message ?? String(err),
+          cwd: process.cwd(),
+          pid: process.pid,
+          duration_ms: Date.now() - startedAt,
+        });
+        throw err;
       }
+    });
+  }
+
+  /**
+   * Dispatches a single tool call by name — the logic previously inline in
+   * the CallToolRequestSchema handler, extracted so that handler can wrap
+   * every path (bridge-backed or lifecycle) with one unified log entry
+   * instead of logging bridge calls one way and lifecycle calls not at all.
+   */
+  private async dispatchTool(name: string, args: any): Promise<any> {
+    if (isBridgeTool(name)) {
+      return await handleBridgeTool(name, args);
+    }
+    {
+      const request = { params: { name, arguments: args } };
       switch (request.params.name) {
         case 'launch_editor':
           return await this.handleLaunchEditor(request.params.arguments);
@@ -970,7 +1009,7 @@ class GodotServer {
             `Unknown tool: ${request.params.name}`
           );
       }
-    });
+    }
   }
 
   /**
@@ -1026,10 +1065,44 @@ class GodotServer {
       const process = spawn(this.godotPath, ['-e', '--path', args.projectPath], {
         stdio: 'pipe',
       });
+      const output: string[] = [];
+      const errors: string[] = [];
+
+      process.stdout?.on('data', (data: Buffer) => {
+        const lines = data.toString().split('\n');
+        output.push(...lines);
+        lines.forEach((line: string) => {
+          if (!line.trim()) return;
+          this.logDebug(`[Godot stdout] ${line}`);
+          void logEvent({ type: 'process_output', source: 'launch_editor', stream: 'stdout', line, projectPath: args.projectPath });
+        });
+      });
+
+      process.stderr?.on('data', (data: Buffer) => {
+        const lines = data.toString().split('\n');
+        errors.push(...lines);
+        lines.forEach((line: string) => {
+          if (!line.trim()) return;
+          this.logDebug(`[Godot stderr] ${line}`);
+          void logEvent({ type: 'process_output', source: 'launch_editor', stream: 'stderr', line, projectPath: args.projectPath });
+        });
+      });
+
+      process.on('exit', (code: number | null) => {
+        this.logDebug(`Godot editor process exited with code ${code}`);
+        if (this.activeProcess && this.activeProcess.process === process) {
+          this.activeProcess = null;
+        }
+      });
 
       process.on('error', (err: Error) => {
         console.error('Failed to start Godot editor:', err);
+        if (this.activeProcess && this.activeProcess.process === process) {
+          this.activeProcess = null;
+        }
       });
+
+      this.activeProcess = { process, output, errors };
 
       return {
         content: [
@@ -1108,7 +1181,9 @@ class GodotServer {
         const lines = data.toString().split('\n');
         output.push(...lines);
         lines.forEach((line: string) => {
-          if (line.trim()) this.logDebug(`[Godot stdout] ${line}`);
+          if (!line.trim()) return;
+          this.logDebug(`[Godot stdout] ${line}`);
+          void logEvent({ type: 'process_output', source: 'run_project', stream: 'stdout', line, projectPath: args.projectPath });
         });
       });
 
@@ -1116,7 +1191,9 @@ class GodotServer {
         const lines = data.toString().split('\n');
         errors.push(...lines);
         lines.forEach((line: string) => {
-          if (line.trim()) this.logDebug(`[Godot stderr] ${line}`);
+          if (!line.trim()) return;
+          this.logDebug(`[Godot stderr] ${line}`);
+          void logEvent({ type: 'process_output', source: 'run_project', stream: 'stderr', line, projectPath: args.projectPath });
         });
       });
 
