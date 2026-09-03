@@ -21,7 +21,7 @@
  * succeeded, or failed.
  */
 
-import { logEvent } from './callLog.js';
+import { logEvent, hasPendingReview } from './callLog.js';
 
 export const intentToolNames = new Set(['log_intent', 'log_result']);
 
@@ -51,7 +51,10 @@ export const intentToolDefinitions = [
     description:
       'Log a short outcome summary for the step most recently opened with log_intent, once its tool calls ' +
       'are done. The number of calls and errors made since that log_intent is recorded automatically — you ' +
-      'don\'t need to count or report that yourself, just describe the outcome.',
+      'don\'t need to count or report that yourself, just describe the outcome. The response includes ' +
+      'pending_review_ready: true whenever a tool-candidate batch is waiting — mention this to the user when ' +
+      'it comes up (e.g. "there\'s a tool-candidate batch ready whenever you want to look") rather than ' +
+      'staying silent about it; a background server process has no other way to surface this.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -72,7 +75,9 @@ export async function handleIntentTool(name: string, args: any): Promise<any> {
       cwd: process.cwd(),
       pid: process.pid,
     });
-  } else if (name === 'log_result') {
+    return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
+  }
+  if (name === 'log_result') {
     await logEvent({
       type: 'result',
       summary: params.summary,
@@ -80,10 +85,8 @@ export async function handleIntentTool(name: string, args: any): Promise<any> {
       cwd: process.cwd(),
       pid: process.pid,
     });
-  } else {
-    throw new Error(`Unknown intent tool: ${name}`);
+    const pendingReviewReady = await hasPendingReview();
+    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, pending_review_ready: pendingReviewReady }) }] };
   }
-  return {
-    content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
-  };
+  throw new Error(`Unknown intent tool: ${name}`);
 }

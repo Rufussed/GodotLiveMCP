@@ -90,11 +90,14 @@ want, per candidate — don't assume:
   Do not skip verification; a tool that only typechecks is not done, per
   this project's own established discipline.
 - **Write a design brief instead**: fill out the template in
-  `CONTRIBUTING.md`'s "Design briefs" section and hand it to the user as a
-  file or issue-ready text — no code, no verification needed from them.
-  Useful when the user doesn't want to implement it themselves right now,
-  or wants to hand it off (including upstream, if this is a fork of the
-  public GodotLiveMCP repo).
+  `CONTRIBUTING.md`'s "Design briefs" section — no code, no verification
+  needed from the user. If they want it pushed upstream, be upfront that
+  there's no dedicated automation for this yet: the actual mechanism today
+  is opening a GitHub issue or a code-less PR yourself via the `gh` CLI
+  (`gh issue create`, or `gh pr create` if they'd rather it land as a PR),
+  same as any other GitHub contribution — offer to do this for them if
+  they confirm they want it submitted, rather than just handing them text
+  and leaving submission as their own manual step.
 - **Decline**: skip it, move to the next candidate.
 
 ## Step 5 — clear the batch
