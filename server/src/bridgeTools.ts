@@ -78,6 +78,7 @@ export const bridgeToolNames = new Set([
   'reload_project',
   'get_signals',
   'find_nodes',
+  'batch_set_properties',
   'get_editor_screenshot',
   'get_material_info',
 ]);
@@ -795,6 +796,30 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'batch_set_properties',
+    description:
+      'Apply the same properties to every node matching a type/name_pattern filter (same matching as ' +
+      'find_nodes) in one call — the alternative is a find_nodes round trip followed by one set_properties ' +
+      'call per match, which doesn\'t scale as a scene grows. All matched nodes are batched into a single ' +
+      'undo step, so one call is one Ctrl+Z regardless of how many nodes matched.' +
+      VALUE_ENCODING_NOTE + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE +
+      ' Unknown-property validation runs against every matched node before anything is applied, since ' +
+      'matches under one type filter can be different concrete types with different property sets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        type: { type: 'string', description: 'Class name to match, inheritance-aware, e.g. "Button" or "Control"' },
+        name_pattern: { type: 'string', description: 'Glob pattern for node name, e.g. "Enemy*"' },
+        properties: {
+          type: 'object',
+          description: 'Map of property_name -> var_to_str()-encoded value, applied to every matched node',
+        },
+      },
+      required: ['properties'],
+    },
+  },
+  {
     name: 'get_editor_screenshot',
     description:
       'Capture the live editor\'s 3D viewport as a PNG image — the only way to get visual state, since ' +
@@ -1071,6 +1096,13 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         node_path: params.node_path ?? '.',
         type: params.type ?? '',
         name_pattern: params.name_pattern ?? '',
+      }));
+    case 'batch_set_properties':
+      return textResult(await client.call('batch_set_properties', {
+        node_path: params.node_path ?? '.',
+        type: params.type ?? '',
+        name_pattern: params.name_pattern ?? '',
+        properties: params.properties ?? {},
       }));
     case 'get_editor_screenshot':
       return imageResult(await client.call('get_editor_screenshot', {

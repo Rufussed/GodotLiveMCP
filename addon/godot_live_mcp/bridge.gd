@@ -763,6 +763,66 @@ func _find_nodes_recursive(node: Node, type_filter: String, name_pattern: String
 			matches.append({"name": child.name, "type": child.get_class(), "path": _rel_path(child)})
 		_find_nodes_recursive(child, type_filter, name_pattern, matches)
 
+## Applies the same properties to every node matched by find_nodes'
+## type/name_pattern filter, in one call — the alternative is a find_nodes
+## round trip followed by one set_properties call per match, which doesn't
+## scale as a scene grows. Validates every property against every matched
+## node FIRST (matched nodes can be different concrete types under one
+## filter, e.g. "Control" matching both a Button and a Label with different
+## property sets) and applies nothing if any is unknown anywhere — same
+## atomic, all-or-nothing philosophy as _apply_properties. Batches every
+## node's every property into ONE UndoRedo action, so one MCP call is one
+## Ctrl+Z step regardless of how many nodes matched.
+func _cmd_batch_set_properties(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var type_filter := String(params.get("type", ""))
+	var name_pattern := String(params.get("name_pattern", ""))
+	var properties: Dictionary = params.get("properties", {})
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if properties.is_empty():
+		return _fail("properties is required and must be non-empty")
+
+	var matches := []
+	_find_nodes_recursive(node, type_filter, name_pattern, matches)
+	if matches.is_empty():
+		return {"matched": 0, "results": {}}
+
+	var decoded := {}
+	for prop_name in properties:
+		decoded[String(prop_name)] = _decode_value(String(properties[prop_name]))
+
+	for m in matches:
+		var target := _resolve_node(m["path"])
+		var valid_names := {}
+		for p in target.get_property_list():
+			valid_names[p.name] = true
+		for prop_name in decoded:
+			if not valid_names.has(prop_name):
+				return _fail("unknown property %s on %s (%s)" % [prop_name, m["path"], m["type"]])
+
+	if _editor_plugin:
+		var undo_redo := _editor_plugin.get_undo_redo()
+		undo_redo.create_action("GodotLiveMCP: batch set properties")
+		for m in matches:
+			var target := _resolve_node(m["path"])
+			for prop_name in decoded:
+				undo_redo.add_do_property(target, prop_name, decoded[prop_name])
+				undo_redo.add_undo_property(target, prop_name, target.get(prop_name))
+		undo_redo.commit_action()
+	else:
+		for m in matches:
+			var target := _resolve_node(m["path"])
+			for prop_name in decoded:
+				target.set(prop_name, decoded[prop_name])
+
+	var results := {}
+	for m in matches:
+		var target := _resolve_node(m["path"])
+		results[m["path"]] = _read_back(target, decoded.keys())
+	return {"matched": matches.size(), "results": results}
+
 ## Captures the live editor viewport as a PNG, base64-encoded — genuine
 ## visual awareness with no other path to it (nothing exposes the Output
 ## panel's pixels or the 3D/2D viewport render through get_node_properties
