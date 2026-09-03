@@ -74,6 +74,7 @@ export const bridgeToolNames = new Set([
   'set_nested_property',
   'set_resource_property',
   'reload_plugin',
+  'restart_editor',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -715,6 +716,23 @@ export const bridgeToolDefinitions = [
       required: [],
     },
   },
+  {
+    name: 'restart_editor',
+    description:
+      'Restart the WHOLE Godot editor process (closes and reopens the same project), the same effect as ' +
+      'manually quitting and relaunching Godot. Distinct from reload_plugin (which only re-toggles this one ' +
+      'plugin without restarting the engine) — use this when a change needs a real boot, e.g. a ' +
+      'boot-only project setting like debug/file_logging/enable_file_logging, or to clear stubborn cached ' +
+      'editor state that a plugin reload alone doesn\'t reset. The connection drops immediately and stays ' +
+      'down for several seconds while the editor relaunches — retry the next call rather than assuming failure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        save: { type: 'boolean', description: 'Save the project before restarting (default true)' },
+      },
+      required: [],
+    },
+  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -963,6 +981,10 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       }));
     case 'reload_plugin':
       return textResult(await client.call('reload_plugin', {}));
+    case 'restart_editor':
+      return textResult(await client.call('restart_editor', {
+        save: params.save ?? true,
+      }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }
