@@ -668,6 +668,24 @@ func _do_reload_plugin() -> void:
 	EditorInterface.set_plugin_enabled(PLUGIN_ADDON_NAME, false)
 	EditorInterface.set_plugin_enabled(PLUGIN_ADDON_NAME, true)
 
+## Restarts the WHOLE editor process (EditorInterface.restart_editor()) —
+## closes Godot and reopens the same project, distinct from reload_plugin
+## (which only re-toggles this one plugin) and from a filesystem rescan.
+## This is what a boot-only project setting (e.g. debug/file_logging) or
+## stubborn cached state actually needs — the kind of restart that, before
+## this, required the user to manually close and reopen the editor.
+## Deferred for the same reason as reload_plugin: let this response reach
+## the caller before the process starts tearing itself down.
+func _cmd_restart_editor(params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("restart_editor is only available inside the editor")
+	var save := bool(params.get("save", true))
+	call_deferred("_do_restart_editor", save)
+	return {"ok": true, "note": "editor restarting — the connection will drop; reconnect once the editor has relaunched (this takes a few seconds)"}
+
+func _do_restart_editor(save: bool) -> void:
+	EditorInterface.restart_editor(save)
+
 const _SHAPE_2D_TYPES := [
 	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D", "SegmentShape2D",
 	"SeparationRayShape2D", "ConvexPolygonShape2D", "ConcavePolygonShape2D",
