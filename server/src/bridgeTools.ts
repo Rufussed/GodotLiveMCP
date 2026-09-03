@@ -5,14 +5,6 @@
  */
 
 import { BridgeClient } from './bridgeClient.js';
-import { readFile, stat } from 'fs/promises';
-
-// Per-log-path read cursor for get_editor_errors, so repeated calls during a
-// long session only return lines appended since the last check instead of
-// re-reading (and re-costing tokens on) the whole growing file each time.
-// In-memory/per-server-process — resets if the MCP server restarts, which
-// just means the next call re-reads from the start, not a correctness issue.
-const editorErrorCursors = new Map<string, number>();
 
 const NODE_PATH_PROPERTY = {
   node_path: {
@@ -87,7 +79,7 @@ export const bridgeToolNames = new Set([
   'get_signals',
   'find_nodes',
   'get_editor_screenshot',
-  'get_editor_errors',
+  'get_material_info',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -432,6 +424,24 @@ export const bridgeToolDefinitions = [
         surface_index: { type: 'integer', description: 'Optional: target this surface (MeshInstance3D only) instead of the whole mesh\'s material_override' },
       },
       required: ['node_path', 'material_params'],
+    },
+  },
+  {
+    name: 'get_material_info',
+    description:
+      'Read a live GeometryInstance3D\'s material_override (or one surface\'s override, via surface_index) ' +
+      '— the counterpart to set_material_3d. Prefer this over eval_expression for reading material ' +
+      'properties: a chained call like "get_surface_override_material(0).albedo_color" fails, since ' +
+      'Expression can\'t see past the method\'s generic Object return type to know the real property exists; ' +
+      'reading material_override directly via eval_expression works but dumps all ~90 StandardMaterial3D ' +
+      'properties at once. This returns only editor-visible properties, same as get_node_properties.' + VALUE_ENCODING_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        surface_index: { type: 'integer', description: 'Optional: read this surface\'s override (MeshInstance3D only) instead of material_override' },
+      },
+      required: ['node_path'],
     },
   },
   {
@@ -798,28 +808,6 @@ export const bridgeToolDefinitions = [
       required: [],
     },
   },
-  {
-    name: 'get_editor_errors',
-    description:
-      'Read new lines from the live editor\'s Output panel (mirrored to a file via the project\'s ' +
-      'debug/file_logging/enable_file_logging setting) since the last call to this tool — not the whole ' +
-      'growing log file, so repeated calls during a long session stay cheap. Requires that project setting ' +
-      'to be enabled (it is in this repo\'s test projects); if the log file doesn\'t exist yet, says so rather ' +
-      'than erroring. Resolves the log path itself via one eval_expression call, so this is a single call for ' +
-      'the caller despite doing that internally.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        level: {
-          type: 'string',
-          enum: ['errors', 'all'],
-          description: '"errors" (default) returns only ERROR:/WARNING:/SCRIPT ERROR lines; "all" returns every new line',
-        },
-        reset: { type: 'boolean', description: 'Ignore the remembered cursor and read from the start of the file (default false)' },
-      },
-      required: [],
-    },
-  },
 ];
 
 let sharedClient: BridgeClient | null = null;
@@ -1088,55 +1076,14 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return imageResult(await client.call('get_editor_screenshot', {
         max_dimension: params.max_dimension ?? 800,
       }));
-    case 'get_editor_errors':
-      return textResult(await getEditorErrors(client, params.level ?? 'errors', params.reset ?? false));
+    case 'get_material_info':
+      return textResult(await client.call('get_material_info', {
+        node_path: params.node_path ?? '.',
+        surface_index: params.surface_index,
+      }));
     default:
       throw new Error(`Unknown bridge tool: ${name}`);
   }
-}
-
-async function getEditorErrors(client: BridgeClient, level: string, reset: boolean): Promise<any> {
-  const pathResult = await client.call('eval_expression', {
-    node_path: '.',
-    expression: 'ProjectSettings.globalize_path("user://logs/godot.log")',
-  });
-  // eval_expression returns { value: <var_to_str()-encoded string> }, e.g. '"/home/.../godot.log"'.
-  const encoded = String(pathResult?.value ?? '');
-  const logPath = encoded.startsWith('"') && encoded.endsWith('"') ? encoded.slice(1, -1) : encoded;
-  if (!logPath) {
-    return { lines: [], note: 'could not resolve the log path' };
-  }
-
-  let size: number;
-  try {
-    size = (await stat(logPath)).size;
-  } catch {
-    return {
-      lines: [],
-      path: logPath,
-      note: 'log file does not exist yet — ensure debug/file_logging/enable_file_logging is set in ' +
-        'project.godot and the editor has been restarted since',
-    };
-  }
-
-  const cursorKey = logPath;
-  let start = reset ? 0 : (editorErrorCursors.get(cursorKey) ?? 0);
-  if (start > size) start = 0; // file was rotated/truncated (e.g. editor restart) — read from the top again
-
-  if (start === size) {
-    editorErrorCursors.set(cursorKey, size);
-    return { lines: [], path: logPath };
-  }
-
-  const buf = await readFile(logPath, 'utf8');
-  const newText = buf.slice(start);
-  editorErrorCursors.set(cursorKey, size);
-
-  let lines = newText.split('\n').filter((l) => l.length > 0);
-  if (level !== 'all') {
-    lines = lines.filter((l) => l.includes('ERROR:') || l.includes('WARNING:') || l.includes('SCRIPT ERROR'));
-  }
-  return { lines, path: logPath };
 }
 
 function imageResult(result: { base64: string; format: string }) {

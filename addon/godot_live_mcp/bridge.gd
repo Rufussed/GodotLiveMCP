@@ -650,21 +650,31 @@ func _cmd_save_scene_live(params: Dictionary):
 
 ## Toggles the plugin off/on via EditorInterface.set_plugin_enabled(), the
 ## same call the manual Project Settings > Plugins checkbox makes — so new
-## bridge.gd code can take effect without a manual reload. Deferred to the
-## next idle frame: disabling frees `self` via stop()+queue_free() inside
-## plugin.gd's _exit_tree(), and queue_free() only marks the object for
-## deletion at end-of-frame, so it's safe to keep running (including the
-## re-enable call) for the rest of this call — but not safe to run
-## synchronously inside the request handler that's still using this same
-## peer/socket. The response is sent before the reload actually happens, so
-## the calling client should expect the connection to drop and reconnect.
+## bridge.gd code can take effect without a manual reload. First forces a
+## filesystem rescan (EditorInterface.get_resource_filesystem().scan()) —
+## confirmed live: without this, the plugin toggle alone would keep running
+## whatever version of bridge.gd Godot had already compiled, and picking up
+## an edited script otherwise required the user to click into the editor
+## window (which triggers Godot's own external-change scan on focus-in).
+## scan() plus a short delay for it to complete does the same thing
+## programmatically, so bridge.gd changes no longer need any manual step at
+## all. Deferred to the next idle frame: disabling frees `self` via
+## stop()+queue_free() inside plugin.gd's _exit_tree(), and queue_free()
+## only marks the object for deletion at end-of-frame, so it's safe to keep
+## running (including the re-enable call) for the rest of this call — but
+## not safe to run synchronously inside the request handler that's still
+## using this same peer/socket. The response is sent before the reload
+## actually happens, so the calling client should expect the connection to
+## drop and reconnect.
 func _cmd_reload_plugin(_params: Dictionary):
 	if not Engine.is_editor_hint():
 		return _fail("reload_plugin is only available inside the editor")
 	call_deferred("_do_reload_plugin")
-	return {"ok": true, "note": "plugin reloading — the connection will drop; reconnect after a moment"}
+	return {"ok": true, "note": "rescanning + reloading plugin — the connection will drop; reconnect after a moment"}
 
 func _do_reload_plugin() -> void:
+	EditorInterface.get_resource_filesystem().scan()
+	await get_tree().create_timer(0.5).timeout
 	EditorInterface.set_plugin_enabled(PLUGIN_ADDON_NAME, false)
 	EditorInterface.set_plugin_enabled(PLUGIN_ADDON_NAME, true)
 
@@ -977,6 +987,48 @@ func _cmd_set_material_3d(params: Dictionary):
 	node.material_override = mat
 
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
+
+## Reads back a GeometryInstance3D's material_override (or one surface's
+## override, via surface_index) — the missing counterpart to set_material_3d.
+## Every other resource-setter tool in this bridge has a paired getter
+## (setup_collision/get_collision_info, set_shader_material/
+## get_shader_material_info, particle material/get_particle_info); this one
+## didn't, which meant reading a single property meant either an
+## eval_expression chain that fails on method-return type narrowing (e.g.
+## get_surface_override_material(0).albedo_color errors — Expression can't
+## see past the generic Object return type) or a full eval_expression dump
+## of every one of StandardMaterial3D's ~90 properties just to find one.
+## Filters to editor-visible properties, same as get_node_properties/
+## get_collision_info, instead of returning everything.
+func _cmd_get_material_info(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is GeometryInstance3D):
+		return _fail("node is not a GeometryInstance3D (e.g. MeshInstance3D): %s" % node_path)
+
+	var mat
+	if params.has("surface_index"):
+		if not (node is MeshInstance3D):
+			return _fail("surface_index requires a MeshInstance3D: %s" % node_path)
+		var mesh_instance: MeshInstance3D = node
+		var idx := int(params["surface_index"])
+		if idx < 0 or idx >= mesh_instance.get_surface_override_material_count():
+			return _fail("surface_index %d out of range (mesh has %d surfaces)" % [idx, mesh_instance.get_surface_override_material_count()])
+		mat = mesh_instance.get_surface_override_material(idx)
+	else:
+		mat = node.material_override
+
+	if mat == null:
+		return {"has_material": false}
+
+	var props := {}
+	for prop in mat.get_property_list():
+		if prop.usage & PROPERTY_USAGE_EDITOR == 0:
+			continue
+		props[prop.name] = var_to_str(mat.get(prop.name))
+	return {"has_material": true, "material_type": mat.get_class(), "properties": props}
 
 func _cmd_set_physics_material(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
