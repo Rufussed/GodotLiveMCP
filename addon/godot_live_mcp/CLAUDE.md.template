@@ -79,13 +79,32 @@ instead of manually looping `game_eval_expression` calls).
   server owns directly, which proved unreliable in practice (the process
   can vanish mid-session with no crash trace). `play_scene`/`stop_scene`
   reuse the editor's own Play/Stop mechanism instead.
-- Editor tools (`eval_expression`, `set_property`, ...) have **no effect**
-  on a running game and vice versa — they're different processes with
-  independent state. Don't expect a `set_property` call to be visible via
-  `game_get_node_properties` or vice versa.
-- Runtime property mutations are NOT undo-tracked (no `EditorUndoRedoManager`
-  at runtime) and are never persisted to the scene file — they're
-  ephemeral, live only as long as the game keeps running.
+- Editor tools (`eval_expression`, `set_property`, ...) and runtime tools
+  (`game_*`) target genuinely separate processes with independent state —
+  a `set_property` call is not the same operation as `game_set_property`,
+  and `game_get_node_properties` won't reflect a change made the other way.
+- **However**: if a debug session is connected (the normal case right
+  after pressing Play, or after `play_scene`), Godot has its own built-in
+  one-way live-sync that mirrors editor scene edits into the connected
+  running instance in real time — confirmed live: an editor-tool property
+  change showed up immediately in an already-running game, while still
+  being a genuine edit to the *editor's own* scene (undo-tracked, and
+  persists via `save_scene_live`/a manual save), unlike a true
+  runtime-only mutation via `game_set_property`. This is Godot's own
+  debug-sync feature, not something this bridge controls: it only flows
+  editor → game (a `game_set_property` change does not appear in the
+  editor), only works while that specific debug session stays connected,
+  and structural changes (adding/removing nodes) may not sync as reliably
+  as simple property edits. If you're not sure whether a change actually
+  landed on the editor's scene (versus only the running game), check via
+  an editor tool (`get_node_properties`), not `game_get_node_properties` —
+  the sync is one-way, so only the editor side is the source of truth for
+  what will actually persist.
+- Runtime property mutations made via `game_set_property`/etc. (as
+  opposed to an editor edit that happens to sync into the game) are NOT
+  undo-tracked (no `EditorUndoRedoManager` at runtime) and are never
+  persisted to the scene file — they're ephemeral, live only as long as
+  that game instance keeps running.
 
 ## Bracket steps with log_intent / log_result
 
