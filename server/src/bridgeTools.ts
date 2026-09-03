@@ -85,6 +85,10 @@ export const bridgeToolNames = new Set([
   'add_animation_transition',
   'setup_navigation',
   'get_resource_dependencies',
+  'set_anchors_preset',
+  'get_node_bounds',
+  'set_audio_bus_effect_params',
+  'remove_audio_bus_effect',
 ]);
 
 export function isBridgeTool(name: string): boolean {
@@ -562,8 +566,36 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'get_audio_bus_layout',
-    description: 'List every audio bus with its volume/mute/solo/bypass/send settings and attached effect types.',
+    description: 'List every audio bus with its volume/mute/solo/bypass/send settings and each attached effect\'s index, type, and properties.',
     inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'set_audio_bus_effect_params',
+    description:
+      'Adjust an existing audio bus effect\'s properties after creation — add_audio_bus_effect only covers ' +
+      'setting properties at creation time. Find effect_index via get_audio_bus_layout.' +
+      LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bus_name: { type: 'string', description: 'Name of the existing bus' },
+        effect_index: { type: 'integer', description: 'Index of the effect on this bus, from get_audio_bus_layout' },
+        effect_params: { type: 'object', description: 'Properties to set on the effect, var_to_str()-encoded' },
+      },
+      required: ['bus_name', 'effect_index', 'effect_params'],
+    },
+  },
+  {
+    name: 'remove_audio_bus_effect',
+    description: 'Remove an audio bus effect by index (AudioServer.remove_bus_effect()) — a method call with no property-tool equivalent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bus_name: { type: 'string', description: 'Name of the existing bus' },
+        effect_index: { type: 'integer', description: 'Index of the effect on this bus, from get_audio_bus_layout' },
+      },
+      required: ['bus_name', 'effect_index'],
+    },
   },
   {
     name: 'tilemap_fill_rect',
@@ -687,6 +719,33 @@ export const bridgeToolDefinitions = [
         },
       },
       required: ['node_path', 'override_name'],
+    },
+  },
+  {
+    name: 'set_anchors_preset',
+    description:
+      'Apply a layout preset to a live Control (Control.set_anchors_preset()) — the standard way to lay ' +
+      'out UI (e.g. "make this fill its parent") without hand-computing four anchor values. A method call, ' +
+      'unreachable through property tools.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        preset: { type: 'string', description: 'Control.LayoutPreset constant name, e.g. "PRESET_FULL_RECT", "PRESET_CENTER", "PRESET_TOP_WIDE"' },
+        keep_offsets: { type: 'boolean', description: 'Keep the control\'s current offsets instead of resetting them (default false)' },
+      },
+      required: ['node_path', 'preset'],
+    },
+  },
+  {
+    name: 'get_node_bounds',
+    description:
+      'Get a node\'s bounding box — genuinely not reachable any other way. VisualInstance3D (MeshInstance3D, ' +
+      'etc.) returns local and world-space AABB; Control returns local and global Rect2.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...NODE_PATH_PROPERTY },
+      required: ['node_path'],
     },
   },
   {
@@ -1094,6 +1153,17 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       }));
     case 'get_audio_bus_layout':
       return textResult(await client.call('get_audio_bus_layout', {}));
+    case 'set_audio_bus_effect_params':
+      return textResult(await client.call('set_audio_bus_effect_params', {
+        bus_name: params.bus_name,
+        effect_index: params.effect_index,
+        effect_params: params.effect_params ?? {},
+      }));
+    case 'remove_audio_bus_effect':
+      return textResult(await client.call('remove_audio_bus_effect', {
+        bus_name: params.bus_name,
+        effect_index: params.effect_index,
+      }));
     case 'tilemap_fill_rect':
       return textResult(await client.call('tilemap_fill_rect', {
         node_path: params.node_path ?? '.',
@@ -1136,6 +1206,16 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         override_name: params.override_name,
         style_type: params.style_type ?? 'StyleBoxFlat',
         style_params: params.style_params ?? {},
+      }));
+    case 'set_anchors_preset':
+      return textResult(await client.call('set_anchors_preset', {
+        node_path: params.node_path ?? '.',
+        preset: params.preset,
+        keep_offsets: params.keep_offsets ?? false,
+      }));
+    case 'get_node_bounds':
+      return textResult(await client.call('get_node_bounds', {
+        node_path: params.node_path ?? '.',
       }));
     case 'set_shader_material':
       return textResult(await client.call('set_shader_material', {

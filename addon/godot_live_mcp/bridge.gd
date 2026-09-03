@@ -1210,6 +1210,65 @@ func _cmd_set_physics_material(params: Dictionary):
 	node.set("physics_material_override", mat)
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
+## Applies a layout preset to a live Control (Control.set_anchors_preset())
+## — a method call, unreachable through property tools, and the standard
+## way to lay out UI (e.g. "make this fill its parent" / PRESET_FULL_RECT)
+## without hand-computing four anchor values. Preset is a string constant
+## name (e.g. "PRESET_FULL_RECT", "PRESET_CENTER") resolved dynamically via
+## ClassDB rather than hardcoding Godot's LayoutPreset integer values,
+## which keeps this correct across Godot versions without needing to know
+## them. class_has_integer_constant guards against
+## class_get_integer_constant's silent "returns 0 for unknown names"
+## behavior, since 0 is also a real, valid preset value.
+func _cmd_set_anchors_preset(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var preset_name := String(params.get("preset", ""))
+	var keep_offsets := bool(params.get("keep_offsets", false))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is Control):
+		return _fail("node is not a Control: %s" % node_path)
+	if preset_name == "":
+		return _fail("preset is required, e.g. \"PRESET_FULL_RECT\"")
+	if not ClassDB.class_has_integer_constant("Control", preset_name):
+		return _fail("unknown Control.LayoutPreset constant: %s" % preset_name)
+
+	var preset_value := ClassDB.class_get_integer_constant("Control", preset_name)
+	node.set_anchors_preset(preset_value, keep_offsets)
+	return {
+		"ok": true,
+		"anchor_left": node.anchor_left, "anchor_top": node.anchor_top,
+		"anchor_right": node.anchor_right, "anchor_bottom": node.anchor_bottom,
+	}
+
+## Returns a node's bounding box — genuinely not reachable any other way
+## for the two node families that actually have one. VisualInstance3D
+## exposes get_aabb() (local-space); world-space is derived via
+## global_transform * aabb, Transform3D's own AABB-transform operator, not
+## a separate method. Control exposes get_global_rect() directly.
+func _cmd_get_node_bounds(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	if node is VisualInstance3D:
+		var local_aabb: AABB = node.get_aabb()
+		var world_aabb: AABB = node.global_transform * local_aabb
+		return {
+			"kind": "aabb_3d",
+			"local_aabb": var_to_str(local_aabb),
+			"world_aabb": var_to_str(world_aabb),
+		}
+	if node is Control:
+		return {
+			"kind": "rect_2d",
+			"rect": var_to_str(node.get_rect()),
+			"global_rect": var_to_str(node.get_global_rect()),
+		}
+	return _fail("node has no bounding box (not a VisualInstance3D or Control): %s" % node_path)
+
 func _cmd_set_theme_stylebox_override(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var override_name := String(params.get("override_name", ""))
@@ -1503,12 +1562,51 @@ func _cmd_add_audio_bus_effect(params: Dictionary):
 	AudioServer.add_bus_effect(idx, effect)
 	return {"ok": true, "bus_index": idx, "effect": _read_back(effect, effect_params.keys())}
 
+## Adjusts an existing audio bus effect's properties after creation —
+## add_audio_bus_effect only covers setting properties at creation time,
+## with no way to change them afterward or read them back individually
+## (get_audio_bus_layout only reports effect class names, not properties).
+func _cmd_set_audio_bus_effect_params(params: Dictionary):
+	var bus_name := String(params.get("bus_name", ""))
+	var effect_index := int(params.get("effect_index", -1))
+	var effect_params: Dictionary = params.get("effect_params", {})
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx == -1:
+		return _fail("bus not found: %s" % bus_name)
+	if effect_index < 0 or effect_index >= AudioServer.get_bus_effect_count(idx):
+		return _fail("effect_index %d out of range (bus has %d effects)" % [effect_index, AudioServer.get_bus_effect_count(idx)])
+
+	var effect := AudioServer.get_bus_effect(idx, effect_index)
+	var unknown := _apply_properties(effect, effect_params)
+	if not unknown.is_empty():
+		return _fail("unknown effect properties: %s" % ", ".join(unknown))
+	return {"ok": true, "effect": _read_back(effect, effect_params.keys())}
+
+## Removes an audio bus effect by index — AudioServer.remove_bus_effect()
+## is a method call with no property-tool equivalent.
+func _cmd_remove_audio_bus_effect(params: Dictionary):
+	var bus_name := String(params.get("bus_name", ""))
+	var effect_index := int(params.get("effect_index", -1))
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx == -1:
+		return _fail("bus not found: %s" % bus_name)
+	if effect_index < 0 or effect_index >= AudioServer.get_bus_effect_count(idx):
+		return _fail("effect_index %d out of range (bus has %d effects)" % [effect_index, AudioServer.get_bus_effect_count(idx)])
+	AudioServer.remove_bus_effect(idx, effect_index)
+	return {"ok": true}
+
 func _cmd_get_audio_bus_layout(_params: Dictionary):
 	var buses := []
 	for i in range(AudioServer.bus_count):
 		var effects := []
 		for e in range(AudioServer.get_bus_effect_count(i)):
-			effects.append(AudioServer.get_bus_effect(i, e).get_class())
+			var effect := AudioServer.get_bus_effect(i, e)
+			var effect_props := {}
+			for prop in effect.get_property_list():
+				if prop.usage & PROPERTY_USAGE_EDITOR == 0:
+					continue
+				effect_props[prop.name] = var_to_str(effect.get(prop.name))
+			effects.append({"index": e, "type": effect.get_class(), "properties": effect_props})
 		buses.append({
 			"index": i,
 			"name": AudioServer.get_bus_name(i),
