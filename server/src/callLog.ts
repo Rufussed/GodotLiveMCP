@@ -269,3 +269,19 @@ async function rotate(logPath: string): Promise<void> {
   // log always starts fresh so new entries never land in an oversized file.
   await writeFile(logPath, '', 'utf8');
 }
+
+/**
+ * Whether a non-empty pending-review batch currently exists. Used to
+ * surface a "there's something waiting" signal on log_result's own
+ * response — the only channel available for this, since a background
+ * server process has no way to spontaneously interrupt a conversation;
+ * it can only piggyback on a response to a call the agent already made.
+ */
+export async function hasPendingReview(): Promise<boolean> {
+  try {
+    const size = (await stat(pendingReviewPath(resolveLogPath()))).size;
+    return size > 0;
+  } catch {
+    return false;
+  }
+}

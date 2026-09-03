@@ -102,6 +102,15 @@ yourself, just describe the outcome. This is what makes a later
 `/review-tool-candidates` pass accurate instead of guesswork reconstructed
 from timestamps.
 
+`log_result`'s response includes `pending_review_ready: true` whenever a
+tool-candidate batch is waiting. A background server process has no way
+to surface this on its own — mention it to the user when it comes up
+(e.g. "there's a tool-candidate batch ready whenever you want to look"),
+rather than noticing it and staying silent. Don't proactively run the
+review yourself; just offer it, same as everything else in that skill —
+nothing about reviewing or building from usage data happens without the
+user saying so.
+
 ## Self-improvement rule
 
 If a request required falling back to `eval_expression` for something the
