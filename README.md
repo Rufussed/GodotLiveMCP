@@ -45,6 +45,43 @@ Two parts:
 4. With the Godot editor open and the addon enabled, try `list_scene_tree`
    then `eval_expression` from your agent to confirm the round trip works.
 
+## Self-improvement loop
+
+Every tool call (bridge-backed or lifecycle) is logged to
+`~/.local/share/godot-live-mcp/calls.ndjson` — shared across every
+workspace pointed at this server, since it's registered once at MCP-client
+user scope. The log doesn't grow forever: once enough "candidate signal"
+(an error, or a burst of several rapid calls — a proxy for a multi-call
+workaround standing in for what should be one request) accumulates, it's
+rotated into `calls.pending-review.ndjson`, a bounded batch ready to look
+at.
+
+Nothing is ever analyzed automatically. Run the `/review-tool-candidates`
+skill (Claude Code; see [`.claude/skills/review-tool-candidates/`](.claude/skills/review-tool-candidates/SKILL.md))
+when you want to look — it asks before analyzing, presents any candidates
+with the actual evidence behind them, then asks again before building
+anything. You can build a candidate locally and verify it against your own
+project, write up a design brief for someone else to build instead, or
+just decline. See [`TOOL_CANDIDATES.md`](TOOL_CANDIDATES.md) for the
+review criteria and [`CONTRIBUTING.md`](CONTRIBUTING.md) for what
+"building it" actually requires (live verification, not just code that
+typechecks) and how to submit a tool or a brief upstream.
+
+Logging behavior is configurable via env vars on the MCP server:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `GODOT_LIVE_MCP_LOG` | (on) | Set to `off` to disable logging entirely |
+| `GODOT_LIVE_MCP_LOG_REVIEW` | (on) | Set to `off` to permanently skip review — batches are discarded at rotation instead of held for review, with no further prompting |
+| `GODOT_LIVE_MCP_LOG_PATH` | `~/.local/share/godot-live-mcp/calls.ndjson` | Override the log location |
+| `GODOT_LIVE_MCP_LOG_CANDIDATE_THRESHOLD` | `3` | Candidate-signal count that triggers rotation |
+| `GODOT_LIVE_MCP_LOG_BURST_SIZE` | `5` | Calls within the burst gap window counted as one burst signal |
+| `GODOT_LIVE_MCP_LOG_BURST_GAP_MS` | `10000` | Max gap between calls to count as the same burst |
+| `GODOT_LIVE_MCP_LOG_MAX_MB` | `10` | Byte-size backstop, independent of the candidate-signal count |
+
+All thresholds are untuned starting points, not fixed defaults to rely on —
+adjust them once you've seen how they behave against real usage.
+
 ## Status
 
 v1's success criteria are met (list the live scene tree, select a node,
