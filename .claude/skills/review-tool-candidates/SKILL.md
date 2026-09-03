@@ -54,10 +54,11 @@ mechanism (their server's env config) themselves.
 
 ## Step 3 — analyze
 
-Apply the criteria in [`TOOL_CANDIDATES.md`](../../../TOOL_CANDIDATES.md)
-(read that file now if you haven't already — this skill doesn't duplicate
-it, and the criteria may have been refined since this skill was written).
-In short:
+Apply the criteria in [`TOOL_CANDIDATES.md`](TOOL_CANDIDATES.md) (read
+that file now if you haven't already — this skill doesn't duplicate it in
+full, and the criteria may have been refined since this copy was made; if
+you're inside the GodotLiveMCP repo itself, prefer the root-level
+`TOOL_CANDIDATES.md` as canonical over this bundled copy). In short:
 
 - **Structural gaps** (something `Expression`/the existing tools genuinely
   can't do, or a missing counterpart to an existing tool) — flag from a
@@ -81,7 +82,7 @@ For each candidate the user wants to act on, ask *which* of these they
 want, per candidate — don't assume:
 
 - **Build it locally**: implement following
-  [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)'s pattern (a `_cmd_*`
+  [`CONTRIBUTING.md`](CONTRIBUTING.md)'s pattern (a `_cmd_*`
   function in the relevant bridge script, a matching MCP tool definition +
   dispatch case, build, `reload_plugin`/restart the game as appropriate),
   then live-verify it against their running Godot instance — at least one
