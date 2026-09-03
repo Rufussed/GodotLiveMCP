@@ -24,6 +24,7 @@ import {
 
 import { bridgeToolDefinitions, handleBridgeTool, isBridgeTool } from './bridgeTools.js';
 import { runtimeToolDefinitions, handleRuntimeTool, isRuntimeTool } from './runtimeTools.js';
+import { intentToolDefinitions, handleIntentTool, isIntentTool } from './intentTools.js';
 import { logEvent } from './callLog.js';
 
 // Check if debug mode is enabled
@@ -929,6 +930,7 @@ class GodotServer {
         },
         ...bridgeToolDefinitions,
         ...runtimeToolDefinitions,
+        ...intentToolDefinitions,
       ],
     }));
 
@@ -936,29 +938,38 @@ class GodotServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       this.logDebug(`Handling tool request: ${request.params.name}`);
       const startedAt = Date.now();
+      // log_intent/log_result log themselves directly with a distinct entry
+      // `type` (callLog.ts uses that to track the per-step call/error
+      // tally) — skip the generic tool_call wrapper logging for them so
+      // they don't also get logged as an ordinary tool_call entry.
+      const skipGenericLog = isIntentTool(request.params.name);
       try {
         const response = await this.dispatchTool(request.params.name, request.params.arguments);
-        await logEvent({
-          type: 'tool_call',
-          tool: request.params.name,
-          args: request.params.arguments,
-          ok: true,
-          cwd: process.cwd(),
-          pid: process.pid,
-          duration_ms: Date.now() - startedAt,
-        });
+        if (!skipGenericLog) {
+          await logEvent({
+            type: 'tool_call',
+            tool: request.params.name,
+            args: request.params.arguments,
+            ok: true,
+            cwd: process.cwd(),
+            pid: process.pid,
+            duration_ms: Date.now() - startedAt,
+          });
+        }
         return response;
       } catch (err: any) {
-        await logEvent({
-          type: 'tool_call',
-          tool: request.params.name,
-          args: request.params.arguments,
-          ok: false,
-          error: err?.message ?? String(err),
-          cwd: process.cwd(),
-          pid: process.pid,
-          duration_ms: Date.now() - startedAt,
-        });
+        if (!skipGenericLog) {
+          await logEvent({
+            type: 'tool_call',
+            tool: request.params.name,
+            args: request.params.arguments,
+            ok: false,
+            error: err?.message ?? String(err),
+            cwd: process.cwd(),
+            pid: process.pid,
+            duration_ms: Date.now() - startedAt,
+          });
+        }
         throw err;
       }
     });
@@ -976,6 +987,9 @@ class GodotServer {
     }
     if (isRuntimeTool(name)) {
       return await handleRuntimeTool(name, args);
+    }
+    if (isIntentTool(name)) {
+      return await handleIntentTool(name, args);
     }
     {
       const request = { params: { name, arguments: args } };

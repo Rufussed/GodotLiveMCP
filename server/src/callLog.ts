@@ -24,9 +24,9 @@
  * Rotation is triggered by a "candidate signal" counter, not raw file size —
  * most logged calls succeed and are noise for review purposes, so sizing
  * batches by bytes alone tends to produce review prompts with nothing
- * useful in them. Two mechanical (no-judgment) signals increment the
- * counter, matching the two failure shapes this project has actually hit
- * building its own tools:
+ * useful in them. Mechanical (no-judgment) signals increment the counter,
+ * matching the failure shapes this project has actually hit building its
+ * own tools:
  * - an error (`ok: false`) — a real, if approximate, proxy for a structural
  *   gap (a call the current tools genuinely couldn't do, or a validation
  *   catching a mistake).
@@ -35,9 +35,26 @@
  *   be one call), the same shape that led to this project's own
  *   get_material_info tool. Counted once per burst, not once per call in
  *   it, so one inefficient sequence doesn't dominate the tally on its own.
+ *   Detected two ways: a time-gap heuristic (calls fired close together,
+ *   works even for raw tool calls with no step markers), and an exact
+ *   count when the caller uses `log_intent`/`log_result` to bracket a
+ *   conceptual step — see below.
  * Byte size remains as an independent backstop, in case a long, all-
  * successful, non-bursty session still grows the file large before either
  * signal fires.
+ *
+ * `log_intent`/`log_result` (a pair of plain MCP tools, not bridge-backed —
+ * see index.ts) let the calling agent bracket one conceptual step with a
+ * short intent note before its calls and a short result note after. This
+ * file treats an `intent` entry as an exact step-boundary (resetting a
+ * per-step call/error tally, the same idea as the time-gap burst heuristic
+ * but precise instead of guessed) and stamps that tally onto the matching
+ * `result` entry automatically — so a review pass sees exactly how many
+ * calls and errors one described step actually took, not just an
+ * undifferentiated pile of tool_call entries it has to group by eye. A
+ * step whose call count alone crosses the burst threshold also counts as
+ * a candidate signal in its own right, independent of the time-gap
+ * detector.
  *
  * Env vars (all optional; defaults preserve always-on logging):
  * - GODOT_LIVE_MCP_LOG=off              disable logging entirely.
@@ -86,6 +103,12 @@ let candidateCount = 0;
 let lastCallAtMs: number | null = null;
 let currentBurstLength = 0;
 let currentBurstCounted = false;
+
+// Step tally, bracketed by log_intent/log_result entries — an exact
+// alternative to the time-gap burst heuristic above, when the caller
+// opts into marking step boundaries explicitly.
+let stepCallCount = 0;
+let stepErrorCount = 0;
 
 function resolveLogPath(): string {
   return process.env.GODOT_LIVE_MCP_LOG_PATH || join(DEFAULT_LOG_DIR, 'calls.ndjson');
@@ -150,6 +173,31 @@ function updateCandidateSignal(entry: Record<string, any>, now: number): number 
   return candidateCount;
 }
 
+/**
+ * Tracks the exact per-step call/error tally bracketed by log_intent/
+ * log_result entries. Mutates `entry` in place to stamp the tally onto a
+ * `result` entry before it's serialized. Returns true if the step's call
+ * count alone should count as an additional candidate signal.
+ */
+function updateStepTally(entry: Record<string, any>): boolean {
+  if (entry.type === 'intent') {
+    stepCallCount = 0;
+    stepErrorCount = 0;
+    return false;
+  }
+  if (entry.type === 'tool_call') {
+    stepCallCount += 1;
+    if (entry.ok === false) stepErrorCount += 1;
+    return false;
+  }
+  if (entry.type === 'result') {
+    entry.step_call_count = stepCallCount;
+    entry.step_error_count = stepErrorCount;
+    return stepCallCount >= burstSize();
+  }
+  return false;
+}
+
 export async function logEvent(entry: Record<string, any>): Promise<void> {
   if (!isLoggingEnabled()) return;
   try {
@@ -158,7 +206,10 @@ export async function logEvent(entry: Record<string, any>): Promise<void> {
     await dirReady;
 
     const now = Date.now();
-    const signalCount = updateCandidateSignal(entry, now);
+    let signalCount = updateCandidateSignal(entry, now);
+    if (updateStepTally(entry)) {
+      signalCount = ++candidateCount;
+    }
 
     // Append first so the entry that triggers rotation is included in the
     // batch that gets rotated, rather than starting the next one.

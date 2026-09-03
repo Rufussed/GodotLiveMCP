@@ -13,6 +13,25 @@ bookkeeping — counting errors and bursts, batching, rotating. It never
 judges content. Everything below is the judgment step, and it requires
 reading the actual log entries, not just their count.
 
+**Look for `intent`/`result` entries first.** If the calling agent used
+`log_intent`/`log_result` to bracket a step, the batch will contain
+entries like:
+
+```json
+{"type":"intent","summary":"add a bouncy platform to the scene"}
+{"type":"tool_call", ...}
+{"type":"tool_call", ...}
+{"type":"result","summary":"done, bounce=0.9 applied and verified","outcome":"success","step_call_count":2,"step_error_count":0}
+```
+
+That's a self-contained, pre-grouped unit — the intent explains *why* the
+following calls happened, and `step_call_count`/`step_error_count` on the
+result are computed automatically, not something you need to count
+yourself. Prefer this grouping over inferring step boundaries from
+timestamp gaps whenever it's present; fall back to timestamp-based
+grouping only for older batches or raw tool calls made without this
+convention.
+
 ## The bar: token/turn efficiency, not strict impossibility
 
 The question is never "is this the *only* way to do it" — it's "is a
