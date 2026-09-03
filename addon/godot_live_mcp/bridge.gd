@@ -795,6 +795,39 @@ func _cmd_restart_editor(params: Dictionary):
 func _do_restart_editor(save: bool) -> void:
 	EditorInterface.restart_editor(save)
 
+## Starts the project running the SAME way the editor's own Play button
+## does (EditorInterface.play_main_scene()/play_custom_scene()) — distinct
+## from godot-mcp's inherited run_project, which spawns a separate `godot
+## -d` CLI process the MCP server itself owns. That CLI-spawned process
+## turned out to be unreliable in practice (confirmed live: it vanished
+## entirely partway through a test with no coredump, OOM, or journal
+## trace — likely something about its relationship with the still-running
+## editor's remote-debug connection). This path reuses the editor's own
+## well-exercised internal play mechanism instead of a second bespoke
+## process-spawn path.
+func _cmd_play_scene(params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("play_scene is only available inside the editor")
+	var scene_path := String(params.get("scene_path", ""))
+	if scene_path != "":
+		if not ResourceLoader.exists(scene_path):
+			return _fail("scene not found: %s" % scene_path)
+		EditorInterface.play_custom_scene(scene_path)
+	else:
+		EditorInterface.play_main_scene()
+	return {"ok": true}
+
+func _cmd_stop_scene(_params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("stop_scene is only available inside the editor")
+	EditorInterface.stop_playing_scene()
+	return {"ok": true}
+
+func _cmd_is_playing_scene(_params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("is_playing_scene is only available inside the editor")
+	return {"playing": EditorInterface.is_playing_scene(), "scene": EditorInterface.get_playing_scene()}
+
 ## Rescans the project filesystem so Godot notices externally-edited files
 ## (e.g. a script edited on disk outside the editor) without a full
 ## restart_editor. This is the reload_project counterpart to reload_plugin

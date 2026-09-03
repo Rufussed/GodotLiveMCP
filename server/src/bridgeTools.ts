@@ -75,6 +75,9 @@ export const bridgeToolNames = new Set([
   'set_resource_property',
   'reload_plugin',
   'restart_editor',
+  'play_scene',
+  'stop_scene',
+  'is_playing_scene',
   'reload_project',
   'get_signals',
   'find_nodes',
@@ -862,6 +865,33 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'play_scene',
+    description:
+      'Start the project running via the editor\'s OWN Play mechanism (EditorInterface.play_main_scene()/' +
+      'play_custom_scene()) — the same thing pressing the editor\'s Play button does. Prefer this over ' +
+      'godot-mcp\'s run_project, which spawns a separate CLI process this MCP server owns directly; that path ' +
+      'proved unreliable in practice (the process can vanish with no crash trace). After calling this, the ' +
+      'runtime_bridge.gd autoload (if configured in the target project) becomes reachable on its own port for ' +
+      'game_* tools once the game finishes booting (a few seconds).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scene_path: { type: 'string', description: 'Optional res:// path to a specific scene to run instead of the project\'s main scene' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'stop_scene',
+    description: 'Stop the currently playing scene (EditorInterface.stop_playing_scene()) — the same as pressing the editor\'s Stop button.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'is_playing_scene',
+    description: 'Check whether a scene is currently playing, and which one.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'reload_project',
     description:
       'Rescan the project filesystem (EditorFileSystem.scan()) so the editor notices externally-edited ' +
@@ -1247,6 +1277,14 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('restart_editor', {
         save: params.save ?? true,
       }));
+    case 'play_scene':
+      return textResult(await client.call('play_scene', {
+        scene_path: params.scene_path ?? '',
+      }));
+    case 'stop_scene':
+      return textResult(await client.call('stop_scene', {}));
+    case 'is_playing_scene':
+      return textResult(await client.call('is_playing_scene', {}));
     case 'reload_project':
       return textResult(await client.call('reload_project', {}));
     case 'get_signals':
