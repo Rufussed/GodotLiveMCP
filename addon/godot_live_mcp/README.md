@@ -36,14 +36,39 @@ Both are optional; defaults shown.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `GODOT_LIVE_MCP_PORT` | `9080` | TCP port the bridge listens on |
-| `GODOT_LIVE_MCP_TOKEN` | (generated) | Overrides the auto-generated token |
+| `GODOT_LIVE_MCP_PORT` | `9080` | TCP port the editor bridge listens on |
+| `GODOT_LIVE_MCP_TOKEN` | (generated) | Overrides the auto-generated token (shared by both bridges) |
+| `GODOT_LIVE_MCP_RUNTIME_PORT` | `9090` | TCP port the runtime (game) bridge listens on |
 
 The bridge only ever binds to `127.0.0.1` — it is not reachable from other
 machines, and every request must include the token.
 
-## Scope for v1
+## Live running-game control (optional)
 
-Operates on the scene currently open in the editor (`EditorInterface.get_edited_scene_root()`).
-Not yet wired to a *running* exported game — see the project brief's "out of
-scope for v1" section.
+The steps above only wire up the **editor** bridge — it has no presence in
+an actual running game, since a game is a separate OS process an
+`EditorPlugin` never touches. To let the agent inspect/control a *running*
+game (scene tree, properties, keyboard/mouse simulation, screenshots), add
+`runtime_bridge.gd` as an Autoload:
+
+1. **Project > Project Settings > Autoload**, add
+   `res://addons/godot_live_mcp/runtime_bridge.gd` (any name works, e.g.
+   `GodotLiveMCPRuntime`), leave "Enable" checked.
+2. Prefer setting this up via `eval_expression`'s access to
+   `ProjectSettings` from the *running* editor
+   (`ProjectSettings.set_setting("autoload/GodotLiveMCPRuntime",
+   "*res://addons/godot_live_mcp/runtime_bridge.gd")` then
+   `ProjectSettings.save()`) rather than hand-editing `project.godot` on
+   disk — confirmed live that editing the file directly while the editor
+   has the project open is fragile: the editor can resave the file from
+   its own in-memory settings and silently drop the change.
+3. Restart the editor (`restart_editor`) so the new autoload registers,
+   then start the game (`play_scene`, or press Play) — the runtime
+   bridge prints its own `listening on 127.0.0.1:9090` line once the game
+   boots. Both bridges run simultaneously; they're independent processes.
+
+## Scope
+
+v1 covered the editor's own scene (`EditorInterface.get_edited_scene_root()`)
+only. As of v2.0, a running game is reachable too, via the runtime bridge
+above — see the main [README](../../README.md) for the current tool list.
