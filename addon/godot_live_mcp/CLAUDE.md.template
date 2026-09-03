@@ -87,6 +87,21 @@ instead of manually looping `game_eval_expression` calls).
   at runtime) and are never persisted to the scene file — they're
   ephemeral, live only as long as the game keeps running.
 
+## Bracket steps with log_intent / log_result
+
+Every tool call is logged (see the main GodotLiveMCP README's
+"Self-improvement loop" section) for later review, but a raw pile of
+tool_call entries with no record of *why* they happened is hard to review
+usefully. Call `log_intent` with a one-sentence summary before the calls
+for one conceptually distinct step (including each sub-step of a larger
+request that naturally decomposes into several — not once per trivial
+follow-up within the same step), then `log_result` once that step's calls
+are done, describing what actually happened. The call/error count for
+that step is recorded automatically on the result entry — don't count it
+yourself, just describe the outcome. This is what makes a later
+`/review-tool-candidates` pass accurate instead of guesswork reconstructed
+from timestamps.
+
 ## Self-improvement rule
 
 If a request required falling back to `eval_expression` for something the

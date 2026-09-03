@@ -56,6 +56,15 @@ workaround standing in for what should be one request) accumulates, it's
 rotated into `calls.pending-review.ndjson`, a bounded batch ready to look
 at.
 
+Two plain logging tools, `log_intent`/`log_result`, let an agent bracket
+one conceptual step with a short note before its calls and a short
+outcome note after — the call/error count for that step is stamped onto
+the result entry automatically. That turns the log from an undifferentiated
+pile of tool calls into self-contained `{intent, calls, result}` units,
+which is what actually makes review useful instead of guesswork
+reconstructed from timestamps. See `addon/godot_live_mcp/CLAUDE.md.template`
+for the guidance an agent working in your project should follow.
+
 Nothing is ever analyzed automatically. Run the `/review-tool-candidates`
 skill (Claude Code; see [`.claude/skills/review-tool-candidates/`](.claude/skills/review-tool-candidates/SKILL.md))
 when you want to look — it asks before analyzing, presents any candidates
