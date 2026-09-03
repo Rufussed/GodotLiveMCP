@@ -290,6 +290,23 @@ func _cmd_get_node_properties(params: Dictionary):
 			continue
 		var name: String = prop.name
 		props[name] = var_to_str(node.get(name))
+
+	# position/rotation/scale above are LOCAL (relative to the parent) —
+	# real properties (already settable via set_property/eval_expression)
+	# but not flagged PROPERTY_USAGE_EDITOR, so they never appeared in this
+	# dump at all. World-space values matter more for an agent reasoning
+	# about where something actually is, especially under nested parents,
+	# so add them explicitly rather than relying on the editor-visibility
+	# flag Godot uses for its own inspector UI curation.
+	if node is Node2D:
+		props["global_position"] = var_to_str(node.global_position)
+		props["global_rotation"] = var_to_str(node.global_rotation)
+		props["global_scale"] = var_to_str(node.global_scale)
+	elif node is Node3D:
+		props["global_position"] = var_to_str(node.global_position)
+		props["global_rotation"] = var_to_str(node.global_rotation)
+		props["global_transform"] = var_to_str(node.global_transform)
+
 	return props
 
 func _cmd_set_property(params: Dictionary):

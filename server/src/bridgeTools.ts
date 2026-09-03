@@ -125,7 +125,11 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'get_node_properties',
-    description: 'Get all editor-visible properties of a live node and their current values.' + VALUE_ENCODING_NOTE,
+    description:
+      'Get all editor-visible properties of a live node and their current values. For a Node2D/Node3D, ' +
+      'position/rotation/scale here are LOCAL (relative to the parent) — global_position/global_rotation/' +
+      'global_transform (world-space, what matters most under nested parents) are also included even though ' +
+      'Godot doesn\'t flag them editor-visible, since they\'re real settable properties too.' + VALUE_ENCODING_NOTE,
     inputSchema: {
       type: 'object',
       properties: { ...NODE_PATH_PROPERTY },
