@@ -9,6 +9,7 @@
  */
 
 import { BridgeClient } from './bridgeClient.js';
+import { validateToolArgs } from './validateArgs.js';
 
 const NODE_PATH_PROPERTY = {
   node_path: {
@@ -187,6 +188,7 @@ function getClient(): BridgeClient {
 }
 
 export async function handleRuntimeTool(name: string, args: any): Promise<any> {
+  validateToolArgs(runtimeToolDefinitions, name, args);
   const client = getClient();
   const params = args || {};
 

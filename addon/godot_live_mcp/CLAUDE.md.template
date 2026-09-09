@@ -29,13 +29,47 @@ reloading the editor without saving silently discards all of it.
   GDScript.
 - Use `eval_expression` for one-offs, reads, or anything reachable as a
   single method call (no assignment, no loop needed) — GDScript's
-  `Expression` class can't parse assignment statements or run loops, so
-  multi-step or looping operations need a structured tool, not eval.
-- `eval_expression` has direct access to `ProjectSettings`, `ClassDB`,
-  `Engine`, `Input`, `OS`, `Time`, `Performance`, `AudioServer`, and
-  (in-editor) `EditorInterface` as bare identifiers — no need to look up a
-  dedicated tool for anything reachable through those singletons in one
-  call, e.g. `ProjectSettings.get_setting("physics/2d/default_gravity")`.
+  `Expression` class can't parse assignment statements or run loops.
+- If the logic genuinely needs a `var` declaration, a loop, or more than
+  one statement, use `run_script` instead of fighting `Expression` by
+  inlining everything into one giant nested call chain — it compiles
+  `source` as the body of `func _run(node):` (reference the target node as
+  `node`, not `self`, and end with your own `return`). This was added
+  after a real session repeatedly hit `Invalid named index 'var' for base
+  type Object` from trying `"var r = ...; str(r...)"` in `eval_expression`
+  and had to fall back to one long inlined expression each time.
+- `eval_expression`/`run_script` both have direct access to
+  `ProjectSettings`, `ClassDB`, `Engine`, `Input`, `OS`, `Time`,
+  `Performance`, `AudioServer`, and (in-editor) `EditorInterface` as bare
+  identifiers — no need to look up a dedicated tool for anything reachable
+  through those singletons in one call, e.g.
+  `ProjectSettings.get_setting("physics/2d/default_gravity")`.
+- A `run_script` runtime error partway through (as opposed to a compile
+  error) isn't caught — you get back `null` with no indication anything
+  went wrong; check `get_debug_output` if a result looks suspiciously empty.
+
+## Parameter names are validated — don't guess
+
+Every bridge/runtime tool now rejects a call that includes a parameter name
+its schema doesn't declare (e.g. `path` instead of `node_path`, `property`
+instead of `property_name`) with an explicit "unknown parameter(s)" error,
+rather than silently ignoring the unrecognized key and falling back to a
+default. This was added after a real cross-client session (a different MCP
+client than the one that established this project's conventions) guessed
+plausible-but-wrong names and got back `ok: true` describing the *wrong*
+node with no indication anything was off. If you hit this error, it's
+telling you the exact expected parameter names — use those, don't retry
+with another guess.
+
+## Filesystem scan after creating a script externally
+
+If you just created a new `.gd` file directly (via a file-write tool, not
+`attach_script`) and then immediately call `attach_script`/`validate_script`
+referencing it, Godot's editor filesystem cache may not have picked it up
+yet — you'll get `script not found` even though the file is clearly there.
+Call `eval_expression`'s `EditorInterface.get_resource_filesystem().scan()`
+first, or between the write and the reference, rather than retrying the
+same call and hoping.
 
 ## Verify property changes, don't trust ok:true blindly
 
