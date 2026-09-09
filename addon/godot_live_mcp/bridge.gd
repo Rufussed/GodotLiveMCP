@@ -531,7 +531,17 @@ func _cmd_set_transform(params: Dictionary):
 	if params.has("position"):
 		values["position"] = str_to_var(String(params["position"]))
 	if params.has("rotation"):
-		values["rotation"] = float(str_to_var(String(params["rotation"])))
+		var rotation_value = str_to_var(String(params["rotation"]))
+		if node is Node3D:
+			if rotation_value is Vector3:
+				values["rotation"] = rotation_value
+			else:
+				return _fail("rotation must be a Vector3 for a Node3D (got: %s)" % params["rotation"])
+		else:
+			if rotation_value is float or rotation_value is int:
+				values["rotation"] = float(rotation_value)
+			else:
+				return _fail("rotation must be a float for a Node2D (got: %s)" % params["rotation"])
 	if params.has("scale"):
 		values["scale"] = str_to_var(String(params["scale"]))
 	_commit_properties(node, values)

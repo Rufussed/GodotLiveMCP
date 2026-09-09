@@ -181,7 +181,7 @@ export const bridgeToolDefinitions = [
       properties: {
         ...NODE_PATH_PROPERTY,
         position: { type: 'string', description: 'var_to_str()-encoded Vector2/Vector3, e.g. "Vector2(10, 20)"' },
-        rotation: { type: 'string', description: 'var_to_str()-encoded float (radians), e.g. "1.57"' },
+        rotation: { type: 'string', description: 'var_to_str()-encoded radians: a float for a Node2D (e.g. "1.57"), or a Vector3 for a Node3D (e.g. "Vector3(0, 1.57, 0)")' },
         scale: { type: 'string', description: 'var_to_str()-encoded Vector2/Vector3, e.g. "Vector2(2, 2)"' },
       },
       required: [],
