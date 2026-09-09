@@ -260,6 +260,37 @@ func _cmd_eval_expression(params: Dictionary):
 
 	return {"value": var_to_str(value)}
 
+## eval_expression's Expression class can only parse a single statement — no
+## var declarations, no loops, no `;`-chained assignments. This runs actual
+## GDScript source as a compiled function body instead, for anything that
+## genuinely needs multiple statements. `source` becomes the body of
+## `func _run(node):`, so it can reference the target node as `node` and
+## must end with its own `return` statement — there's no implicit return of
+## the last expression like eval_expression has.
+func _cmd_run_script(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var source := String(params.get("source", ""))
+	if source.strip_edges() == "":
+		return _fail("source is required")
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+
+	var indented := ""
+	for line in source.split("\n"):
+		indented += "\t%s\n" % line
+
+	var script := GDScript.new()
+	script.source_code = "extends RefCounted\nfunc _run(node):\n%s" % indented
+	var err := script.reload()
+	if err != OK:
+		return _fail("script compile error (code %d) — check GDScript syntax" % err)
+	var runner = script.new()
+	if not (runner is RefCounted and runner.has_method("_run")):
+		return _fail("internal error: compiled script has no _run() method")
+	var value = runner.call("_run", node)
+	return {"value": var_to_str(value)}
+
 func _cmd_list_scene_tree(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var node := _resolve_node(node_path)

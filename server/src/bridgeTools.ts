@@ -5,6 +5,7 @@
  */
 
 import { BridgeClient } from './bridgeClient.js';
+import { validateToolArgs } from './validateArgs.js';
 
 const NODE_PATH_PROPERTY = {
   node_path: {
@@ -119,6 +120,33 @@ export const bridgeToolDefinitions = [
         },
       },
       required: ['expression'],
+    },
+  },
+  {
+    name: 'run_script',
+    description:
+      'Run multi-statement GDScript source against a node in the live scene tree, running in the ' +
+      'Godot editor. Use this instead of eval_expression whenever the logic needs a `var` declaration, ' +
+      'a loop, or more than one statement — Expression (what eval_expression uses) can only parse a ' +
+      "single expression. `source` becomes the body of a compiled `func _run(node):`, so it can " +
+      'reference the target node as `node` (not `self`) and MUST end with its own `return` statement — ' +
+      'unlike eval_expression, there is no implicit return of a trailing expression. Also has access to ' +
+      'ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, and (in-editor) ' +
+      'EditorInterface as bare identifiers. Note: a runtime error partway through the script (as opposed ' +
+      'to a compile error) is not caught — you get back null; check get_debug_output for what actually ' +
+      'went wrong.' + VALUE_ENCODING_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        source: {
+          type: 'string',
+          description:
+            'GDScript statements forming a function body, e.g. ' +
+            '"var root = EditorInterface.get_edited_scene_root()\\nvar total = 0\\nfor c in root.get_children():\\n\\ttotal += 1\\nreturn total"',
+        },
+      },
+      required: ['source'],
     },
   },
   {
@@ -1013,6 +1041,7 @@ function getClient(): BridgeClient {
 }
 
 export async function handleBridgeTool(name: string, args: any): Promise<any> {
+  validateToolArgs(bridgeToolDefinitions, name, args);
   const client = getClient();
   const params = args || {};
 
@@ -1021,6 +1050,11 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('eval_expression', {
         node_path: params.node_path ?? '.',
         expression: params.expression,
+      }));
+    case 'run_script':
+      return textResult(await client.call('run_script', {
+        node_path: params.node_path ?? '.',
+        source: params.source,
       }));
     case 'list_scene_tree':
       return textResult(await client.call('list_scene_tree', {
