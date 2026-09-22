@@ -23,6 +23,7 @@ func _exit_tree() -> void:
 		_bridge.queue_free()
 		_bridge = null
 	if _assistant_panel:
+		_assistant_panel.shutdown()
 		remove_control_from_bottom_panel(_assistant_panel)
 		_assistant_panel.queue_free()
 		_assistant_panel = null
