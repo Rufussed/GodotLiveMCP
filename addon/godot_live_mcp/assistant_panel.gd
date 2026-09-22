@@ -58,8 +58,8 @@ func _compact_button_padding(b: Button) -> void:
 		if style == null:
 			continue
 		var compact: StyleBox = style.duplicate()
-		compact.content_margin_top = 2
-		compact.content_margin_bottom = 2
+		compact.content_margin_top = 0
+		compact.content_margin_bottom = 0
 		b.add_theme_stylebox_override(state, compact)
 	# Re-stash the now-compacted "pressed" style so _set_toggle_disabled
 	# applies the shrunk version, not the original taller one from before
@@ -67,6 +67,16 @@ func _compact_button_padding(b: Button) -> void:
 	# back to the old height instead of staying compact.
 	if b.has_meta("green_style"):
 		b.set_meta("green_style", b.get_theme_stylebox("pressed"))
+	# Same problem the other way: _set_toggle_disabled's re-enable path
+	# used to call remove_theme_stylebox_override("disabled"), which falls
+	# back to Godot's ORIGINAL uncompacted default (6px margin), not this
+	# function's compacted one — and Button.get_minimum_size() factors in
+	# the disabled stylebox's size even while the button is enabled, so
+	# that alone was enough to make the whole button look tall again.
+	# Confirmed live: this is exactly what my own toggle-disable test hit.
+	# Stash the compacted grey version too so re-enabling can restore it
+	# instead of discarding the override outright.
+	b.set_meta("default_disabled_style", b.get_theme_stylebox("disabled"))
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 8)
@@ -82,6 +92,12 @@ func _ready() -> void:
 	var icon := TextureRect.new()
 	icon.texture = load("res://addons/godot_live_mcp/icons/claude.svg")
 	icon.custom_minimum_size = Vector2(25, 20)
+	# TextureRect defaults to expand_mode EXPAND_KEEP_SIZE, which ignores
+	# custom_minimum_size for shrinking and reports the texture's native
+	# pixel size (47x38) as its own minimum regardless — confirmed live:
+	# this alone was forcing the whole button row to stay 38px tall even
+	# after every button's own minimum was correctly compacted to 21px.
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button_row.add_child(icon)
@@ -115,6 +131,12 @@ func _ready() -> void:
 	_launch_button.pressed.connect(_on_launch_pressed)
 	button_row.add_child(_launch_button)
 	_compact_button_padding(_launch_button)
+
+	# Distribute the interactive buttons across the row's full width —
+	# icon/label/separator stay their natural size, only the buttons
+	# (toggles + terminal launcher) expand and share the leftover space.
+	for b in [_file_control_toggle, _terminal_toggle, _web_toggle, _launch_button]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	add_child(HSeparator.new())
 	_build_session_ui()
@@ -228,8 +250,8 @@ func _make_permission_toggle(label: String, parent: Control) -> Button:
 	green.corner_radius_bottom_right = 4
 	green.content_margin_left = 8
 	green.content_margin_right = 8
-	green.content_margin_top = 2
-	green.content_margin_bottom = 2
+	green.content_margin_top = 0
+	green.content_margin_bottom = 0
 	b.add_theme_stylebox_override("pressed", green)
 	b.add_theme_stylebox_override("hover_pressed", green)
 	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
@@ -265,7 +287,12 @@ func _set_toggle_disabled(toggle: Button, disabled: bool) -> void:
 		toggle.add_theme_stylebox_override("disabled", toggle.get_meta("green_style"))
 		toggle.add_theme_color_override("font_disabled_color", Color(1, 1, 1))
 	else:
-		toggle.remove_theme_stylebox_override("disabled")
+		# Reapply the compacted grey default, not remove_theme_stylebox_
+		# override — removing it falls back to Godot's ORIGINAL uncompacted
+		# style, and Button.get_minimum_size() factors the disabled
+		# stylebox's size in even while enabled, so that alone makes the
+		# whole button look tall again. Confirmed live.
+		toggle.add_theme_stylebox_override("disabled", toggle.get_meta("default_disabled_style"))
 		toggle.remove_theme_color_override("font_disabled_color")
 
 # ---- In-editor session (Phase 1 flagship) ----
