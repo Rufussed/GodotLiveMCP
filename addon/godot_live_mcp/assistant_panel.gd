@@ -59,15 +59,13 @@ func _ready() -> void:
 	button_row.add_theme_constant_override("separation", 6)
 	add_child(button_row)
 
-	# Anthropic's Claude logomark — same asset Omarchy's own agents bar
-	# panel ships (assets/claude.svg there), copied in rather than
-	# referenced from /usr/share/omarchy so this doesn't depend on Omarchy
-	# being installed. Godot imports SVGs as textures natively; no font
-	# dependency needed (icon fonts were the other option raised, but a
-	# real brand SVG we already had on hand is simpler and unambiguous).
+	# "Clawd" — Claude Code's own mascot, from the official VS Code
+	# extension's bundled assets (resources/clawd.svg), copied in rather
+	# than referenced from the extension install so this doesn't depend on
+	# VS Code being installed. Native aspect ratio 47:38.
 	var icon := TextureRect.new()
 	icon.texture = load("res://addons/godot_live_mcp/icons/claude.svg")
-	icon.custom_minimum_size = Vector2(20, 20)
+	icon.custom_minimum_size = Vector2(25, 20)
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button_row.add_child(icon)
