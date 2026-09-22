@@ -46,7 +46,7 @@ var _web_toggle: Button
 
 # In-editor session state
 var _transcript: RichTextLabel
-var _input_field: LineEdit
+var _input_field: TextEdit
 var _send_button: Button
 var _pipe: Dictionary = {}       # result of OS.execute_with_pipe while a session is active
 var _read_buffer: String = ""    # accumulates partial reads until a full "\n"-terminated line exists
@@ -138,7 +138,6 @@ func _ready() -> void:
 	for b in [_file_control_toggle, _terminal_toggle, _web_toggle, _launch_button]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-	add_child(HSeparator.new())
 	_build_session_ui()
 
 	_refresh_status()
@@ -308,17 +307,30 @@ func _build_session_ui() -> void:
 	_transcript.selection_enabled = true
 	_transcript.context_menu_enabled = true  # right-click → Copy, standard shortcuts too
 	_transcript.deselect_on_focus_loss_enabled = false
-	add_child(_transcript)
 
 	var input_row := HBoxContainer.new()
 	input_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(input_row)
 
-	_input_field = LineEdit.new()
-	_input_field.placeholder_text = "Type a message and press Enter — starts the session automatically…"
+	# TextEdit, not LineEdit — LineEdit is single-line only by design, no
+	# way to grow it, so it can't do "resize to show more input lines".
+	# Starts at one line's height, like the LineEdit it replaces; the
+	# VSplitContainer's drag handle (below) is what lets it grow.
+	_input_field = TextEdit.new()
+	_input_field.placeholder_text = "Type a message and press Enter — starts the session automatically… (Shift+Enter for a newline)"
 	_input_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_input_field.text_submitted.connect(_on_send_pressed)
+	_input_field.custom_minimum_size = Vector2(0, 24)
+	_input_field.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	_input_field.gui_input.connect(_on_input_gui_input)
 	input_row.add_child(_input_field)
+
+	# VSplitContainer instead of two plain add_child calls — its drag
+	# handle is what makes the input box resizable, per the request. Needs
+	# exactly two children (transcript, input row) to show one handle.
+	var splitter := VSplitContainer.new()
+	splitter.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	splitter.add_child(_transcript)
+	splitter.add_child(input_row)
+	add_child(splitter)
 
 	_send_button = Button.new()
 	_send_button.text = "Send"
@@ -396,6 +408,17 @@ func _stop_session(status_text: String) -> void:
 ## clicking Send) starts the session on the first call, same as any other
 ## turn. Simpler than a separate Start button, at the cost of the first
 ## message's round trip including a process-spawn delay the user doesn't
+## TextEdit has no text_submitted signal the way LineEdit does (it's
+## multi-line by nature, so Enter means "newline" unless told otherwise) —
+## this is that "otherwise": plain Enter sends, Shift+Enter inserts a
+## newline like a normal multi-line editor.
+func _on_input_gui_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+			if not event.shift_pressed:
+				get_viewport().set_input_as_handled()
+				_on_send_pressed()
+
 ## get separate feedback for; acceptable since _start_session already
 ## posts its own "Session started" line to the transcript immediately.
 func _on_send_pressed(_submitted_text: String = "") -> void:

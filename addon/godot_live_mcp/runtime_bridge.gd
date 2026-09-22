@@ -41,6 +41,9 @@ func _ready() -> void:
 func _get_scene_root() -> Node:
 	return get_tree().current_scene
 
+## Same caveat as bridge.gd's _process(): socket I/O only happens here,
+## once per frame, so a long synchronous command blocks every other bridge
+## command until it returns — see README's "Known limitations".
 func _process(_delta: float) -> void:
 	if _server == null:
 		return
@@ -185,6 +188,9 @@ func _cmd_eval_expression(params: Dictionary):
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
 	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
+	for key_name in _KEY_CONSTANTS:
+		input_names.append(key_name)
+		input_values.append(_KEY_CONSTANTS[key_name])
 
 	var expr := Expression.new()
 	var parse_err := expr.parse(expr_src, input_names)
@@ -312,6 +318,26 @@ const _SPECIAL_KEYS := {
 }
 const _F_KEY_BASE := 4194332  # KEY_F1; KEY_F2..KEY_F12 confirmed live as +1 sequential
 
+## KEY_* names bound into eval_expression/wait_for_condition's Expression
+## context (see _build_key_constants below) — a real GDScript context has
+## these as ordinary @GlobalScope constants, but Expression only resolves
+## names explicitly passed to parse()/execute(), so without this an
+## expression like "Input.is_key_pressed(KEY_A)" fails to parse with
+## "Invalid named index 'KEY_A'". Confirmed live (see TOOL_CANDIDATES.md
+## review, 2026-09-10): hit twice independently, forcing callers to fall
+## back to raw ASCII codes.
+static var _KEY_CONSTANTS: Dictionary = _build_key_constants()
+
+static func _build_key_constants() -> Dictionary:
+	var d := _SPECIAL_KEYS.duplicate()
+	for i in range(1, 13):
+		d["KEY_F%d" % i] = _F_KEY_BASE + (i - 1)
+	for c in range(65, 91):  # A-Z
+		d["KEY_%s" % char(c)] = c
+	for c in range(48, 58):  # 0-9
+		d["KEY_%s" % char(c)] = c
+	return d
+
 ## Resolves a keycode name to its integer value, or -1 if unresolvable.
 ## Accepts "KEY_XXX" names (the special-key table, or "KEY_F1".."KEY_F12"
 ## computed from the confirmed base), or a single printable character
@@ -397,6 +423,9 @@ func _cmd_wait_for_condition(params: Dictionary):
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
 	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
+	for key_name in _KEY_CONSTANTS:
+		input_names.append(key_name)
+		input_values.append(_KEY_CONSTANTS[key_name])
 	var expr := Expression.new()
 	var parse_err := expr.parse(expr_src, input_names)
 	if parse_err != OK:
