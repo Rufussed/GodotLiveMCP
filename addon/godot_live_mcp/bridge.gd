@@ -24,6 +24,36 @@ const PLUGIN_ADDON_NAME := "godot_live_mcp"
 ## this, Expression has no way to resolve "ProjectSettings", "ClassDB", etc.
 const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance", "AudioServer"]
 
+## KEY_* constant values, mirrored from runtime_bridge.gd's own table
+## (confirmed live there: global enums like Key aren't exposed through
+## ClassDB reflection, and Expression can't resolve free-standing global
+## constants either — special/non-printable keys need this table;
+## printable letters/digits are just their Unicode code point). Bound into
+## eval_expression's Expression context below so expressions like
+## "Input.is_key_pressed(KEY_A)" parse instead of failing with "Invalid
+## named index 'KEY_A'" — hit twice independently in real usage
+## (TOOL_CANDIDATES.md review, 2026-09-10).
+const _SPECIAL_KEYS := {
+	"KEY_ESCAPE": 4194305, "KEY_TAB": 4194306, "KEY_BACKSPACE": 4194308,
+	"KEY_ENTER": 4194309, "KEY_HOME": 4194317, "KEY_END": 4194318,
+	"KEY_LEFT": 4194319, "KEY_UP": 4194320, "KEY_RIGHT": 4194321,
+	"KEY_DOWN": 4194322, "KEY_DELETE": 4194312, "KEY_SHIFT": 4194325,
+	"KEY_CTRL": 4194326, "KEY_ALT": 4194328, "KEY_SPACE": 32,
+}
+const _F_KEY_BASE := 4194332  # KEY_F1; KEY_F2..KEY_F12 sequential from here
+
+static var _KEY_CONSTANTS: Dictionary = _build_key_constants()
+
+static func _build_key_constants() -> Dictionary:
+	var d := _SPECIAL_KEYS.duplicate()
+	for i in range(1, 13):
+		d["KEY_F%d" % i] = _F_KEY_BASE + (i - 1)
+	for c in range(65, 91):  # A-Z
+		d["KEY_%s" % char(c)] = c
+	for c in range(48, 58):  # 0-9
+		d["KEY_%s" % char(c)] = c
+	return d
+
 var _server: TCPServer
 var _peers: Array = []
 var _peer_buffers: Dictionary = {}
@@ -78,6 +108,16 @@ func _get_scene_root() -> Node:
 			return edited
 	return get_tree().root if is_inside_tree() else null
 
+## Socket I/O only happens here, once per rendered frame — so any command
+## that itself runs long and synchronous (a script's own expensive
+## regeneration logic, EditorInterface.open_scene_from_path() on a large
+## scene, ...) blocks this loop, and with it every other bridge command,
+## until it returns. Confirmed live (recurring across two usage-log
+## reviews, 2026-09-10): calls made right after such an operation —
+## including trivial ones — can time out at the client's 5s limit,
+## sometimes repeatedly, before this resumes polling. Not fixable by a new
+## tool; inherent to single-threaded GDScript. See README's "Known
+## limitations".
 func _process(_delta: float) -> void:
 	if _server == null:
 		return
@@ -174,7 +214,25 @@ func _rel_path(node: Node) -> String:
 ## parsed by str_to_var() — needed for textures/resources that only exist as
 ## files, since str_to_var() can't construct arbitrary resource references
 ## from a bare res:// path the way it can for e.g. Vector2/Color literals.
-func _decode_value(value_str: String):
+##
+## Takes a Variant, not a String, and normalizes via str() rather than the
+## String() constructor. Every param value here is documented as a
+## var_to_str()-encoded string, but a caller can easily send raw JSON
+## instead (an Array for a Vector, a Dictionary for a Color) — that arrives
+## here as a genuine Array/Dictionary, not a String, and String(Array) is a
+## hard runtime error ("Invalid arguments to construct 'String'"), confirmed
+## live via eval_expression, unlike str(Array) which stringifies anything
+## without erroring. That crash was the actual root cause of tool calls
+## reporting ok:true while silently leaving properties at their default
+## (found live 2026-09-22, see _apply_properties): GDScript's non-fatal
+## script-error handling let execution continue past it as null, which
+## then set the target property to null and got silently dropped by
+## Object.set(). str() first means str_to_var() gets valid syntax to parse
+## (correctly, if oddly-typed — e.g. an Array where a Vector2 was wanted)
+## instead of crashing before _apply_properties' own mismatch check ever
+## runs.
+func _decode_value(raw_value):
+	var value_str := str(raw_value)
 	if value_str.begins_with("load:"):
 		return load(value_str.substr(5))
 	return str_to_var(value_str)
@@ -203,8 +261,29 @@ func _commit_properties(obj: Object, values: Dictionary) -> void:
 ## error), so this validates every name against obj.get_property_list()
 ## FIRST and applies nothing at all if any are unknown — atomic, rather
 ## than partially applying the valid ones before reporting failure.
-## Returns any property names that don't actually exist on obj.
-func _apply_properties(obj: Object, props: Dictionary) -> Array:
+##
+## Object.set() ALSO silently no-ops when the decoded value's type doesn't
+## match the property's declared type — e.g. a caller sends the documented
+## var_to_str() string ("Vector2(40, 40)") but the tool schema is easy to
+## misread as plain JSON, so a raw array/object ([40, 40], {"x":40,"y":40})
+## decodes via str_to_var() into an Array/Dictionary instead of a Vector2,
+## and the property is silently left at its default while the tool still
+## reports ok:true. Found live (2026-09-22) via a peer agent's real tool
+## calls — add_mesh_instance, set_nested_property, set_material_3d, and
+## setup_collision all returned ok while the property stayed untouched.
+## Same failure class as the set_transform rotation no-op fixed in
+## 90e4bd1, but that fix only covered one property on one tool; this
+## closes it for every tool that goes through this shared helper (see the
+## _apply_properties call sites throughout this file). Read every
+## property back after commit and compare against what was requested,
+## rather than trying to predict which conversions Object.set() accepts —
+## note this can theoretically false-positive if a property's own setter
+## legitimately clamps/normalizes the value it's given, which is an
+## acceptable tradeoff for loud-failure-over-silent-corruption here.
+##
+## Returns "" on success, or a ready-to-use error message describing
+## either unknown property names or the properties that didn't take.
+func _apply_properties(obj: Object, props: Dictionary) -> String:
 	var valid_names := {}
 	for p in obj.get_property_list():
 		valid_names[p.name] = true
@@ -216,12 +295,37 @@ func _apply_properties(obj: Object, props: Dictionary) -> Array:
 		if not valid_names.has(name_str):
 			unknown.append(name_str)
 			continue
-		to_apply[name_str] = _decode_value(String(props[prop_name]))
+		to_apply[name_str] = _decode_value(props[prop_name])
 	if not unknown.is_empty():
-		return unknown
+		return "unknown %s propert%s: %s" % [
+			obj.get_class(), "y" if unknown.size() == 1 else "ies", ", ".join(unknown)
+		]
 
 	_commit_properties(obj, to_apply)
-	return unknown
+
+	var mismatched := []
+	for name_str in to_apply:
+		var actual = obj.get(name_str)
+		var requested = to_apply[name_str]
+		# typeof() gate BEFORE !=: GDScript's != throws "Invalid operands"
+		# when comparing incompatible types (e.g. Vector2 != Array) rather
+		# than just returning true — confirmed live, and since that's a
+		# non-fatal script error, execution continues past it treating the
+		# whole condition as false, silently skipping detection entirely.
+		# That's exactly the mismatch case this check exists to catch
+		# (wrong-typed decoded value vs. the property's real type), so a
+		# type mismatch alone is reported without ever risking that
+		# comparison; only same-type values fall through to !=.
+		if typeof(actual) != typeof(requested) or actual != requested:
+			mismatched.append("%s (requested %s, property is a %s — check the var_to_str() encoding, e.g. \"Vector2(1, 2)\" not a JSON array/object)" % [
+				name_str, var_to_str(requested), type_string(typeof(actual))
+			])
+	if not mismatched.is_empty():
+		return "failed to set %s propert%s — value written did not match what was requested: %s" % [
+			obj.get_class(), "y" if mismatched.size() == 1 else "ies", "; ".join(mismatched)
+		]
+
+	return ""
 
 ## Reads back the given property names from obj as var_to_str()-encoded values.
 func _read_back(obj: Object, prop_names) -> Dictionary:
@@ -245,6 +349,9 @@ func _cmd_eval_expression(params: Dictionary):
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
 	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
+	for key_name in _KEY_CONSTANTS:
+		input_names.append(key_name)
+		input_values.append(_KEY_CONSTANTS[key_name])
 	if Engine.is_editor_hint():
 		input_names.append("EditorInterface")
 		input_values.append(EditorInterface)
@@ -343,16 +450,16 @@ func _cmd_get_node_properties(params: Dictionary):
 func _cmd_set_property(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var prop_name := String(params.get("property_name", ""))
-	var value_str := String(params.get("value", ""))
+	var value_str := str(params.get("value", ""))
 	var node := _resolve_node(node_path)
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 	if prop_name == "":
 		return _fail("property_name is required")
 
-	var unknown := _apply_properties(node, {prop_name: value_str})
-	if not unknown.is_empty():
-		return _fail("unknown property: %s" % prop_name)
+	var apply_err := _apply_properties(node, {prop_name: value_str})
+	if apply_err != "":
+		return _fail(apply_err)
 	return {"value": var_to_str(node.get(prop_name))}
 
 func _cmd_set_properties(params: Dictionary):
@@ -362,9 +469,9 @@ func _cmd_set_properties(params: Dictionary):
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 
-	var unknown := _apply_properties(node, properties)
-	if not unknown.is_empty():
-		return _fail("unknown properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(node, properties)
+	if apply_err != "":
+		return _fail(apply_err)
 
 	var result := {}
 	for prop_name in properties:
@@ -419,7 +526,7 @@ func _container_get(container, key: String) -> Array:
 func _cmd_set_nested_property(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var property_path := String(params.get("property_path", ""))
-	var value_str := String(params.get("value", ""))
+	var value_str := str(params.get("value", ""))
 	var node := _resolve_node(node_path)
 	if node == null:
 		return _fail("node not found: %s" % node_path)
@@ -464,9 +571,9 @@ func _cmd_set_nested_property(params: Dictionary):
 
 	var last := parts[parts.size() - 1]
 	if obj is Object:
-		var unknown := _apply_properties(obj, {last: value_str})
-		if not unknown.is_empty():
-			return _fail("unknown property: %s (on %s)" % [last, resolved_path])
+		var apply_err := _apply_properties(obj, {last: value_str})
+		if apply_err != "":
+			return _fail(apply_err)
 		return {"value": var_to_str(obj.get(last))}
 
 	# obj is an Array/Dictionary reached through owner.owner_prop, possibly
@@ -543,9 +650,9 @@ func _cmd_set_resource_property(params: Dictionary):
 	else:
 		res = ClassDB.instantiate(resource_type)
 
-	var unknown := _apply_properties(res, resource_params)
-	if not unknown.is_empty():
-		return _fail("unknown %s properties: %s" % [resource_type, ", ".join(unknown)])
+	var apply_err := _apply_properties(res, resource_params)
+	if apply_err != "":
+		return _fail(apply_err)
 
 	_commit_properties(node, {property_name: res})
 	return {"ok": true, "resource_type": res.get_class(), "resource": _read_back(res, resource_params.keys())}
@@ -560,9 +667,9 @@ func _cmd_set_transform(params: Dictionary):
 
 	var values := {}
 	if params.has("position"):
-		values["position"] = str_to_var(String(params["position"]))
+		values["position"] = _decode_value(params["position"])
 	if params.has("rotation"):
-		var rotation_value = str_to_var(String(params["rotation"]))
+		var rotation_value = _decode_value(params["rotation"])
 		if node is Node3D:
 			if rotation_value is Vector3:
 				values["rotation"] = rotation_value
@@ -574,7 +681,7 @@ func _cmd_set_transform(params: Dictionary):
 			else:
 				return _fail("rotation must be a float for a Node2D (got: %s)" % params["rotation"])
 	if params.has("scale"):
-		values["scale"] = str_to_var(String(params["scale"]))
+		values["scale"] = _decode_value(params["scale"])
 	_commit_properties(node, values)
 	return {"ok": true}
 
@@ -985,7 +1092,7 @@ func _cmd_batch_set_properties(params: Dictionary):
 
 	var decoded := {}
 	for prop_name in properties:
-		decoded[String(prop_name)] = _decode_value(String(properties[prop_name]))
+		decoded[String(prop_name)] = _decode_value(properties[prop_name])
 
 	for m in matches:
 		var target := _resolve_node(m["path"])
@@ -1078,9 +1185,9 @@ func _cmd_setup_collision(params: Dictionary):
 		return _fail("node is not a CollisionObject2D/3D (e.g. Area2D, StaticBody2D, RigidBody3D): %s" % node_path)
 
 	var shape: Resource = ClassDB.instantiate(shape_type)
-	var unknown := _apply_properties(shape, shape_params)
-	if not unknown.is_empty():
-		return _fail("unknown shape properties for %s: %s" % [shape_type, ", ".join(unknown)])
+	var apply_err := _apply_properties(shape, shape_params)
+	if apply_err != "":
+		return _fail(apply_err)
 
 	var collision_node: Node = ClassDB.instantiate(collision_node_type)
 	collision_node.shape = shape
@@ -1167,9 +1274,9 @@ func _cmd_add_mesh_instance(params: Dictionary):
 		return _fail("cannot instantiate mesh type: %s" % mesh_type)
 
 	var mesh: Mesh = ClassDB.instantiate(mesh_type)
-	var unknown := _apply_properties(mesh, mesh_params)
-	if not unknown.is_empty():
-		return _fail("unknown mesh properties for %s: %s" % [mesh_type, ", ".join(unknown)])
+	var apply_err := _apply_properties(mesh, mesh_params)
+	if apply_err != "":
+		return _fail(apply_err)
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = mesh
@@ -1194,9 +1301,9 @@ func _cmd_setup_environment(params: Dictionary):
 	var env: Environment = node.environment
 	if env == null:
 		env = Environment.new()
-	var unknown := _apply_properties(env, environment_params)
-	if not unknown.is_empty():
-		return _fail("unknown environment properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(env, environment_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	node.environment = env
 
 	return {"ok": true, "environment": _read_back(env, environment_params.keys())}
@@ -1224,9 +1331,9 @@ func _cmd_set_material_3d(params: Dictionary):
 			surf_mat = current_surf
 		else:
 			surf_mat = StandardMaterial3D.new()
-		var surf_unknown := _apply_properties(surf_mat, material_params)
-		if not surf_unknown.is_empty():
-			return _fail("unknown material properties: %s" % ", ".join(surf_unknown))
+		var apply_err := _apply_properties(surf_mat, material_params)
+		if apply_err != "":
+			return _fail(apply_err)
 		mesh_instance.set_surface_override_material(idx, surf_mat)
 		return {"ok": true, "material": _read_back(surf_mat, material_params.keys())}
 
@@ -1235,9 +1342,9 @@ func _cmd_set_material_3d(params: Dictionary):
 		mat = node.material_override
 	else:
 		mat = StandardMaterial3D.new()
-	var unknown := _apply_properties(mat, material_params)
-	if not unknown.is_empty():
-		return _fail("unknown material properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(mat, material_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	node.material_override = mat
 
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
@@ -1299,9 +1406,9 @@ func _cmd_set_physics_material(params: Dictionary):
 		mat = current
 	else:
 		mat = PhysicsMaterial.new()
-	var unknown := _apply_properties(mat, material_params)
-	if not unknown.is_empty():
-		return _fail("unknown physics material properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(mat, material_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	node.set("physics_material_override", mat)
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
@@ -1382,9 +1489,9 @@ func _cmd_set_theme_stylebox_override(params: Dictionary):
 		return _fail("cannot instantiate style type: %s" % style_type)
 
 	var stylebox: StyleBox = ClassDB.instantiate(style_type)
-	var unknown := _apply_properties(stylebox, style_params)
-	if not unknown.is_empty():
-		return _fail("unknown style properties for %s: %s" % [style_type, ", ".join(unknown)])
+	var apply_err := _apply_properties(stylebox, style_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	node.add_theme_stylebox_override(override_name, stylebox)
 	return {"ok": true, "style": _read_back(stylebox, style_params.keys())}
 
@@ -1426,7 +1533,7 @@ func _cmd_set_shader_material(params: Dictionary):
 	var applied := {}
 	for pname in shader_params:
 		var pname_str := String(pname)
-		mat.set_shader_parameter(pname_str, _decode_value(String(shader_params[pname])))
+		mat.set_shader_parameter(pname_str, _decode_value(shader_params[pname]))
 		applied[pname_str] = var_to_str(mat.get_shader_parameter(pname_str))
 
 	node.set(prop_name, mat)
@@ -1620,9 +1727,9 @@ func _cmd_add_animation_transition(params: Dictionary):
 		return _fail("unknown to_state: %s" % to_state)
 
 	var transition := AnimationNodeStateMachineTransition.new()
-	var unknown := _apply_properties(transition, transition_params)
-	if not unknown.is_empty():
-		return _fail("unknown transition properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(transition, transition_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	root.add_transition(from_state, to_state, transition)
 	return {"ok": true, "transition": _read_back(transition, transition_params.keys())}
 
@@ -1651,9 +1758,9 @@ func _cmd_add_audio_bus_effect(params: Dictionary):
 		return _fail("cannot instantiate effect type: %s" % effect_type)
 
 	var effect: AudioEffect = ClassDB.instantiate(effect_type)
-	var unknown := _apply_properties(effect, effect_params)
-	if not unknown.is_empty():
-		return _fail("unknown effect properties for %s: %s" % [effect_type, ", ".join(unknown)])
+	var apply_err := _apply_properties(effect, effect_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	AudioServer.add_bus_effect(idx, effect)
 	return {"ok": true, "bus_index": idx, "effect": _read_back(effect, effect_params.keys())}
 
@@ -1672,9 +1779,9 @@ func _cmd_set_audio_bus_effect_params(params: Dictionary):
 		return _fail("effect_index %d out of range (bus has %d effects)" % [effect_index, AudioServer.get_bus_effect_count(idx)])
 
 	var effect := AudioServer.get_bus_effect(idx, effect_index)
-	var unknown := _apply_properties(effect, effect_params)
-	if not unknown.is_empty():
-		return _fail("unknown effect properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(effect, effect_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	return {"ok": true, "effect": _read_back(effect, effect_params.keys())}
 
 ## Removes an audio bus effect by index — AudioServer.remove_bus_effect()
@@ -1723,9 +1830,9 @@ func _cmd_tilemap_fill_rect(params: Dictionary):
 		return _fail("node is not a TileMapLayer: %s" % node_path)
 	var layer: TileMapLayer = node
 
-	var pos: Vector2i = str_to_var(String(params.get("position", "Vector2i(0, 0)")))
-	var size: Vector2i = str_to_var(String(params.get("size", "Vector2i(1, 1)")))
-	var atlas_coords: Vector2i = str_to_var(String(params.get("atlas_coords", "Vector2i(0, 0)")))
+	var pos: Vector2i = _decode_value(params.get("position", "Vector2i(0, 0)"))
+	var size: Vector2i = _decode_value(params.get("size", "Vector2i(1, 1)"))
+	var atlas_coords: Vector2i = _decode_value(params.get("atlas_coords", "Vector2i(0, 0)"))
 	var source_id := int(params.get("source_id", 0))
 	var alternative_tile := int(params.get("alternative_tile", 0))
 	if size.x <= 0 or size.y <= 0:
@@ -1775,9 +1882,9 @@ func _cmd_set_particle_material(params: Dictionary):
 		return _fail("node is not a GPUParticles2D/3D: %s" % node_path)
 
 	var mat := _get_or_create_particle_material(node)
-	var unknown := _apply_properties(mat, material_params)
-	if not unknown.is_empty():
-		return _fail("unknown particle material properties: %s" % ", ".join(unknown))
+	var apply_err := _apply_properties(mat, material_params)
+	if apply_err != "":
+		return _fail(apply_err)
 	node.set("process_material", mat)
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
@@ -1797,7 +1904,7 @@ func _cmd_set_particle_color_gradient(params: Dictionary):
 	for pt in points:
 		var p: Dictionary = pt
 		offsets.append(float(p.get("offset", 0.0)))
-		colors.append(str_to_var(String(p.get("color", "Color(1, 1, 1, 1)"))))
+		colors.append(_decode_value(p.get("color", "Color(1, 1, 1, 1)")))
 
 	var gradient := Gradient.new()
 	gradient.offsets = offsets
@@ -1858,9 +1965,9 @@ func _cmd_setup_navigation(params: Dictionary):
 		var navmesh: NavigationMesh = node.navigation_mesh
 		if navmesh == null:
 			navmesh = NavigationMesh.new()
-		var unknown := _apply_properties(navmesh, nav_params)
-		if not unknown.is_empty():
-			return _fail("unknown navigation mesh properties: %s" % ", ".join(unknown))
+		var apply_err := _apply_properties(navmesh, nav_params)
+		if apply_err != "":
+			return _fail(apply_err)
 		node.navigation_mesh = navmesh
 		if bake:
 			node.bake_navigation_mesh(false)
@@ -1870,9 +1977,9 @@ func _cmd_setup_navigation(params: Dictionary):
 		var navpoly: NavigationPolygon = node.navigation_polygon
 		if navpoly == null:
 			navpoly = NavigationPolygon.new()
-		var unknown := _apply_properties(navpoly, nav_params)
-		if not unknown.is_empty():
-			return _fail("unknown navigation polygon properties: %s" % ", ".join(unknown))
+		var apply_err := _apply_properties(navpoly, nav_params)
+		if apply_err != "":
+			return _fail(apply_err)
 		node.navigation_polygon = navpoly
 		if bake:
 			node.bake_navigation_polygon(false)
