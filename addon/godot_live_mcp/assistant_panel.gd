@@ -33,12 +33,18 @@ const _TERMINALS := [
 	{"bin": "xterm", "style": "flag_e"},
 ]
 
-var _status_label: Label
 var _launch_button: Button
 
+# Permission toggles (in-editor session only — these configure the flags
+# `claude` launches with, so they only take effect at Start; there is no
+# live "change a running session's permissions" protocol, hence disabling
+# them once a session is active rather than pretending they still do
+# something).
+var _file_control_toggle: Button
+var _terminal_toggle: Button
+var _web_toggle: Button
+
 # In-editor session state
-var _session_status_label: Label
-var _session_button: Button
 var _transcript: RichTextLabel
 var _input_field: LineEdit
 var _send_button: Button
@@ -49,14 +55,45 @@ var _session_active: bool = false
 func _ready() -> void:
 	add_theme_constant_override("separation", 8)
 
-	_status_label = Label.new()
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_status_label)
+	var button_row := HBoxContainer.new()
+	button_row.add_theme_constant_override("separation", 6)
+	add_child(button_row)
+
+	# Anthropic's Claude logomark — same asset Omarchy's own agents bar
+	# panel ships (assets/claude.svg there), copied in rather than
+	# referenced from /usr/share/omarchy so this doesn't depend on Omarchy
+	# being installed. Godot imports SVGs as textures natively; no font
+	# dependency needed (icon fonts were the other option raised, but a
+	# real brand SVG we already had on hand is simpler and unambiguous).
+	var icon := TextureRect.new()
+	icon.texture = load("res://addons/godot_live_mcp/icons/claude.svg")
+	icon.custom_minimum_size = Vector2(20, 20)
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button_row.add_child(icon)
 
 	_launch_button = Button.new()
-	_launch_button.text = "Open Claude Code in Terminal"
+	_launch_button.text = "Open in Terminal"
 	_launch_button.pressed.connect(_on_launch_pressed)
-	add_child(_launch_button)
+	button_row.add_child(_launch_button)
+
+	button_row.add_child(VSeparator.new())
+
+	# Godot control itself (mcp__godot-live-mcp__*) is always granted, not a
+	# toggle — it's the entire point of this panel, and it's the thing this
+	# project has spent its effort hardening for safety (see the
+	# _apply_properties fix and this tool set's own validation). These three
+	# are the genuinely optional, broader grants, each mapped to a real
+	# --allowedTools group — confirmed live before wiring up: --allowedTools
+	# is ADDITIVE (a real risk if left too broad by default — a disallowed
+	# Bash command was confirmed to still run unless explicitly excluded via
+	# --permission-prompts none), and --permission-prompts none was confirmed
+	# to cleanly deny anything not explicitly granted here, rather than
+	# hanging (there is no prompt-answering UI in this panel) or silently
+	# allowing it.
+	_file_control_toggle = _make_permission_toggle("Grant File Control", button_row)
+	_terminal_toggle = _make_permission_toggle("Grant Terminal Commands", button_row)
+	_web_toggle = _make_permission_toggle("Grant Web Access", button_row)
 
 	add_child(HSeparator.new())
 	_build_session_ui()
@@ -68,7 +105,7 @@ func _process(_delta: float) -> void:
 
 func _refresh_status() -> void:
 	if not _has_command("claude"):
-		_status_label.text = (
+		_launch_button.tooltip_text = (
 			"Claude Code CLI not found on PATH. Install it first: " +
 			"https://docs.claude.com/en/docs/claude-code — then reopen this panel."
 		)
@@ -77,7 +114,7 @@ func _refresh_status() -> void:
 
 	var term := _find_terminal()
 	if term.is_empty():
-		_status_label.text = (
+		_launch_button.tooltip_text = (
 			"Claude Code CLI found, but no supported terminal emulator was " +
 			"detected on PATH (tried $TERMINAL, alacritty, kitty, foot, " +
 			"ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
@@ -85,7 +122,7 @@ func _refresh_status() -> void:
 		_launch_button.disabled = true
 		return
 
-	_status_label.text = "Ready. Opens a Claude Code session in %s, in this project's directory." % term.bin
+	_launch_button.tooltip_text = "Opens a Claude Code session in %s, in this project's directory." % term.bin
 	_launch_button.disabled = false
 
 func _on_launch_pressed() -> void:
@@ -138,24 +175,45 @@ func _has_command(bin_name: String) -> bool:
 func _shell_quote(s: String) -> String:
 	return "'" + s.replace("'", "'\\''") + "'"
 
+func _make_permission_toggle(label: String, parent: Control) -> Button:
+	var b := Button.new()
+	b.text = label
+	b.toggle_mode = true
+	b.button_pressed = false  # opt-in, not opt-out — safe by default
+	# Toggle-mode buttons render with the "pressed" stylebox whenever
+	# button_pressed is true, automatically — no signal handler needed, this
+	# just needs to be a visibly different style from the default "normal"/
+	# grey one that shows when off.
+	var green := StyleBoxFlat.new()
+	green.bg_color = Color(0.22, 0.6, 0.28)
+	green.corner_radius_top_left = 4
+	green.corner_radius_top_right = 4
+	green.corner_radius_bottom_left = 4
+	green.corner_radius_bottom_right = 4
+	green.content_margin_left = 8
+	green.content_margin_right = 8
+	green.content_margin_top = 4
+	green.content_margin_bottom = 4
+	b.add_theme_stylebox_override("pressed", green)
+	b.add_theme_stylebox_override("hover_pressed", green)
+	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	b.add_theme_color_override("font_hover_pressed_color", Color(1, 1, 1))
+	parent.add_child(b)
+	return b
+
 # ---- In-editor session (Phase 1 flagship) ----
 
 func _build_session_ui() -> void:
-	_session_status_label = Label.new()
-	_session_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_session_status_label.text = "In-editor session: not started."
-	add_child(_session_status_label)
-
-	_session_button = Button.new()
-	_session_button.text = "Start In-Editor Session"
-	_session_button.pressed.connect(_on_session_toggle_pressed)
-	add_child(_session_button)
-
 	_transcript = RichTextLabel.new()
 	_transcript.bbcode_enabled = true
 	_transcript.scroll_following = true
 	_transcript.custom_minimum_size = Vector2(0, 160)
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# RichTextLabel defaults to non-selectable — off by default in Godot,
+	# not something that needed live-verifying, just easy to forget to set.
+	_transcript.selection_enabled = true
+	_transcript.context_menu_enabled = true  # right-click → Copy, standard shortcuts too
+	_transcript.deselect_on_focus_loss_enabled = false
 	add_child(_transcript)
 
 	var input_row := HBoxContainer.new()
@@ -163,15 +221,13 @@ func _build_session_ui() -> void:
 	add_child(input_row)
 
 	_input_field = LineEdit.new()
-	_input_field.placeholder_text = "Type a message and press Enter…"
-	_input_field.editable = false
+	_input_field.placeholder_text = "Type a message and press Enter — starts the session automatically…"
 	_input_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_input_field.text_submitted.connect(_on_send_pressed)
 	input_row.add_child(_input_field)
 
 	_send_button = Button.new()
 	_send_button.text = "Send"
-	_send_button.disabled = true
 	_send_button.pressed.connect(_on_send_pressed.bind(""))
 	input_row.add_child(_send_button)
 
@@ -182,36 +238,55 @@ func shutdown() -> void:
 	if _session_active:
 		_stop_session("")
 
-func _on_session_toggle_pressed() -> void:
-	if _session_active:
-		_stop_session("Session stopped.")
-	else:
-		_start_session()
-
-func _start_session() -> void:
+func _start_session() -> bool:
 	if not _has_command("claude"):
-		_session_status_label.text = "Claude Code CLI not found on PATH — install it first."
-		return
+		_append_transcript("[color=red]Claude Code CLI not found on PATH — install it first: https://docs.claude.com/en/docs/claude-code[/color]")
+		return false
 
 	var project_dir := ProjectSettings.globalize_path("res://")
+
+	var allowed := ["mcp__godot-live-mcp__*"]
+	var granted_labels := []
+	if _file_control_toggle.button_pressed:
+		allowed.append_array(["Read", "Write", "Edit"])
+		granted_labels.append("file control")
+	if _terminal_toggle.button_pressed:
+		allowed.append("Bash")
+		granted_labels.append("terminal commands")
+	if _web_toggle.button_pressed:
+		allowed.append_array(["WebFetch", "WebSearch"])
+		granted_labels.append("web access")
+
 	# `exec` replaces the shell with claude directly, rather than leaving an
 	# extra bash process sitting between us and it — same reasoning as the
 	# terminal-launch path, just without a terminal emulator in between here.
-	var shell_cmd := "cd %s && exec claude -p --input-format stream-json --output-format stream-json --verbose" % _shell_quote(project_dir)
+	# --permission-prompts none + --allowedTools is the whole safety story
+	# here: confirmed live that a genuinely mutating action outside the
+	# allowed set gets cleanly denied ("Permission for this tool use was
+	# denied... this session has no approval surface"), not silently run and
+	# not hung waiting for an approval this panel has no way to deliver.
+	var claude_cmd := (
+		"exec claude -p --input-format stream-json --output-format stream-json --verbose " +
+		"--permission-prompts none --allowedTools %s" % _shell_quote(",".join(allowed))
+	)
+	var shell_cmd := "cd %s && %s" % [_shell_quote(project_dir), claude_cmd]
 	_pipe = OS.execute_with_pipe("bash", ["-lc", shell_cmd], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
-		_session_status_label.text = "Failed to start Claude session."
+		_append_transcript("[color=red]Failed to start Claude session.[/color]")
 		_pipe = {}
-		return
+		return false
 
 	_read_buffer = ""
 	_session_active = true
-	_session_button.text = "Stop Session"
-	_session_status_label.text = "In-editor session running (pid %d)." % _pipe.pid
-	_input_field.editable = true
-	_send_button.disabled = false
-	_input_field.grab_focus()
-	_append_transcript("[i]Session started.[/i]")
+	# Toggles only take effect at launch (no live "change permissions"
+	# protocol), so lock them once a session is running.
+	_file_control_toggle.disabled = true
+	_terminal_toggle.disabled = true
+	_web_toggle.disabled = true
+	_append_transcript("[i]Session started (pid %d). Granted: %s.[/i]" % [
+		_pipe.pid, ", ".join(granted_labels) if not granted_labels.is_empty() else "Godot control only"
+	])
+	return true
 
 func _stop_session(status_text: String) -> void:
 	if _pipe.has("stdio") and _pipe.stdio:
@@ -221,17 +296,25 @@ func _stop_session(status_text: String) -> void:
 	_pipe = {}
 	_read_buffer = ""
 	_session_active = false
-	_session_button.text = "Start In-Editor Session"
-	_session_status_label.text = status_text
-	_input_field.editable = false
-	_send_button.disabled = true
+	_file_control_toggle.disabled = false
+	_terminal_toggle.disabled = false
+	_web_toggle.disabled = false
+	if not status_text.is_empty():
+		_append_transcript("[i]%s[/i]" % status_text)
 
+## No explicit "start" affordance — typing a message and pressing Enter (or
+## clicking Send) starts the session on the first call, same as any other
+## turn. Simpler than a separate Start button, at the cost of the first
+## message's round trip including a process-spawn delay the user doesn't
+## get separate feedback for; acceptable since _start_session already
+## posts its own "Session started" line to the transcript immediately.
 func _on_send_pressed(_submitted_text: String = "") -> void:
-	if not _session_active:
-		return
 	var text := _input_field.text.strip_edges()
 	if text.is_empty():
 		return
+	if not _session_active:
+		if not _start_session():
+			return
 	_append_transcript("[b]You:[/b] %s" % text.xml_escape())
 	var payload := {
 		"type": "user",
