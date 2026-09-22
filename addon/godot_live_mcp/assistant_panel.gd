@@ -70,12 +70,9 @@ func _ready() -> void:
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button_row.add_child(icon)
 
-	_launch_button = Button.new()
-	_launch_button.text = "Open in Terminal"
-	_launch_button.pressed.connect(_on_launch_pressed)
-	button_row.add_child(_launch_button)
-
-	button_row.add_child(VSeparator.new())
+	var permissions_label := Label.new()
+	permissions_label.text = "Permissions:"
+	button_row.add_child(permissions_label)
 
 	# Godot control itself (mcp__godot-live-mcp__*) is always granted, not a
 	# toggle — it's the entire point of this panel, and it's the thing this
@@ -88,10 +85,19 @@ func _ready() -> void:
 	# --permission-prompts none), and --permission-prompts none was confirmed
 	# to cleanly deny anything not explicitly granted here, rather than
 	# hanging (there is no prompt-answering UI in this panel) or silently
-	# allowing it.
-	_file_control_toggle = _make_permission_toggle("Grant File Control", button_row)
-	_terminal_toggle = _make_permission_toggle("Grant Terminal Commands", button_row)
-	_web_toggle = _make_permission_toggle("Grant Web Access", button_row)
+	# allowing it. Same toggle state is used for both the in-editor session
+	# and the external-terminal launch below, so "granted" means the same
+	# thing regardless of which one you use.
+	_file_control_toggle = _make_permission_toggle("File Control", button_row)
+	_terminal_toggle = _make_permission_toggle("Terminal Commands", button_row)
+	_web_toggle = _make_permission_toggle("Web Access", button_row)
+
+	button_row.add_child(VSeparator.new())
+
+	_launch_button = Button.new()
+	_launch_button.text = "Open in Terminal"
+	_launch_button.pressed.connect(_on_launch_pressed)
+	button_row.add_child(_launch_button)
 
 	add_child(HSeparator.new())
 	_build_session_ui()
@@ -122,6 +128,21 @@ func _refresh_status() -> void:
 
 	_launch_button.tooltip_text = "Opens a Claude Code session in %s, in this project's directory." % term.bin
 	_launch_button.disabled = false
+
+## Toggle-derived --allowedTools list for the in-editor session (see
+## _start_session). The external terminal deliberately does NOT use this —
+## it's interactive, so Claude's own normal prompting already handles
+## permissions fine there; the toggles only exist to compensate for the
+## in-editor session having no way to answer a prompt.
+func _build_allowed_tools() -> Array:
+	var allowed := ["mcp__godot-live-mcp__*"]
+	if _file_control_toggle.button_pressed:
+		allowed.append_array(["Read", "Write", "Edit"])
+	if _terminal_toggle.button_pressed:
+		allowed.append("Bash")
+	if _web_toggle.button_pressed:
+		allowed.append_array(["WebFetch", "WebSearch"])
+	return allowed
 
 func _on_launch_pressed() -> void:
 	var project_dir := ProjectSettings.globalize_path("res://")
@@ -242,17 +263,13 @@ func _start_session() -> bool:
 		return false
 
 	var project_dir := ProjectSettings.globalize_path("res://")
-
-	var allowed := ["mcp__godot-live-mcp__*"]
+	var allowed := _build_allowed_tools()
 	var granted_labels := []
 	if _file_control_toggle.button_pressed:
-		allowed.append_array(["Read", "Write", "Edit"])
 		granted_labels.append("file control")
 	if _terminal_toggle.button_pressed:
-		allowed.append("Bash")
 		granted_labels.append("terminal commands")
 	if _web_toggle.button_pressed:
-		allowed.append_array(["WebFetch", "WebSearch"])
 		granted_labels.append("web access")
 
 	# `exec` replaces the shell with claude directly, rather than leaving an
