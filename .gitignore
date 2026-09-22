@@ -7,3 +7,4 @@ build/
 test_project/.godot/
 test_project/*.import
 test_project/export_presets.cfg
+test_project/*

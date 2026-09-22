@@ -106,3 +106,21 @@ running game via a second bridge (`runtime_bridge.gd`, an optional Autoload):
 scene/property access, input simulation, screenshots, and frame-accurate
 condition polling for a live game instance, plus `play_scene`/`stop_scene`
 to start/stop it without leaving the agent.
+
+## Known limitations
+
+**The bridge can go unresponsive for several seconds after a heavy
+synchronous call.** Both bridges poll their socket from `_process()`, which
+only runs between frames of Godot's single-threaded main loop — so a call
+that itself runs long and synchronous (e.g. loading a large scene via
+`EditorInterface.open_scene_from_path()` inside `eval_expression`, or a
+project script's own expensive regeneration logic) blocks that loop, and
+with it every other pending or subsequent bridge command, until it
+returns. Confirmed live (recurring across two separate usage-log reviews,
+2026-09-10): calls immediately following such an operation — even a
+trivial `eval_expression("1+1")` — can time out at the client's 5s limit,
+sometimes more than once in a row, before the bridge responds again. This
+isn't a bug to work around with a new tool; it's inherent to a
+single-threaded socket-in-`_process()` design. If a call times out right
+after something heavy, retry rather than treating it as a hang or a dead
+bridge.

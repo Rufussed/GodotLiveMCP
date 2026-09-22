@@ -109,6 +109,8 @@ export const bridgeToolDefinitions = [
       "don't cover. The expression runs with the target node as `self`, and also has direct " +
       'access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, and ' +
       '(in-editor) EditorInterface, e.g. "AudioServer.set_bus_volume_db(AudioServer.get_bus_index(\\"Music\\"), -6.0)". ' +
+      'Also has KEY_* constants (e.g. "Input.is_key_pressed(KEY_A)") — these are ordinary GDScript ' +
+      "globals elsewhere, but Expression doesn't resolve them unless explicitly bound like this. " +
       'Note: Expression syntax cannot parse assignment statements or loops — for those, use a ' +
       'structured tool.' + VALUE_ENCODING_NOTE,
     inputSchema: {
