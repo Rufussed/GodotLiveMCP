@@ -52,6 +52,22 @@ var _pipe: Dictionary = {}       # result of OS.execute_with_pipe while a sessio
 var _read_buffer: String = ""    # accumulates partial reads until a full "\n"-terminated line exists
 var _session_active: bool = false
 
+func _compact_button_padding(b: Button) -> void:
+	for state in [&"normal", &"hover", &"disabled", &"focus", &"pressed", &"hover_pressed"]:
+		var style := b.get_theme_stylebox(state)
+		if style == null:
+			continue
+		var compact: StyleBox = style.duplicate()
+		compact.content_margin_top = 2
+		compact.content_margin_bottom = 2
+		b.add_theme_stylebox_override(state, compact)
+	# Re-stash the now-compacted "pressed" style so _set_toggle_disabled
+	# applies the shrunk version, not the original taller one from before
+	# this function ran — otherwise a toggle disabled while on would jump
+	# back to the old height instead of staying compact.
+	if b.has_meta("green_style"):
+		b.set_meta("green_style", b.get_theme_stylebox("pressed"))
+
 func _ready() -> void:
 	add_theme_constant_override("separation", 8)
 
@@ -98,6 +114,7 @@ func _ready() -> void:
 	_launch_button.text = "Open in Terminal"
 	_launch_button.pressed.connect(_on_launch_pressed)
 	button_row.add_child(_launch_button)
+	_compact_button_padding(_launch_button)
 
 	add_child(HSeparator.new())
 	_build_session_ui()
@@ -211,14 +228,45 @@ func _make_permission_toggle(label: String, parent: Control) -> Button:
 	green.corner_radius_bottom_right = 4
 	green.content_margin_left = 8
 	green.content_margin_right = 8
-	green.content_margin_top = 4
-	green.content_margin_bottom = 4
+	green.content_margin_top = 2
+	green.content_margin_bottom = 2
 	b.add_theme_stylebox_override("pressed", green)
 	b.add_theme_stylebox_override("hover_pressed", green)
 	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
 	b.add_theme_color_override("font_hover_pressed_color", Color(1, 1, 1))
+	# Stashed so _set_toggle_disabled (below) can reapply it as the
+	# "disabled" stylebox too — Godot's disabled state otherwise overrides
+	# pressed/hover_pressed outright, so a toggle switched on then disabled
+	# (which is exactly what happens once a session starts) fell back to
+	# the plain grey "disabled" look and the on/off state became invisible.
+	# Confirmed live: this was the actual bug, not a timing issue.
+	b.set_meta("green_style", green)
 	parent.add_child(b)
+	_compact_button_padding(b)
 	return b
+
+## Shrinks a button's vertical padding to roughly match Godot's own compact
+## editor controls (confirmed live: default buttons render at 38px/33px
+## min, close to 70% of that is the target here) — reduces content_margin_
+## top/bottom on whichever stylebox states are actually in play (normal/
+## hover/disabled from the inherited editor theme, plus pressed/
+## hover_pressed if already overridden, e.g. by _make_permission_toggle's
+## green) rather than relying on custom_minimum_size, which can only raise
+## a button's minimum height, never shrink it below what its stylebox
+## padding already demands.
+## Disabling a toggle-mode Button normally forces Godot's plain "disabled"
+## stylebox regardless of button_pressed, hiding whether it was on or off.
+## Reapplies the same green style as "disabled" too when the toggle is on,
+## and clears that override when re-enabling (so a later disable while off
+## falls back to the normal grey look, not a stale green one).
+func _set_toggle_disabled(toggle: Button, disabled: bool) -> void:
+	toggle.disabled = disabled
+	if disabled and toggle.button_pressed:
+		toggle.add_theme_stylebox_override("disabled", toggle.get_meta("green_style"))
+		toggle.add_theme_color_override("font_disabled_color", Color(1, 1, 1))
+	else:
+		toggle.remove_theme_stylebox_override("disabled")
+		toggle.remove_theme_color_override("font_disabled_color")
 
 # ---- In-editor session (Phase 1 flagship) ----
 
@@ -295,9 +343,9 @@ func _start_session() -> bool:
 	_session_active = true
 	# Toggles only take effect at launch (no live "change permissions"
 	# protocol), so lock them once a session is running.
-	_file_control_toggle.disabled = true
-	_terminal_toggle.disabled = true
-	_web_toggle.disabled = true
+	_set_toggle_disabled(_file_control_toggle, true)
+	_set_toggle_disabled(_terminal_toggle, true)
+	_set_toggle_disabled(_web_toggle, true)
 	_append_transcript("[i]Session started (pid %d). Granted: %s.[/i]" % [
 		_pipe.pid, ", ".join(granted_labels) if not granted_labels.is_empty() else "Godot control only"
 	])
@@ -311,9 +359,9 @@ func _stop_session(status_text: String) -> void:
 	_pipe = {}
 	_read_buffer = ""
 	_session_active = false
-	_file_control_toggle.disabled = false
-	_terminal_toggle.disabled = false
-	_web_toggle.disabled = false
+	_set_toggle_disabled(_file_control_toggle, false)
+	_set_toggle_disabled(_terminal_toggle, false)
+	_set_toggle_disabled(_web_toggle, false)
 	if not status_text.is_empty():
 		_append_transcript("[i]%s[/i]" % status_text)
 
