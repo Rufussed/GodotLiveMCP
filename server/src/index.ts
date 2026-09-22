@@ -877,7 +877,15 @@ class GodotServer {
         },
         {
           name: 'save_scene',
-          description: 'Save changes to a scene file',
+          description:
+            'Resave a scene FILE via a separate headless Godot process, entirely independent of any running ' +
+            'editor: it load()s the .tscn fresh from disk, instantiates it, and re-packs THAT — it never sees ' +
+            'the live editor\'s in-memory scene state. If a bridge tool (add_node_live, set_property, ' +
+            'set_transform, ...) has changed the live scene since the last save, those changes are NOT on ' +
+            'disk yet and this tool will silently discard them while still reporting success. Confirmed live ' +
+            '(2026-09-22): a real session hit exactly this. Use save_scene_live instead whenever an editor is ' +
+            'open for this project — this file-based tool is only correct for scenes whose only edits came ' +
+            'through file-based tools (create_scene, add_node) with no live editor session involved.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -2050,7 +2058,12 @@ class GodotServer {
         content: [
           {
             type: 'text',
-            text: `Scene saved successfully to: ${savePath}\n\nOutput: ${stdout}`,
+            text: `Scene file resaved (from its on-disk state, via a separate headless process) to: ${savePath}\n\n` +
+              `WARNING: this does not include any live editor changes made via bridge tools ` +
+              `(add_node_live, set_property, set_transform, ...) since the last save — those only exist in the ` +
+              `running editor's memory until save_scene_live persists them. If this project has an editor open ` +
+              `and you made live edits, call save_scene_live instead, or first, or this save may have just ` +
+              `overwritten them with the older on-disk version.\n\nOutput: ${stdout}`,
           },
         ],
       };
