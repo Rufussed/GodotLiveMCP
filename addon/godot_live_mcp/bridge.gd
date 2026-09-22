@@ -256,6 +256,45 @@ func _commit_properties(obj: Object, values: Dictionary) -> void:
 		for name_str in values:
 			obj.set(name_str, values[name_str])
 
+## Type-aware equality for _apply_properties' post-commit verification.
+## Two issues found live, in this order, while chasing what looked like a
+## "set_physics_material corrupts the object" bug that turned out to be
+## this check's own false positive:
+##   1. GDScript's != throws "Invalid operands" comparing incompatible
+##      types (e.g. Vector2 != Array) instead of returning true, and since
+##      that's a non-fatal script error, execution continues past it
+##      treating the whole condition as false — silently skipping
+##      detection. Callers must check typeof() equality first, before ever
+##      reaching this function.
+##   2. Real float-precision false positive, confirmed live:
+##      PhysicsMaterial.bounce stores as real_t (float32 in a standard
+##      build); GDScript's own float literals/str_to_var() results are
+##      always 64-bit doubles. Setting bounce = 0.9 (a double) rounds to
+##      the nearest float32 on the way in, so reading it back and
+##      comparing to the original double 0.9 with == is false even though
+##      both print as "0.9" — a real, legitimate value that this
+##      function's own strict-equality predecessor was about to report as
+##      "did not match what was requested".
+## is_equal_approx() (global function for float, instance method for the
+## vector/color types below) fixes both — but note it does NOT exist for
+## every Variant type (confirmed live: calling .has_method("is_equal_approx")
+## on a Vector3 is a compile-time error, since built-in math types aren't
+## Objects; calling .is_equal_approx() directly works, but only for the
+## types it's actually defined on). Scoped here to the specific types
+## verified live and actually used as tool params in this codebase
+## (float/Vector2/Vector3/Color cover the overwhelming majority) rather
+## than guessing at the full Variant type list and risking a runtime
+## "Invalid call" on some untested type silently passing the same way (1)
+## did — everything else falls back to plain ==, unchanged from before.
+func _values_approximately_equal(actual, requested) -> bool:
+	match typeof(actual):
+		TYPE_FLOAT:
+			return is_equal_approx(actual, requested)
+		TYPE_VECTOR2, TYPE_VECTOR3, TYPE_COLOR:
+			return actual.is_equal_approx(requested)
+		_:
+			return actual == requested
+
 ## Sets each property via Object.set() (through _commit_properties, so it's
 ## undo/dirty-tracked). Object.set() silently no-ops on an unknown name (no
 ## error), so this validates every name against obj.get_property_list()
@@ -307,16 +346,7 @@ func _apply_properties(obj: Object, props: Dictionary) -> String:
 	for name_str in to_apply:
 		var actual = obj.get(name_str)
 		var requested = to_apply[name_str]
-		# typeof() gate BEFORE !=: GDScript's != throws "Invalid operands"
-		# when comparing incompatible types (e.g. Vector2 != Array) rather
-		# than just returning true — confirmed live, and since that's a
-		# non-fatal script error, execution continues past it treating the
-		# whole condition as false, silently skipping detection entirely.
-		# That's exactly the mismatch case this check exists to catch
-		# (wrong-typed decoded value vs. the property's real type), so a
-		# type mismatch alone is reported without ever risking that
-		# comparison; only same-type values fall through to !=.
-		if typeof(actual) != typeof(requested) or actual != requested:
+		if typeof(actual) != typeof(requested) or not _values_approximately_equal(actual, requested):
 			mismatched.append("%s (requested %s, property is a %s — check the var_to_str() encoding, e.g. \"Vector2(1, 2)\" not a JSON array/object)" % [
 				name_str, var_to_str(requested), type_string(typeof(actual))
 			])
