@@ -25,6 +25,7 @@ import {
 import { bridgeToolDefinitions, handleBridgeTool, isBridgeTool } from './bridgeTools.js';
 import { runtimeToolDefinitions, handleRuntimeTool, isRuntimeTool } from './runtimeTools.js';
 import { intentToolDefinitions, handleIntentTool, isIntentTool } from './intentTools.js';
+import { lspToolDefinitions, handleLspTool, isLspTool } from './lspTools.js';
 import { logEvent } from './callLog.js';
 
 // Check if debug mode is enabled
@@ -931,6 +932,7 @@ class GodotServer {
         ...bridgeToolDefinitions,
         ...runtimeToolDefinitions,
         ...intentToolDefinitions,
+        ...lspToolDefinitions,
       ],
     }));
 
@@ -990,6 +992,9 @@ class GodotServer {
     }
     if (isIntentTool(name)) {
       return await handleIntentTool(name, args);
+    }
+    if (isLspTool(name)) {
+      return await handleLspTool(name, args);
     }
     {
       const request = { params: { name, arguments: args } };
