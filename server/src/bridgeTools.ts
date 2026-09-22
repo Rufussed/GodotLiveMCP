@@ -93,6 +93,7 @@ export const bridgeToolNames = new Set([
   'get_node_bounds',
   'set_audio_bus_effect_params',
   'remove_audio_bus_effect',
+  'run_script',
 ]);
 
 export function isBridgeTool(name: string): boolean {
