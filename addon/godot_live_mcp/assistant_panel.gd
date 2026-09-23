@@ -212,13 +212,13 @@ func _build_allowed_tools() -> Array:
 
 func _on_launch_pressed() -> void:
 	# --mcp-config is variadic, so it goes last.
-	_launch_in_terminal("claude", _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)))
+	_launch_in_terminal("claude", _model_args("claude") + _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)))
 
 ## Codex reads AGENTS.md (linked to CLAUDE.md by link-project) and takes the
 ## same server + project token and the settings popup's preferences through
 ## -c config overrides (values are TOML; JSON-quoted strings are valid TOML).
 func _on_launch_codex_pressed() -> void:
-	var args := ["-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
+	var args := _model_args("codex") + ["-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
 	var entry := _resolve_server_entry()
 	var token := _read_bridge_token()
 	if not entry.is_empty() and not token.is_empty():
@@ -491,6 +491,41 @@ func shutdown() -> void:
 	if _session_active:
 		_stop_session("")
 
+## The panel runs the CLIs non-interactively, so their own slash commands
+## (/model, /clear, ...) don't exist here. /model is handled by the panel;
+## anything else points at the full terminal session.
+func _handle_slash_command(text: String) -> void:
+	var agent := "codex" if (_preferred_assistant() == "codex" or not _codex_thread_id.is_empty()) else "claude"
+	var parts := text.split(" ", false, 1)
+	if parts[0] != "/model":
+		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model; New session (refresh icon) replaces /clear.[/i]" % [
+			parts[0].xml_escape(), "Codex" if agent == "codex" else "Claude"])
+		return
+	var key := "model_" + agent
+	var es := EditorInterface.get_editor_settings()
+	if parts.size() == 1:
+		var current := String(es.get_project_metadata("godot_live_mcp", key, ""))
+		_append_transcript("[i]%s model: %s. Change with /model <name>, or /model default.[/i]" % [
+			agent.capitalize(), current if current != "" else "default"])
+		return
+	var model := parts[1].strip_edges()
+	es.set_project_metadata("godot_live_mcp", key, "" if model == "default" else model)
+	if agent == "codex":
+		_append_transcript("[i]Codex model set to %s — used from your next message.[/i]" % model.xml_escape())
+	else:
+		# Claude's panel session is one long process; the model is fixed at
+		# launch, so start a fresh session with it.
+		if _session_active:
+			_stop_session("")
+		_append_transcript("[i]Claude model set to %s — your next message starts a new session with it.[/i]" % model.xml_escape())
+
+## ["--model"/"-m", name] for the agent's chosen model, or [] for its default.
+func _model_args(agent: String) -> Array:
+	var model := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "model_" + agent, ""))
+	if model == "":
+		return []
+	return ["-m", model] if agent == "codex" else ["--model", model]
+
 func _preferred_assistant() -> String:
 	return String(EditorInterface.get_editor_settings().get_project_metadata(
 		"godot_live_mcp", _ASSISTANT_SETTING, "claude"))
@@ -683,7 +718,7 @@ func _start_session() -> bool:
 		"exec claude -p --input-format stream-json --output-format stream-json --verbose " +
 		"--permission-prompts none --allowedTools %s" % _shell_quote(",".join(allowed))
 	)
-	for arg in _behavior_args():
+	for arg in _model_args("claude") + _behavior_args():
 		claude_cmd += " " + _shell_quote(arg)
 	# Last on the line: --mcp-config is variadic, so anything after it would
 	# be swallowed as another config.
@@ -743,6 +778,10 @@ func _on_input_gui_input(event: InputEvent) -> void:
 func _on_send_pressed(_submitted_text: String = "") -> void:
 	var text := _input_field.text.strip_edges()
 	if text.is_empty():
+		return
+	if text.begins_with("/"):
+		_input_field.text = ""
+		_handle_slash_command(text)
 		return
 	if _preferred_assistant() == "codex" or not _codex_thread_id.is_empty():
 		if _session_active:
@@ -834,6 +873,7 @@ func _start_codex_turn(text: String) -> bool:
 	var args := ["exec"]
 	if not _codex_thread_id.is_empty():
 		args += ["resume", _codex_thread_id]
+	args += _model_args("codex")
 	args += ["--json", "--skip-git-repo-check",
 		"-c", 'sandbox_mode="%s"' % ("workspace-write" if _file_control_toggle.button_pressed else "read-only"),
 		"-c", "sandbox_workspace_write.network_access=%s" % ("true" if _web_toggle.button_pressed else "false"),

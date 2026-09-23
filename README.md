@@ -162,7 +162,9 @@ editor changes to the running game, whether the AI tests its own changes
 default). The last two are passed to the session as a hidden system-prompt
 addition. The popup also picks the panel's assistant, **Claude** or **Codex**
 (Codex runs `codex exec --json` per message and resumes the same thread;
-File Control / Web Access map to its sandbox, approvals are off).
+File Control / Web Access map to its sandbox, approvals are off). The CLIs' own slash commands don't exist in the panel;
+it handles `/model <name>` (per agent, saved per project; `/model default`
+to reset) and points other slash commands at Open Claude / Open Codex.
 
 Server changes need only **New session**; changes to the addon's `.gd`
 files need **Project > Reload Current Project**.
