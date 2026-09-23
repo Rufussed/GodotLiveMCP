@@ -14,12 +14,20 @@ var _addon_dir: String
 
 var _status_label: RichTextLabel
 var _install_button: Button
+var _new_button: Button
 var _add_button: Button
 var _refresh_button: Button
 var _project_list: VBoxContainer
+var _server_state: Label
+var _step2: Control
+var _step3: Control
 var _log: RichTextLabel
 var _folder_dialog: FileDialog
 var _force_dialog: ConfirmationDialog
+var _new_dialog: ConfirmationDialog
+var _new_name: LineEdit
+var _new_dest: LineEdit
+var _dest_dialog: FileDialog
 
 var _projects: PackedStringArray = []
 var _pending_force_path := ""
@@ -63,33 +71,54 @@ func _build_ui() -> void:
 	_status_label.fit_content = true
 	root.add_child(_status_label)
 
-	var buttons := HBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 8)
-	root.add_child(buttons)
+	root.add_child(_step_title("Step 1 — Install the MCP server"))
+	var server_row := HBoxContainer.new()
+	server_row.add_theme_constant_override("separation", 8)
+	root.add_child(server_row)
 
 	_install_button = Button.new()
-	_install_button.text = "Install / rebuild server"
+	_install_button.text = "Install / rebuild MCP server"
 	_install_button.pressed.connect(_on_install_pressed)
-	buttons.add_child(_install_button)
-
-	_add_button = Button.new()
-	_add_button.text = "Add Godot project…"
-	_add_button.pressed.connect(func(): _folder_dialog.popup_centered_ratio(0.7))
-	buttons.add_child(_add_button)
+	server_row.add_child(_install_button)
 
 	_refresh_button = Button.new()
 	_refresh_button.text = "Refresh"
 	_refresh_button.pressed.connect(_refresh)
-	buttons.add_child(_refresh_button)
+	server_row.add_child(_refresh_button)
 
-	var projects_title := Label.new()
-	projects_title.text = "Projects"
-	root.add_child(projects_title)
+	_server_state = Label.new()
+	server_row.add_child(_server_state)
+
+	# Step 2 appears once the server is built; step 3 once a project is added.
+	var step2 := VBoxContainer.new()
+	step2.add_theme_constant_override("separation", 10)
+	root.add_child(step2)
+	_step2 = step2
+	step2.add_child(_step_title("Step 2 — Create or add a Godot project"))
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 8)
+	step2.add_child(buttons)
+
+	_new_button = Button.new()
+	_new_button.text = "Create new Godot project…"
+	_new_button.pressed.connect(_on_new_pressed)
+	buttons.add_child(_new_button)
+
+	_add_button = Button.new()
+	_add_button.text = "Add existing Godot project…"
+	_add_button.pressed.connect(func(): _folder_dialog.popup_centered_ratio(0.7))
+	buttons.add_child(_add_button)
+
+	var step3 := VBoxContainer.new()
+	step3.add_theme_constant_override("separation", 10)
+	root.add_child(step3)
+	_step3 = step3
+	step3.add_child(_step_title("Step 3 — Your projects"))
 
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(0, 150)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(scroll)
+	step3.add_child(scroll)
 	_project_list = VBoxContainer.new()
 	_project_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_project_list)
@@ -103,6 +132,9 @@ func _build_ui() -> void:
 	_log.scroll_following = true
 	_log.selection_enabled = true
 	_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Secondary to the controls above, so dimmer than the interface text.
+	_log.add_theme_color_override("default_color", Color(0.62, 0.62, 0.66))
+	_log.add_theme_font_size_override("normal_font_size", 13)
 	root.add_child(_log)
 
 	_folder_dialog = FileDialog.new()
@@ -118,6 +150,58 @@ func _build_ui() -> void:
 	_force_dialog.confirmed.connect(func(): _link(_pending_force_path, true))
 	add_child(_force_dialog)
 
+	_build_new_dialog()
+
+func _build_new_dialog() -> void:
+	_new_dialog = ConfirmationDialog.new()
+	_new_dialog.title = "New Godot project"
+	_new_dialog.ok_button_text = "Create and link"
+	_new_dialog.confirmed.connect(_on_new_confirmed)
+	add_child(_new_dialog)
+
+	var form := GridContainer.new()
+	form.columns = 2
+	form.custom_minimum_size = Vector2(480, 0)
+	form.add_theme_constant_override("h_separation", 8)
+	form.add_theme_constant_override("v_separation", 8)
+	_new_dialog.add_child(form)
+
+	var name_label := Label.new()
+	name_label.text = "Name"
+	form.add_child(name_label)
+	_new_name = LineEdit.new()
+	_new_name.placeholder_text = "My Game"
+	_new_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_new_name.text_changed.connect(func(_t): _validate_new())
+	form.add_child(_new_name)
+
+	var dest_label := Label.new()
+	dest_label.text = "Destination"
+	form.add_child(dest_label)
+	var dest_row := HBoxContainer.new()
+	dest_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	form.add_child(dest_row)
+	_new_dest = LineEdit.new()
+	_new_dest.placeholder_text = "Folder the project folder is created in"
+	_new_dest.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_new_dest.text_changed.connect(func(_t): _validate_new())
+	dest_row.add_child(_new_dest)
+	var browse := Button.new()
+	browse.text = "Browse…"
+	browse.pressed.connect(func(): _dest_dialog.popup_centered_ratio(0.7))
+	dest_row.add_child(browse)
+
+	_dest_dialog = FileDialog.new()
+	_dest_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	_dest_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_dest_dialog.use_native_dialog = true
+	_dest_dialog.title = "Choose where to create the project"
+	_dest_dialog.dir_selected.connect(func(dir: String):
+		_new_dest.text = dir.simplify_path()
+		_validate_new()
+	)
+	add_child(_dest_dialog)
+
 var _has_npm := false
 var _server_built := false
 
@@ -132,17 +216,34 @@ func _refresh() -> void:
 		_check_line("Node.js", node, "install from https://nodejs.org"),
 		_check_line("npm", npm, "comes with Node.js"),
 		_check_line("Claude Code CLI", claude, "see https://docs.claude.com/en/docs/claude-code"),
-		_check_line("Server built", "yes" if _server_built else "", "click \"Install / rebuild server\""),
 	]
 	_status_label.text = "\n".join(lines)
 	_update_controls()
 
 func _update_controls() -> void:
 	_install_button.disabled = not _has_npm or _busy()
-	_add_button.disabled = not _server_built or _busy()
-	_add_button.tooltip_text = "" if _server_built else "Build the server first."
+	_install_button.tooltip_text = "" if _has_npm else "Install Node.js first."
+	if _busy():
+		_server_state.text = "Working…"
+		_server_state.modulate = Color(1, 1, 1, 0.6)
+	elif _server_built:
+		_server_state.text = "✔ MCP server installed"
+		_server_state.modulate = Color(0.5, 0.85, 0.5)
+	else:
+		_server_state.text = "Not installed yet"
+		_server_state.modulate = Color(1, 1, 1, 0.6)
+	for b in [_new_button, _add_button]:
+		b.disabled = _busy()
 	_refresh_button.disabled = _busy()
+	_step2.visible = _server_built
+	_step3.visible = _server_built and not _projects.is_empty()
 	_rebuild_project_list()
+
+func _step_title(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 16)
+	return l
 
 func _check_line(label: String, value: String, hint: String) -> String:
 	if value.is_empty():
@@ -154,7 +255,7 @@ func _rebuild_project_list() -> void:
 		c.queue_free()
 	if _projects.is_empty():
 		var empty := Label.new()
-		empty.text = "No projects yet — click \"Add Godot project…\"."
+		empty.text = "No projects yet — create a new project or open an existing one."
 		empty.modulate = Color(1, 1, 1, 0.6)
 		_project_list.add_child(empty)
 		return
@@ -162,12 +263,18 @@ func _rebuild_project_list() -> void:
 		_project_list.add_child(_make_project_row(path))
 
 func _make_project_row(path: String) -> Control:
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 4)
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	card.add_child(header)
 	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	row.add_theme_constant_override("separation", 6)
 
 	var state := _link_state(path)
 	var state_label := Label.new()
-	state_label.custom_minimum_size = Vector2(110, 0)
+	state_label.custom_minimum_size = Vector2(90, 0)
 	match state:
 		"linked":
 			state_label.text = "✔ linked"
@@ -181,7 +288,7 @@ func _make_project_row(path: String) -> Control:
 		_:
 			state_label.text = "not linked"
 			state_label.modulate = Color(0.9, 0.45, 0.45)
-	row.add_child(state_label)
+	header.add_child(state_label)
 
 	var path_label := Label.new()
 	path_label.text = path
@@ -189,7 +296,8 @@ func _make_project_row(path: String) -> Control:
 	path_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	path_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	path_label.mouse_filter = Control.MOUSE_FILTER_PASS
-	row.add_child(path_label)
+	header.add_child(path_label)
+	card.add_child(row)
 
 	if state != "missing_project":
 		var open := Button.new()
@@ -214,8 +322,9 @@ func _make_project_row(path: String) -> Control:
 	remove.text = "✕"
 	remove.tooltip_text = "Remove from this list (doesn't change the project)"
 	remove.pressed.connect(_forget_project.bind(path))
-	row.add_child(remove)
-	return row
+	header.add_child(remove)
+	card.add_child(HSeparator.new())
+	return card
 
 func _log_line(bbcode: String) -> void:
 	_log.append_text(bbcode + "\n")
@@ -226,10 +335,16 @@ func _log_plain(text: String) -> void:
 # ---- Actions ----
 
 func _on_install_pressed() -> void:
+	_build_server(func(): pass)
+
+## Runs the server's `npm install` (which also builds it), then `then` on success.
+func _build_server(then: Callable) -> void:
 	_run_async("npm", ["install", "--prefix", _server_dir], func(code: int):
 		_log_line("[color=#7ec07e]Server installed and built.[/color]" if code == 0
 			else "[color=#e06c6c]npm install failed (exit %d) — see output above.[/color]" % code)
 		_refresh()
+		if code == 0:
+			then.call()
 	)
 
 func _on_folder_selected(path: String) -> void:
@@ -237,6 +352,44 @@ func _on_folder_selected(path: String) -> void:
 	if not FileAccess.file_exists(path.path_join("project.godot")):
 		_log_line("[color=#e06c6c]No project.godot in %s — pick the folder that contains it.[/color]" % path.replace("[", "[lb]"))
 		return
+	_link(path, false)
+
+func _on_new_pressed() -> void:
+	_new_name.text = ""
+	if _new_dest.text.is_empty():
+		_new_dest.text = _repo_root.get_base_dir()
+	_validate_new()
+	_new_dialog.popup_centered()
+	_new_name.grab_focus()
+
+func _new_project_path() -> String:
+	return _new_dest.text.strip_edges().path_join(_new_name.text.strip_edges())
+
+func _validate_new() -> void:
+	var name := _new_name.text.strip_edges()
+	var dest := _new_dest.text.strip_edges()
+	var ok := not name.is_empty() and name.is_valid_filename() \
+		and DirAccess.dir_exists_absolute(dest) \
+		and not DirAccess.dir_exists_absolute(_new_project_path())
+	_new_dialog.get_ok_button().disabled = not ok
+
+func _on_new_confirmed() -> void:
+	var name := _new_name.text.strip_edges()
+	var path := _new_project_path().simplify_path()
+	if DirAccess.make_dir_recursive_absolute(path) != OK:
+		_log_line("[color=#e06c6c]Couldn't create %s.[/color]" % path.replace("[", "[lb]"))
+		return
+	var f := FileAccess.open(path.path_join("project.godot"), FileAccess.WRITE)
+	if f == null:
+		_log_line("[color=#e06c6c]Couldn't write project.godot in %s.[/color]" % path.replace("[", "[lb]"))
+		return
+	var v := Engine.get_version_info()
+	f.store_string((
+		"config_version=5\n\n[application]\n\nconfig/name=\"%s\"\n" +
+		"config/features=PackedStringArray(\"%d.%d\", \"Forward Plus\")\n"
+	) % [name.c_escape(), v.major, v.minor])
+	f.close()
+	_log_line("[color=#7ec07e]Created project %s.[/color]" % path.replace("[", "[lb]"))
 	_link(path, false)
 
 func _link(path: String, force: bool) -> void:
