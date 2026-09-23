@@ -24,6 +24,15 @@ Edits stay in memory (the tabs show as unsaved) until saved — see below.
 Pressing Play (`play_scene`) saves everything first, like it does for a
 person.
 
+**While a game is running from the editor**, changes made this way also
+show up in the game live (Godot's Debug > Synchronize Scene/Script
+Changes): property changes, `add_node_live` (including `scene_path` to add
+an instance of a saved `.tscn`), `remove_node`, `rename_node`,
+`reparent_node`, `duplicate_node`, and `edit_script_text` (which then saves
+the script right away and reloads it in the game). Changes made with
+`run_script`/`eval_expression` on the editor's scene do **not** reach a
+running game — use the structured tools instead while it's running.
+
 ## Save at checkpoints, not on every call
 
 Every `eval_expression`/`set_property`/`add_node_live`/etc. call only

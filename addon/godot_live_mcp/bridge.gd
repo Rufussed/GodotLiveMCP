@@ -64,6 +64,37 @@ var _editor_plugin: EditorPlugin = null
 
 func set_editor_plugin(plugin: EditorPlugin) -> void:
 	_editor_plugin = plugin
+	# Only used to message a running game (see _reload_game_scripts).
+	_debugger_plugin = EditorDebuggerPlugin.new()
+	plugin.add_debugger_plugin(_debugger_plugin)
+
+var _debugger_plugin: EditorDebuggerPlugin = null
+
+func _exit_tree() -> void:
+	if _editor_plugin and _debugger_plugin:
+		_editor_plugin.remove_debugger_plugin(_debugger_plugin)
+		_debugger_plugin = null
+
+## Tells a game running from the editor to reload its scripts. The editor's
+## own Synchronize Script Changes doesn't fire for plugin-driven saves (not
+## even through the script editor's File > Save), so it's sent directly.
+func _reload_game_scripts() -> void:
+	if _debugger_plugin == null:
+		return
+	for session in _debugger_plugin.get_sessions():
+		if session.is_active():
+			session.send_message("reload_all_scripts", [])
+
+## Presses the script editor's File > Save for the current tab, so the tab
+## is saved the same way Ctrl+S does (and stops showing as unsaved).
+func _press_script_editor_save() -> bool:
+	for node in EditorInterface.get_script_editor().find_children("*", "PopupMenu", true, false):
+		var menu := node as PopupMenu
+		for i in menu.item_count:
+			if menu.get_item_text(i) == "Save":
+				menu.id_pressed.emit(menu.get_item_id(i))
+				return true
+	return false
 
 func _ready() -> void:
 	_token = _load_or_create_token()
@@ -205,6 +236,24 @@ func _resolve_node(node_path: String) -> Node:
 	if node_path == "" or node_path == ".":
 		return root
 	return root.get_node_or_null(NodePath(node_path))
+
+## Mirrors a scene-structure change into a game running from the editor,
+## the way the editor's own Scene dock does, using the editor debugger's
+## live-edit methods (see Debug > Synchronize Scene Changes). Property edits
+## don't need this: they go through UndoRedo, which the debugger already
+## watches. A no-op when no game is running.
+var _debugger_node: Node = null
+
+func _live_debug(method: String, args: Array) -> void:
+	if not EditorInterface.is_playing_scene():
+		return
+	if not is_instance_valid(_debugger_node):
+		_debugger_node = null
+		for n in EditorInterface.get_base_control().get_tree().root.find_children("*", "EditorDebuggerNode", true, false):
+			_debugger_node = n
+			break
+	if _debugger_node and _debugger_node.has_method(method):
+		_debugger_node.callv(method, args)
 
 func _rel_path(node: Node) -> String:
 	var root := _get_scene_root()
@@ -783,6 +832,19 @@ func _cmd_edit_script_text(params: Dictionary):
 		code_edit.end_complex_operation()
 		code_edit.set_caret_line(0)
 		code_edit.text_changed.emit()
+	if EditorInterface.is_playing_scene() and res is Script:
+		# With a game running, save straight away (like a person pressing
+		# Ctrl+S) and have the game reload it, so the change shows up live.
+		# edit_script() above made this script the current tab.
+		if not _press_script_editor_save():
+			var scr := res as Script
+			scr.source_code = text
+			var err := ResourceSaver.save(scr, path)
+			if err != OK:
+				return _fail("could not save %s (error %d)" % [path, err])
+		_reload_game_scripts()
+		return {"ok": true, "created": created, "unsaved": false,
+			"note": "Saved right away and reloaded in the running game."}
 	return {"ok": true, "created": created, "unsaved": not created,
 		"note": "Saved on Ctrl+S or when the scene is played." if not created else "New file written to disk."}
 
@@ -847,8 +909,10 @@ func _cmd_remove_node(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	if node == _get_scene_root():
 		return _fail("cannot remove the scene root")
+	var rel := NodePath(_rel_path(node))
 	node.get_parent().remove_child(node)
 	node.queue_free()
+	_live_debug("live_debug_remove_node", [rel])
 	return {"ok": true}
 
 func _cmd_reparent_node(params: Dictionary):
@@ -867,8 +931,10 @@ func _cmd_reparent_node(params: Dictionary):
 	if node.get_parent() == new_parent:
 		return {"path": _rel_path(node)}
 
+	var old_rel := NodePath(_rel_path(node))
 	node.get_parent().remove_child(node)
 	new_parent.add_child(node)
+	_live_debug("live_debug_reparent_node", [old_rel, NodePath(_rel_path(new_parent)), String(node.name), -1])
 
 	# Godot's scene serializer silently drops any node whose `owner` isn't
 	# set to the scene root — confirmed live: reparenting without this left
@@ -898,26 +964,46 @@ func _cmd_duplicate_node(params: Dictionary):
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 	var dup: Node = node.duplicate()
-	node.get_parent().add_child(dup)
+	node.get_parent().add_child(dup, true)
+	var root := _get_scene_root()
+	if root:
+		_fix_owner_recursive(dup, root)
+	_live_debug("live_debug_duplicate_node", [NodePath(_rel_path(node)), String(dup.name)])
 	return {"path": _rel_path(dup)}
 
 func _cmd_add_node_live(params: Dictionary):
 	var parent_path := String(params.get("parent_path", "."))
 	var node_type := String(params.get("node_type", ""))
+	var scene_path := String(params.get("scene_path", ""))
 	var node_name := String(params.get("node_name", ""))
 	var parent := _resolve_node(parent_path)
 	if parent == null:
 		return _fail("parent not found: %s" % parent_path)
-	if not ClassDB.class_exists(node_type) or not ClassDB.can_instantiate(node_type):
-		return _fail("cannot instantiate node type: %s" % node_type)
 
-	var new_node: Node = ClassDB.instantiate(node_type)
+	var new_node: Node
+	if scene_path != "":
+		# An instance of a saved scene, like dragging a .tscn into the tree.
+		var packed = load(scene_path) if ResourceLoader.exists(scene_path) else null
+		if not packed is PackedScene:
+			return _fail("not a scene file: %s" % scene_path)
+		new_node = (packed as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	else:
+		if not ClassDB.class_exists(node_type) or not ClassDB.can_instantiate(node_type):
+			return _fail("cannot instantiate node type: %s" % node_type)
+		new_node = ClassDB.instantiate(node_type)
 	if node_name != "":
 		new_node.name = node_name
-	parent.add_child(new_node)
+	parent.add_child(new_node, true)
 	var root := _get_scene_root()
 	if root:
+		# Only the instance root is owned by this scene; the instanced
+		# scene's own children stay owned by it.
 		new_node.owner = root
+	var parent_rel := NodePath(_rel_path(parent))
+	if scene_path != "":
+		_live_debug("live_debug_instantiate_node", [parent_rel, scene_path, String(new_node.name)])
+	else:
+		_live_debug("live_debug_create_node", [parent_rel, node_type, String(new_node.name)])
 	return {"path": _rel_path(new_node)}
 
 func _cmd_rename_node(params: Dictionary):
@@ -928,7 +1014,11 @@ func _cmd_rename_node(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	if new_name == "":
 		return _fail("new_name is required")
+	var old_rel := NodePath(_rel_path(node))
 	node.name = new_name
+	if node != _get_scene_root():
+		# The editor's own rename is a reparent-in-place under a new name.
+		_live_debug("live_debug_reparent_node", [old_rel, NodePath(_rel_path(node.get_parent())), String(node.name), -1])
 	return {"path": _rel_path(node)}
 
 func _cmd_connect_signal(params: Dictionary):
