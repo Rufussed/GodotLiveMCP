@@ -493,7 +493,7 @@ export const bridgeToolDefinitions = [
   },
   {
     name: 'set_material_3d',
-    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set. Pass surface_index to target one surface of a multi-surface MeshInstance3D (via set_surface_override_material) instead of the whole mesh.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
+    description: 'Configure a live GeometryInstance3D\'s (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set. If a different material is already there (e.g. a ShaderMaterial), it refuses rather than replacing it, unless replace_existing is true. Pass surface_index to target one surface of a multi-surface MeshInstance3D (via set_surface_override_material) instead of the whole mesh.' + LOAD_PREFIX_NOTE + PROPERTY_VALIDATION_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -503,6 +503,7 @@ export const bridgeToolDefinitions = [
           description: 'Properties to set on the StandardMaterial3D, var_to_str()-encoded, e.g. {"albedo_color": "Color(1, 0, 0, 1)"}',
         },
         surface_index: { type: 'integer', description: 'Optional: target this surface (MeshInstance3D only) instead of the whole mesh\'s material_override' },
+        replace_existing: { type: 'boolean', description: 'Replace a non-StandardMaterial3D material (e.g. a ShaderMaterial) that is already there. Only when the user wants it replaced. Default false.' },
       },
       required: ['node_path', 'material_params'],
     },
@@ -1228,6 +1229,7 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         node_path: params.node_path ?? '.',
         material_params: params.material_params ?? {},
         surface_index: params.surface_index,
+        replace_existing: params.replace_existing ?? false,
       }));
     case 'create_animation':
       return textResult(await client.call('create_animation', {
