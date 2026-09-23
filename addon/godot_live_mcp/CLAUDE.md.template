@@ -33,6 +33,16 @@ the script right away and reloads it in the game). Changes made with
 `run_script`/`eval_expression` on the editor's scene do **not** reach a
 running game — use the structured tools instead while it's running.
 
+Textures, meshes and other resources reach a running game only if they're
+**files** (Godot sends the game a file path, not the data). To apply a
+generated texture live: write it to a file first (e.g. build the `Image` in
+`run_script` and `save_png("res://checker.png")`), then assign it with a
+structured tool — `set_material_3d` / `set_nested_property` /
+`set_property` with `"load:res://checker.png"`. An `ImageTexture` or
+material built in memory and assigned inside `run_script` only shows up on
+the next Play. Don't tell the user to restart the game for something these
+tools can do live.
+
 ## Save at checkpoints, not on every call
 
 Every `eval_expression`/`set_property`/`add_node_live`/etc. call only
