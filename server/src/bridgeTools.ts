@@ -111,7 +111,7 @@ export const bridgeToolDefinitions = [
       'Evaluate an arbitrary GDScript expression against a node in the live scene tree, running ' +
       'in the Godot editor, and return the result. Use this for anything the structured tools ' +
       "don't cover. The expression runs with the target node as `self`, and also has direct " +
-      'access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, and ' +
+      'access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader (e.g. ResourceLoader.load("res://...") — plain load() is not available), ResourceSaver, and ' +
       '(in-editor) EditorInterface, e.g. "AudioServer.set_bus_volume_db(AudioServer.get_bus_index(\\"Music\\"), -6.0)". ' +
       'Also has KEY_* constants (e.g. "Input.is_key_pressed(KEY_A)") — these are ordinary GDScript ' +
       "globals elsewhere, but Expression doesn't resolve them unless explicitly bound like this. " +
@@ -138,7 +138,7 @@ export const bridgeToolDefinitions = [
       "single expression. `source` becomes the body of a compiled `func _run(node):`, so it can " +
       'reference the target node as `node` (not `self`) and MUST end with its own `return` statement — ' +
       'unlike eval_expression, there is no implicit return of a trailing expression. Also has access to ' +
-      'ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, and (in-editor) ' +
+      'ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader (e.g. ResourceLoader.load("res://...") — plain load() is not available), ResourceSaver, and (in-editor) ' +
       'EditorInterface as bare identifiers. Note: a runtime error partway through the script (as opposed ' +
       'to a compile error) is not caught — you get back null; check get_debug_output for what actually ' +
       'went wrong.' + VALUE_ENCODING_NOTE,
