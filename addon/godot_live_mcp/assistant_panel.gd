@@ -39,6 +39,7 @@ var _settings_button: Button
 var _settings_popup: PopupPanel
 var _sync_check: CheckBox
 var _tests_check: CheckBox
+var _save_check: CheckBox
 
 # Permission toggles (in-editor session only — these configure the flags
 # `claude` launches with, so they only take effect at Start; there is no
@@ -474,6 +475,18 @@ func _on_new_session_pressed() -> void:
 # ---- Settings popup ----
 
 const _TESTS_SETTING := "ai_runs_tests"
+const _SAVE_SETTING := "ai_saves_changes"
+
+const _SAVE_ON_PROMPT := (
+	"Saving preference (set by the user in the Godot AI Assistant settings): save the scene " +
+	"with save_scene_live after finishing each step of a task."
+)
+const _SAVE_OFF_PROMPT := (
+	"Saving preference (set by the user in the Godot AI Assistant settings): don't save — " +
+	"leave changes unsaved in the editor (the scene tab shows (*)) for the user to save " +
+	"with Ctrl+S, like their own edits. Don't call save_scene_live unless the user asks. " +
+	"Pressing Play still saves everything first, as it does for the user."
+)
 
 const _TESTS_ON_PROMPT := (
 	"Testing preference (set by the user in the Godot AI Assistant settings): " +
@@ -517,6 +530,21 @@ func _build_settings_popup() -> void:
 	_tests_check.toggled.connect(_on_tests_toggled)
 	box.add_child(_tests_check)
 
+	_save_check = CheckBox.new()
+	_save_check.text = "AI saves its changes"
+	_save_check.tooltip_text = (
+		"On: the AI saves the scene after each step.\n" +
+		"Off: changes stay unsaved (*) for you to save with Ctrl+S, like your own edits.\n" +
+		"Applies from the next session (use the New session button)."
+	)
+	_save_check.button_pressed = EditorInterface.get_editor_settings().get_project_metadata(
+		"godot_live_mcp", _SAVE_SETTING, false)
+	_save_check.toggled.connect(func(on: bool):
+		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _SAVE_SETTING, on)
+		if _session_active:
+			_append_transcript("[i]Saving preference changed — it applies from the next session (New session button).[/i]"))
+	box.add_child(_save_check)
+
 func _on_settings_pressed() -> void:
 	_sync_check.set_pressed_no_signal(_is_sync_enabled())
 	_sync_check.disabled = _debug_menu_items().is_empty()
@@ -528,12 +556,16 @@ func _on_tests_toggled(on: bool) -> void:
 	if _session_active:
 		_append_transcript("[i]Testing preference changed — it applies from the next session (New session button).[/i]")
 
-## Extra claude arguments from the settings popup (the testing preference,
+## Extra claude arguments from the settings popup (testing and saving preferences,
 ## as appended system-prompt text the user doesn't see in the transcript).
 func _behavior_args() -> Array:
-	var on: bool = EditorInterface.get_editor_settings().get_project_metadata(
-		"godot_live_mcp", _TESTS_SETTING, false)
-	return ["--append-system-prompt", _TESTS_ON_PROMPT if on else _TESTS_OFF_PROMPT]
+	var es := EditorInterface.get_editor_settings()
+	var tests: bool = es.get_project_metadata("godot_live_mcp", _TESTS_SETTING, false)
+	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, false)
+	return ["--append-system-prompt", "\n\n".join([
+		_TESTS_ON_PROMPT if tests else _TESTS_OFF_PROMPT,
+		_SAVE_ON_PROMPT if saves else _SAVE_OFF_PROMPT,
+	])]
 
 ## The editor's Debug menu and the indices of its two "Synchronize ... Changes"
 ## check items. Godot doesn't expose these options to plugins, so they're

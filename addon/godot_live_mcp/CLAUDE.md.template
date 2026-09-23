@@ -48,19 +48,20 @@ running game (usually a brand-new material or other resource). Say so
 plainly — e.g. "this shows on the next Play; after that, colour changes to
 it will update live" — rather than implying it's visible now.
 
-## Save at checkpoints, not on every call
+## Saving
 
-Every `eval_expression`/`set_property`/`add_node_live`/etc. call only
-changes the running editor's **in-memory** scene. Nothing reaches disk
-until `save_scene_live` is called (or the user saves manually). Closing or
-reloading the editor without saving silently discards all of it.
+Every `set_property`/`add_node_live`/etc. call changes the editor's
+**in-memory** scene, like a person's edits: the scene tab shows as unsaved
+(*) and Godot asks to save on close. Nothing reaches disk until it's saved.
 
-- Call `save_scene_live` after finishing each meaningful step of a task —
-  not after every trivial property tweak (wasteful, and can itself trigger
-  Godot's file-watcher).
+- Whether to save is the user's choice. Sessions started from the AI
+  Assistant panel carry a "Saving preference" in the system prompt —
+  follow it. Without one, save with `save_scene_live` after finishing
+  each meaningful step (not after every tweak), and always save if the
+  user asks.
 - `save_scene_live` saves the scene only. Script and shader tabs edited
   with `edit_script_text` are saved when the user presses Ctrl+S or when
-  the scene is played (`play_scene`).
+  the scene is played (`play_scene`) — or right away while a game runs.
 
 ## eval_expression vs. a structured tool
 
