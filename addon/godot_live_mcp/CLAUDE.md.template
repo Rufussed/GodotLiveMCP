@@ -4,6 +4,26 @@ This project has the GodotLiveMCP bridge addon enabled — the Godot editor
 is live and reachable through MCP tools while it's open. A few things that
 make this work well, learned from real use:
 
+## Work in the editor like a person would — don't write project files
+
+While the editor is open, make every change through the live tools, the
+way a person working in Godot would:
+
+- **Scenes** (`.tscn`): use the bridge tools (`add_node_live`,
+  `set_property`, `attach_script`, ...). Never rewrite a `.tscn` on disk —
+  the editor holds its own copy, the user gets a "reload from disk?"
+  prompt, and whichever copy loses is gone.
+- **Scripts and shaders** (`.gd`, `.gdshader`): use `edit_script_text`
+  (full new text; it also creates new files) and `get_script_text` to read
+  one — not Read/Write/Edit on the file. It edits the text inside Godot's
+  own script/shader editor as one undoable change, so there's no reload
+  prompt and the user can Ctrl+Z it. `get_script_text` also sees unsaved
+  edits that the file on disk doesn't have yet.
+
+Edits stay in memory (the tabs show as unsaved) until saved — see below.
+Pressing Play (`play_scene`) saves everything first, like it does for a
+person.
+
 ## Save at checkpoints, not on every call
 
 Every `eval_expression`/`set_property`/`add_node_live`/etc. call only
@@ -14,13 +34,9 @@ reloading the editor without saving silently discards all of it.
 - Call `save_scene_live` after finishing each meaningful step of a task —
   not after every trivial property tweak (wasteful, and can itself trigger
   Godot's file-watcher).
-- If a step also involves writing or editing a `.gd` script file directly
-  (normal Read/Write/Edit — that's correct, scripts are files, not bridge
-  state), be aware Godot may prompt "reload from disk?" if it detects that
-  external file change while the scene itself has unsaved bridge edits.
-  Saving the scene doesn't prevent that prompt (it's a different Godot
-  code path — external file-watch, not in-memory scene state) but keeps
-  the *scene* changes safe regardless of how the user answers it.
+- `save_scene_live` saves the scene only. Script and shader tabs edited
+  with `edit_script_text` are saved when the user presses Ctrl+S or when
+  the scene is played (`play_scene`).
 
 ## eval_expression vs. a structured tool
 
@@ -63,7 +79,8 @@ with another guess.
 
 ## Filesystem scan after creating a script externally
 
-If you just created a new `.gd` file directly (via a file-write tool, not
+`edit_script_text` registers new files with the editor itself. Only if you
+did create a new `.gd` file directly (via a file-write tool, not
 `attach_script`) and then immediately call `attach_script`/`validate_script`
 referencing it, Godot's editor filesystem cache may not have picked it up
 yet — you'll get `script not found` even though the file is clearly there.
