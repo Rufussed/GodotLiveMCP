@@ -180,7 +180,9 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 		ok = false
 		error = "unknown command: %s" % command
 	else:
-		var response = call("_cmd_" + command, params)
+		# Awaited so a command can wait a frame for the editor (a no-op for
+		# the ones that don't suspend).
+		var response = await call("_cmd_" + command, params)
 		if typeof(response) == TYPE_DICTIONARY and response.has("__error__"):
 			ok = false
 			error = response["__error__"]
@@ -743,6 +745,100 @@ func _cmd_validate_script(params: Dictionary):
 	if err != OK:
 		return _fail("parse failed with error code %d (see the editor's Output panel for the message)" % err)
 	return {"ok": true}
+
+## Replaces a script's or shader's text the way a person would: opens it in
+## Godot's own script/shader editor and swaps the text inside that editor's
+## CodeEdit as one undoable edit. The tab is left unsaved, so nothing hits
+## disk (and no "reload from disk?" prompt fires) until Ctrl+S or Play. A
+## file that doesn't exist yet is created on disk first, like the editor's
+## own New Script dialog does.
+func _cmd_edit_script_text(params: Dictionary):
+	var path := String(params.get("path", ""))
+	var text := String(params.get("text", ""))
+	if not path.begins_with("res://"):
+		return _fail("path must be a res:// path: %s" % path)
+	var created := false
+	if not FileAccess.file_exists(path):
+		DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			return _fail("could not create %s (error %d)" % [path, FileAccess.get_open_error()])
+		f.store_string(text)
+		f.close()
+		EditorInterface.get_resource_filesystem().update_file(path)
+		created = true
+	var res := load(path)
+	if res == null:
+		return _fail("could not load %s" % path)
+	var code_edit := await _open_code_editor(res)
+	if code_edit == null:
+		return _fail("could not find the editor for %s (only scripts and shaders are supported)" % path)
+	# Also for a new file: a tab for a since-deleted file of the same name
+	# can still be open with stale text.
+	if code_edit.text != text:
+		code_edit.begin_complex_operation()
+		code_edit.select_all()
+		code_edit.delete_selection()
+		code_edit.insert_text_at_caret(text)
+		code_edit.end_complex_operation()
+		code_edit.set_caret_line(0)
+		code_edit.text_changed.emit()
+	return {"ok": true, "created": created, "unsaved": not created,
+		"note": "Saved on Ctrl+S or when the scene is played." if not created else "New file written to disk."}
+
+## Reads a script's or shader's current text, including unsaved edits in an
+## open editor tab (the file on disk can be older than what's on screen).
+func _cmd_get_script_text(params: Dictionary):
+	var path := String(params.get("path", ""))
+	if not ResourceLoader.exists(path):
+		return _fail("not found: %s" % path)
+	var res := load(path)
+	var code_edit := _find_open_code_editor(res)
+	if code_edit:
+		return {"ok": true, "text": code_edit.text, "source": "editor"}
+	if res is Script:
+		return {"ok": true, "text": (res as Script).source_code, "source": "file"}
+	if res is Shader:
+		return {"ok": true, "text": (res as Shader).code, "source": "file"}
+	return _fail("%s is not a script or shader" % path)
+
+# Shader path -> the shader editor's CodeEdit for it. The shader editor has no
+# public API to reach its text box, so it's found by matching the shader's
+# code once and remembered, since that match stops working after an edit.
+var _shader_code_edits := {}
+
+func _open_code_editor(res: Resource) -> CodeEdit:
+	if res is Script:
+		EditorInterface.edit_script(res as Script)
+	elif res is Shader:
+		EditorInterface.edit_resource(res)
+		# The shader editor builds its tab over the next frames.
+		for i in 3:
+			await get_tree().process_frame
+	else:
+		return null
+	return _find_open_code_editor(res)
+
+func _find_open_code_editor(res: Resource) -> CodeEdit:
+	if res is Script:
+		var se := EditorInterface.get_script_editor()
+		var scripts := se.get_open_scripts()
+		var editors := se.get_open_script_editors()
+		for i in scripts.size():
+			if scripts[i] == res and i < editors.size():
+				return editors[i].get_base_editor() as CodeEdit
+		return null
+	if res is Shader:
+		var cached = _shader_code_edits.get(res.resource_path)
+		if is_instance_valid(cached) and (cached as Node).is_inside_tree():
+			return cached as CodeEdit
+		var code := (res as Shader).code
+		for node in EditorInterface.get_base_control().find_children("*", "CodeEdit", true, false):
+			var ce := node as CodeEdit
+			if ce.get_parent().get_class() == "ShaderTextEditor" and ce.text == code:
+				_shader_code_edits[res.resource_path] = ce
+				return ce
+	return null
 
 func _cmd_remove_node(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))

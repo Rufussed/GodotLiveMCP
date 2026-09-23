@@ -54,6 +54,16 @@ function setPluginEnabled(projectFile, enabled) {
   return true;
 }
 
+// Gives the project the agent instructions (edit through the live tools,
+// save at checkpoints, ...) unless it already has its own CLAUDE.md, which
+// is left untouched.
+function addClaudeMd() {
+  const target = path.join(projectDir, 'CLAUDE.md');
+  if (fs.existsSync(target)) return;
+  fs.copyFileSync(path.join(addonSource, 'CLAUDE.md.template'), target);
+  console.log(`Added ${target} (instructions for Claude on using the live editor tools).`);
+}
+
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const unlink = args.includes('--unlink');
@@ -105,6 +115,7 @@ if (existing) {
     if (current === addonSource) {
       console.log(`Already linked: ${linkPath} -> ${addonSource}`);
       if (setPluginEnabled(projectFile, true)) console.log('Enabled the plugin in project.godot.');
+      addClaudeMd();
       process.exit(0);
     }
     fs.unlinkSync(linkPath);
@@ -126,6 +137,7 @@ fs.symlinkSync(addonSource, linkPath, 'junction');
 
 console.log(`Linked ${linkPath} -> ${addonSource}`);
 if (setPluginEnabled(projectFile, true)) console.log('Enabled the plugin in project.godot.');
+addClaudeMd();
 console.log('');
 console.log('Next: open the project in Godot and start a session from the AI Assistant');
 console.log('panel — the server path and auth token are wired up automatically.');

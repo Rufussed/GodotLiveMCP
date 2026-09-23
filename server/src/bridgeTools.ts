@@ -49,6 +49,8 @@ export const bridgeToolNames = new Set([
   'select_nodes',
   'clear_editor_selection',
   'validate_script',
+  'edit_script_text',
+  'get_script_text',
   'setup_collision',
   'get_collision_info',
   'set_physics_layers',
@@ -367,6 +369,35 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: { script_path: { type: 'string', description: 'res:// path to the script' } },
       required: ['script_path'],
+    },
+  },
+  {
+    name: 'edit_script_text',
+    description:
+      'Set the full text of a GDScript (.gd) or shader (.gdshader) file the way a person would: ' +
+      'opens it in Godot\'s script/shader editor and replaces the text there as one undoable edit. ' +
+      'The tab is left unsaved — it reaches disk on Ctrl+S or when the scene is played — so there ' +
+      'is no "reload from disk?" prompt. Use this instead of writing .gd/.gdshader files directly ' +
+      'while the editor is open. A path that doesn\'t exist yet is created on disk (like the ' +
+      'editor\'s New Script dialog); attach it with attach_script / set_shader_material.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'res:// path to the .gd or .gdshader file' },
+        text: { type: 'string', description: 'the complete new file contents' },
+      },
+      required: ['path', 'text'],
+    },
+  },
+  {
+    name: 'get_script_text',
+    description:
+      'Read a script\'s or shader\'s current text, including unsaved edits in an open editor tab ' +
+      '(the file on disk can be older than what the editor shows). "source" says which was read.',
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'res:// path to the .gd or .gdshader file' } },
+      required: ['path'],
     },
   },
   {
@@ -1149,6 +1180,13 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('validate_script', {
         script_path: params.script_path,
       }));
+    case 'edit_script_text':
+      return textResult(await client.call('edit_script_text', {
+        path: params.path,
+        text: params.text,
+      }));
+    case 'get_script_text':
+      return textResult(await client.call('get_script_text', { path: params.path }));
     case 'setup_collision':
       return textResult(await client.call('setup_collision', {
         node_path: params.node_path ?? '.',
