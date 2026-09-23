@@ -21,6 +21,7 @@ var _project_list: VBoxContainer
 var _server_state: Label
 var _step2: Control
 var _step3: Control
+var _open_last_button: Button
 var _log: RichTextLabel
 var _folder_dialog: FileDialog
 var _force_dialog: ConfirmationDialog
@@ -114,6 +115,14 @@ func _build_ui() -> void:
 	root.add_child(step3)
 	_step3 = step3
 	step3.add_child(_step_title("Step 3 — Your projects"))
+
+	# The most recently created, added or opened project is first in the list.
+	var open_last_row := HBoxContainer.new()
+	step3.add_child(open_last_row)
+	_open_last_button = Button.new()
+	_open_last_button.add_theme_font_size_override("font_size", 16)
+	_open_last_button.pressed.connect(func(): _open_in_godot(_projects[0]))
+	open_last_row.add_child(_open_last_button)
 
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(0, 150)
@@ -237,6 +246,11 @@ func _update_controls() -> void:
 	_refresh_button.disabled = _busy()
 	_step2.visible = _server_built
 	_step3.visible = _server_built and not _projects.is_empty()
+	if not _projects.is_empty():
+		var last := _projects[0]
+		_open_last_button.text = "Open %s in Godot" % last.get_file()
+		_open_last_button.tooltip_text = last
+		_open_last_button.disabled = _link_state(last) == "missing_project"
 	_rebuild_project_list()
 
 func _step_title(text: String) -> Label:
@@ -415,6 +429,7 @@ func _unlink(path: String) -> void:
 	)
 
 func _open_in_godot(path: String) -> void:
+	_remember_project(path)
 	# OS.get_executable_path() is the Godot binary running this launcher, so
 	# the project opens in the same Godot version.
 	if OS.create_process(OS.get_executable_path(), ["--editor", "--path", path]) == -1:
@@ -422,10 +437,13 @@ func _open_in_godot(path: String) -> void:
 		return
 	get_tree().quit()
 
+## Adds `path` (or moves it) to the front, so it's the "last touched" project.
 func _remember_project(path: String) -> void:
-	if not _projects.has(path):
-		_projects.append(path)
-		_save_projects()
+	var i := _projects.find(path)
+	if i != -1:
+		_projects.remove_at(i)
+	_projects.insert(0, path)
+	_save_projects()
 
 func _forget_project(path: String) -> void:
 	var i := _projects.find(path)
