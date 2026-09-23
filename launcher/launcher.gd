@@ -417,7 +417,10 @@ func _unlink(path: String) -> void:
 func _open_in_godot(path: String) -> void:
 	# OS.get_executable_path() is the Godot binary running this launcher, so
 	# the project opens in the same Godot version.
-	OS.create_process(OS.get_executable_path(), ["--editor", "--path", path])
+	if OS.create_process(OS.get_executable_path(), ["--editor", "--path", path]) == -1:
+		_log_line("[color=#e06c6c]Couldn't start Godot for %s.[/color]" % path.replace("[", "[lb]"))
+		return
+	get_tree().quit()
 
 func _remember_project(path: String) -> void:
 	if not _projects.has(path):
