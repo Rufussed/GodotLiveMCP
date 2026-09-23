@@ -37,11 +37,13 @@ Prerequisites: [Node.js](https://nodejs.org) 18+ and the
 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
 and logged in.
 
-**Prefer buttons to commands?** After cloning, open the launcher app,
-either by opening `launcher/project.godot` in Godot or with
-`godot --path launcher`. It checks for Node, npm and Claude Code, runs the
-server install for you, and links projects picked with a folder browser
-(steps 1–2 below). It can also unlink projects and open them in Godot.
+**Easiest: the launcher app.** After cloning, open `launcher/project.godot`
+in Godot and press Play (or run `godot --path launcher`). It checks for
+Node, npm and Claude Code, then walks through three steps: **Install /
+rebuild MCP server**; **Create new Godot project…** or **Add existing Godot
+project…**, which links the addon, enables the plugin and adds `CLAUDE.md`
+/ `AGENTS.md`; then **Open in Godot** (which closes the launcher) or
+**Unlink**. The steps below do the same from a terminal.
 
 1. Clone this repo and build the server (`npm install` builds it too):
    ```
@@ -50,7 +52,9 @@ server install for you, and links projects picked with a folder browser
    npm install
    ```
 2. Link the addon into your Godot project (the folder containing
-   `project.godot`):
+   `project.godot`). This also enables the plugin in `project.godot` and
+   adds the agent instructions as `CLAUDE.md`, with `AGENTS.md` linked to
+   it for Codex (existing files are left alone):
    ```
    npm run link-project -- /path/to/your/godot/project
    ```
@@ -60,9 +64,9 @@ server install for you, and links projects picked with a folder browser
    already has a copied `addons/godot_live_mcp` from an older install, the
    script refuses to touch it; re-run with `--force` to replace it with the
    link.
-3. Open the project in Godot and enable **GodotLive MCP Bridge** under
-   Project > Project Settings > Plugins. The bridge generates its auth token
-   automatically.
+3. Open the project in Godot. The plugin is already enabled (if the project
+   was open while you linked it, reopen it). The bridge generates its auth
+   token automatically.
 4. Open the **AI Assistant** tab in the bottom panel and type a message (or
    click **Open in Terminal** for the full interactive CLI). The panel
    finds the server through the link and passes it to Claude along with
@@ -102,12 +106,57 @@ says "reusing token cached" or "generated token" instead, Godot didn't see
 the variable. The panel keeps working either way, since it reads the token
 in the same order the bridge does.
 
+**Codex.** Codex reads `AGENTS.md` (linked to `CLAUDE.md` by
+`link-project`) and can only register MCP servers globally:
+```
+codex mcp add godot-live-mcp -- node /path/to/GodotLiveMCP/server/build/index.js
+```
+Then start `codex` inside the Godot project folder. The server finds that
+project's token itself (from `project.godot`'s name and the token file the
+bridge saved), so no token is needed in the registration unless you use a
+global one (add `--env GODOT_LIVE_MCP_TOKEN=<token>`); a wrong configured
+token also falls back to the project's. The panel's settings (testing,
+saving) only reach sessions the panel starts.
+
 **Other MCP clients / manual setup:** you can instead copy
 `addon/godot_live_mcp/` into the project's `addons/` folder and register
 the server with your MCP client yourself: point it at
 `server/build/index.js` with `GODOT_LIVE_MCP_TOKEN` set to the token the
 plugin prints in the Output panel. A copied addon doesn't update with
 `git pull`; re-copy it after updating.
+
+## How AI edits behave in the editor
+
+The aim is that the AI works in the editor the way a person does:
+
+- **Scenes** change in the editor's memory through the bridge tools: the
+  tab shows unsaved (*), Godot asks to save on close, and property and
+  node changes (add, remove, rename, reparent, duplicate) are one Ctrl+Z
+  each. Whether the AI saves as it goes is a panel setting.
+- **Scripts and shaders** are edited inside Godot's own script/shader editor
+  (`edit_script_text`), so there are no "reload from disk?" prompts and
+  Ctrl+Z works in the tab.
+- **While a game runs from the editor**, those edits also show up in the
+  game live (Godot's Debug > Synchronize Scene/Script Changes) and are kept
+  afterwards, as for a person's editor edits. Scripts are saved and
+  reloaded in the game. Brand-new resources (a new material, say) can't be
+  sent to a running game; the tool result says so (`live_note`) and they
+  appear on the next Play.
+- **`run_script` / `eval_expression`** are for reading and calculating.
+  If one changes the scene, the result carries a `scene_changed_note` (not
+  undoable, not live-synced) and the call is logged as `raw_scene_edit`
+  for the tool-candidate review.
+
+**AI Assistant panel:** permission toggles (on by default, remembered per
+project), **Open in Terminal**, **New session** (refresh icon: next message
+starts a fresh session and server) and **Settings** (tools icon): sync
+editor changes to the running game, whether the AI tests its own changes
+(off by default, to save tokens), and whether it saves its changes (off by
+default). The last two are passed to the session as a hidden system-prompt
+addition.
+
+Server changes need only **New session**; changes to the addon's `.gd`
+files need **Project > Reload Current Project**.
 
 ## Self-improvement loop
 

@@ -59,9 +59,28 @@ function setPluginEnabled(projectFile, enabled) {
 // is left untouched.
 function addClaudeMd() {
   const target = path.join(projectDir, 'CLAUDE.md');
-  if (fs.existsSync(target)) return;
-  fs.copyFileSync(path.join(addonSource, 'CLAUDE.md.template'), target);
-  console.log(`Added ${target} (instructions for Claude on using the live editor tools).`);
+  if (!fs.existsSync(target)) {
+    fs.copyFileSync(path.join(addonSource, 'CLAUDE.md.template'), target);
+    console.log(`Added ${target} (instructions for Claude on using the live editor tools).`);
+  }
+  // Codex (and other agents) read AGENTS.md instead — point it at the same
+  // file, or copy where symlinks aren't allowed (Windows without dev mode).
+  const agents = path.join(projectDir, 'AGENTS.md');
+  let agentsExists = false;
+  try {
+    fs.lstatSync(agents);
+    agentsExists = true;
+  } catch {
+    // not there yet
+  }
+  if (!agentsExists) {
+    try {
+      fs.symlinkSync('CLAUDE.md', agents);
+    } catch {
+      fs.copyFileSync(target, agents);
+    }
+    console.log(`Added ${agents} (same instructions, for Codex and other agents).`);
+  }
 }
 
 const args = process.argv.slice(2);
