@@ -265,17 +265,20 @@ export const bridgeToolDefinitions = [
   {
     name: 'add_node_live',
     description:
-      'Instantiate a Godot class (e.g. "Sprite2D", "RigidBody2D") and add it as a live child of ' +
-      'parent_path. Distinct from godot-mcp\'s file-based add_node, which edits a .tscn on disk ' +
-      'rather than the live tree.',
+      'Instantiate a Godot class (e.g. "Sprite2D", "RigidBody2D") — or, with scene_path, an ' +
+      'instance of a saved .tscn — and add it as a live child of parent_path. If a game is running ' +
+      'from the editor, the new node also appears in it (like adding it in the Scene dock). ' +
+      'Distinct from godot-mcp\'s file-based add_node, which edits a .tscn on disk rather than the ' +
+      'live tree.',
     inputSchema: {
       type: 'object',
       properties: {
         parent_path: { type: 'string', description: 'Path to the parent node, relative to the scene root, or "." for the root' },
-        node_type: { type: 'string', description: 'Godot class name to instantiate, e.g. "Sprite2D"' },
+        node_type: { type: 'string', description: 'Godot class name to instantiate, e.g. "Sprite2D" (not needed with scene_path)' },
+        scene_path: { type: 'string', description: 'res:// path of a .tscn to add an instance of, instead of node_type' },
         node_name: { type: 'string', description: 'Optional name for the new node' },
       },
-      required: ['parent_path', 'node_type'],
+      required: ['parent_path'],
     },
   },
   {
@@ -1137,7 +1140,8 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'add_node_live':
       return textResult(await client.call('add_node_live', {
         parent_path: params.parent_path ?? '.',
-        node_type: params.node_type,
+        node_type: params.node_type ?? '',
+        scene_path: params.scene_path ?? '',
         node_name: params.node_name ?? '',
       }));
     case 'rename_node':
