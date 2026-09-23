@@ -13,9 +13,10 @@ Two parts:
   signals, groups, physics/collision, 3D materials and shaders, animation
   (including state machines), navigation baking, audio buses, tilemaps,
   particles, theme/UI, editor screenshots, and its own Play/Stop/reload/
-  restart control. Property mutations route through Godot's own
-  `EditorUndoRedoManager`, so bridge-driven edits get the same save-prompt
-  and Ctrl+Z behavior as manual edits. `runtime_bridge.gd` is an optional
+  restart control. Property changes and node add/remove/rename/reparent/
+  duplicate route through Godot's own `EditorUndoRedoManager`, so
+  bridge-driven edits get the same save-prompt and Ctrl+Z behavior as
+  manual edits, and follow along in a game running from the editor. `runtime_bridge.gd` is an optional
   Autoload singleton (listening on `127.0.0.1:9090`) giving the same kind of
   access to an actual **running game** — a separate OS process the editor
   plugin has no presence in — plus keyboard/mouse input simulation and a
