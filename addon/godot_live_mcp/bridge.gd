@@ -700,6 +700,18 @@ func _cmd_set_nested_property(params: Dictionary):
 ## Resource subclass without a dedicated tool. Reuses the node's existing
 ## resource in place (rather than replacing it) when it's already the
 ## requested type, matching those tools' behavior.
+## Result entry for a tool that just created a new resource (material, mesh,
+## shape...) while a game is running. A new in-memory resource has no file
+## path, so Godot can't send it to the game (true for Inspector edits too);
+## it appears on the next Play. Later edits to it do sync once it's saved.
+func _with_live_note(result: Dictionary, created_new: bool) -> Dictionary:
+	if created_new and EditorInterface.is_playing_scene():
+		result["live_note"] = ("A new resource was created, and new resources can't be sent to a " +
+			"running game (same as in the Inspector) — this change appears on the next Play. " +
+			"Tell the user; to show it live, save it as a .tres/.png file and assign it with " +
+			"\"load:res://...\" instead.")
+	return result
+
 func _cmd_set_resource_property(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var property_name := String(params.get("property_name", ""))
@@ -726,17 +738,19 @@ func _cmd_set_resource_property(params: Dictionary):
 
 	var res: Resource
 	var current = node.get(property_name)
+	var created_new := false
 	if reuse_existing and current != null and current.get_class() == resource_type:
 		res = current
 	else:
 		res = ClassDB.instantiate(resource_type)
+		created_new = true
 
 	var apply_err := _apply_properties(res, resource_params)
 	if apply_err != "":
 		return _fail(apply_err)
 
 	_commit_properties(node, {property_name: res})
-	return {"ok": true, "resource_type": res.get_class(), "resource": _read_back(res, resource_params.keys())}
+	return _with_live_note({"ok": true, "resource_type": res.get_class(), "resource": _read_back(res, resource_params.keys())}, created_new)
 
 func _cmd_set_transform(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -1543,27 +1557,33 @@ func _cmd_set_material_3d(params: Dictionary):
 
 		var surf_mat: StandardMaterial3D
 		var current_surf = mesh_instance.get_surface_override_material(idx)
+		var surf_new := false
 		if current_surf is StandardMaterial3D:
 			surf_mat = current_surf
 		else:
 			surf_mat = StandardMaterial3D.new()
+			surf_new = true
 		var apply_err := _apply_properties(surf_mat, material_params)
 		if apply_err != "":
 			return _fail(apply_err)
 		mesh_instance.set_surface_override_material(idx, surf_mat)
-		return {"ok": true, "material": _read_back(surf_mat, material_params.keys())}
+		return _with_live_note({"ok": true, "material": _read_back(surf_mat, material_params.keys())}, surf_new)
 
 	var mat: StandardMaterial3D
+	var created_new := false
 	if node.material_override is StandardMaterial3D:
 		mat = node.material_override
 	else:
 		mat = StandardMaterial3D.new()
+		created_new = true
 	var apply_err := _apply_properties(mat, material_params)
 	if apply_err != "":
 		return _fail(apply_err)
-	node.material_override = mat
+	if created_new:
+		# Through UndoRedo like an Inspector edit (dirty marker, Ctrl+Z).
+		_commit_properties(node, {"material_override": mat})
 
-	return {"ok": true, "material": _read_back(mat, material_params.keys())}
+	return _with_live_note({"ok": true, "material": _read_back(mat, material_params.keys())}, created_new)
 
 ## Reads back a GeometryInstance3D's material_override (or one surface's
 ## override, via surface_index) — the missing counterpart to set_material_3d.
