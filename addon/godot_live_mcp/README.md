@@ -6,6 +6,11 @@ live eval, scene tree inspection, node/property editing.
 
 ## Install
 
+The easiest route is the main README's Quick start: `npm run link-project`
+links this folder into your project, and the AI Assistant panel then wires
+up the server and token by itself, so steps 3–4 below aren't needed. The
+manual steps below are for copying the addon and using another MCP client.
+
 1. Copy this `godot_live_mcp/` folder into your project's `addons/` directory,
    so you end up with `res://addons/godot_live_mcp/plugin.cfg`.
 2. In the Godot editor: **Project > Project Settings > Plugins**, enable

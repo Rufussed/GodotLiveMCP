@@ -32,18 +32,70 @@ Two parts:
 
 ## Quick start
 
-1. Install the addon into your Godot project and enable it (see its README).
-   Note the token it prints/stores.
-2. Build the server:
+Prerequisites: [Node.js](https://nodejs.org) 18+ and the
+[Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
+and logged in.
+
+1. Clone this repo and build the server (`npm install` builds it too):
    ```
-   cd server
+   git clone https://github.com/Rufussed/GodotLiveMCP.git
+   cd GodotLiveMCP/server
    npm install
-   npm run build
    ```
-3. Point your MCP client (Claude Code, etc.) at `server/build/index.js`, with
-   `GODOT_LIVE_MCP_TOKEN` set to the token from step 1.
-4. With the Godot editor open and the addon enabled, try `list_scene_tree`
-   then `eval_expression` from your agent to confirm the round trip works.
+2. Link the addon into your Godot project (the folder containing
+   `project.godot`):
+   ```
+   npm run link-project -- /path/to/your/godot/project
+   ```
+   This creates `addons/godot_live_mcp` in the project as a link back to
+   this repo (a directory junction on Windows, no admin rights needed), so
+   a later `git pull` updates every linked project at once. If the project
+   already has a copied `addons/godot_live_mcp` from an older install, the
+   script refuses to touch it; re-run with `--force` to replace it with the
+   link.
+3. Open the project in Godot and enable **GodotLive MCP Bridge** under
+   Project > Project Settings > Plugins. The bridge generates its auth token
+   automatically.
+4. Open the **AI Assistant** tab in the bottom panel and type a message (or
+   click **Open in Terminal** for the full interactive CLI). The panel
+   finds the server through the link and passes it to Claude along with
+   this project's token, so there's no MCP config file to edit and no token
+   to copy.
+
+**Optional: one global token.** By default each project gets its own
+token, which the panel passes along automatically. If you also want to use
+`claude` (or another MCP client) outside the panel, set one token for every
+project instead:
+
+1. Generate a token, e.g. `openssl rand -hex 16`.
+2. Set it as `GODOT_LIVE_MCP_TOKEN` somewhere Godot will see it. Godot
+   launched from a desktop launcher or file manager doesn't read your
+   shell's `.bashrc`:
+   - **Linux:** add `GODOT_LIVE_MCP_TOKEN=<token>` to
+     `~/.config/environment.d/godot-live-mcp.conf`, then log out and back
+     in. Also `export` it in `~/.bashrc` if you launch Godot from a
+     terminal.
+   - **Windows:** `setx GODOT_LIVE_MCP_TOKEN <token>` (or System Properties >
+     Environment Variables), then fully restart Godot.
+   - **macOS:** `launchctl setenv GODOT_LIVE_MCP_TOKEN <token>` (lasts until
+     reboot; use a LaunchAgent to make it permanent).
+3. Register the server once with the same token:
+   ```
+   claude mcp add godot-live-mcp -s user -e GODOT_LIVE_MCP_TOKEN=<token> -- node /path/to/GodotLiveMCP/server/build/index.js
+   ```
+
+To confirm, restart Godot and check the Output panel for
+`GodotLiveMCPBridge: using GODOT_LIVE_MCP_TOKEN from environment`. If it
+says "reusing token cached" or "generated token" instead, Godot didn't see
+the variable. The panel keeps working either way, since it reads the token
+in the same order the bridge does.
+
+**Other MCP clients / manual setup:** you can instead copy
+`addon/godot_live_mcp/` into the project's `addons/` folder and register
+the server with your MCP client yourself: point it at
+`server/build/index.js` with `GODOT_LIVE_MCP_TOKEN` set to the token the
+plugin prints in the Output panel. A copied addon doesn't update with
+`git pull`; re-copy it after updating.
 
 ## Self-improvement loop
 
