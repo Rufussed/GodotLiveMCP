@@ -13,3 +13,4 @@ config/features=PackedStringArray("4.7")
 
 window/size/viewport_width=760
 window/size/viewport_height=560
+display_server/driver.linuxbsd="wayland"
