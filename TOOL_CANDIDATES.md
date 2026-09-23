@@ -53,6 +53,11 @@ the thing, not just where doing it takes more calls than ideal. Evidence:
   run loops, and it can't narrow a method's return type (e.g. a chained
   call like `get_surface_override_material(0).albedo_color` fails because
   `Expression` only knows the method returns a generic `Object`).
+- A `run_script`/`eval_expression` call logged with `raw_scene_edit: true`
+  — the agent edited the scene with raw code, so the change couldn't be
+  undone and never reached a running game. Look at what the script did:
+  if no structured tool could have made that edit (or only with many
+  calls), that's the gap.
 - A missing counterpart to something that already exists — e.g. a `set_*`
   tool with no matching `get_*`, when every sibling tool in that category
   has one. That asymmetry is itself evidence, independent of how many

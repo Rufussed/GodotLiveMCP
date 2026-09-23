@@ -43,6 +43,12 @@ material built in memory and assigned inside `run_script` only shows up on
 the next Play. Don't tell the user to restart the game for something these
 tools can do live.
 
+A `run_script`/`eval_expression` result with a `scene_changed_note` means
+that code changed the scene directly — the user can't Ctrl+Z it and a
+running game won't see it. Tell the user, and use structured tools for
+scene edits from then on. (Reading and calculating with these tools is
+fine; only edits are the problem.)
+
 A tool result with a `live_note` means that change could **not** reach the
 running game (usually a brand-new material or other resource). Say so
 plainly — e.g. "this shows on the next Play; after that, colour changes to

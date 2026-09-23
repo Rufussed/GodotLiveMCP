@@ -170,6 +170,12 @@ function updateCandidateSignal(entry: Record<string, any>, now: number): number 
     candidateCount += 1;
   }
 
+  // run_script/eval_expression edited the scene directly (not undoable, not
+  // live-synced) — a sign a structured tool is missing for that edit.
+  if (entry.raw_scene_edit === true) {
+    candidateCount += 1;
+  }
+
   return candidateCount;
 }
 

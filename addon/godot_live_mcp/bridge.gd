@@ -213,14 +213,62 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 	else:
 		# Awaited so a command can wait a frame for the editor (a no-op for
 		# the ones that don't suspend).
+		var watch := command in _RAW_EDIT_COMMANDS
+		var before := _scene_fingerprint() if watch else 0
 		var response = await call("_cmd_" + command, params)
 		if typeof(response) == TYPE_DICTIONARY and response.has("__error__"):
 			ok = false
 			error = response["__error__"]
 		else:
 			result = response
+		# Also on errors: a script can change the scene before it fails.
+		if watch and _scene_fingerprint() != before:
+			if typeof(result) != TYPE_DICTIONARY:
+				result = {"value": result} if ok else {}
+			result["scene_changed_note"] = _RAW_EDIT_NOTE
+			if not ok:
+				error = "%s (%s)" % [error, _RAW_EDIT_NOTE]
 
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
+
+## Commands that run arbitrary code on the editor's scene. Their changes
+## bypass Godot's undo system and never reach a running game, so the scene
+## is fingerprinted before and after, and a change is reported back.
+const _RAW_EDIT_COMMANDS := ["run_script", "eval_expression"]
+const _RAW_EDIT_NOTE := ("This changed the editor's scene directly: the change can't be undone " +
+	"with Ctrl+Z and won't show in a running game. Tell the user, and prefer the structured " +
+	"tools (set_property, set_properties, add_node_live, ...) for edits to the scene.")
+
+## A hash of the edited scene's structure and saved property values,
+## including built-in sub-resources (materials, meshes, shapes...). Values are
+## hashed rather than printed so big arrays (mesh data) stay cheap.
+func _scene_fingerprint() -> int:
+	var root := _get_scene_root()
+	if root == null:
+		return 0
+	var parts := PackedStringArray()
+	var seen := {}
+	for n in [root] + root.find_children("*", "", true, false):
+		parts.append("%s:%s" % [root.get_path_to(n), n.get_class()])
+		_fingerprint_object(n, parts, seen)
+	return "\n".join(parts).hash()
+
+func _fingerprint_object(obj: Object, parts: PackedStringArray, seen: Dictionary) -> void:
+	for prop in obj.get_property_list():
+		if not (prop.usage & PROPERTY_USAGE_STORAGE):
+			continue
+		var value = obj.get(prop.name)
+		if value is Resource:
+			var res := value as Resource
+			parts.append("%s=res:%s" % [prop.name, res.resource_path])
+			# Built-in resources are part of the scene; files are not.
+			if (res.resource_path == "" or res.resource_path.contains("::")) and not seen.has(res):
+				seen[res] = true
+				_fingerprint_object(res, parts, seen)
+		elif value is Object:
+			parts.append("%s=obj" % prop.name)
+		else:
+			parts.append("%s=%d" % [prop.name, hash(value)])
 
 func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 	var text := JSON.stringify(payload) + "\n"
