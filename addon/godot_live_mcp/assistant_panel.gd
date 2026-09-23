@@ -353,7 +353,11 @@ func _make_permission_toggle(label: String, parent: Control) -> Button:
 	var b := Button.new()
 	b.text = label
 	b.toggle_mode = true
-	b.button_pressed = false  # opt-in, not opt-out — safe by default
+	# On by default; turning one off is remembered per project.
+	var key := "permission_" + label.to_snake_case()
+	b.button_pressed = EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", key, true)
+	b.toggled.connect(func(on: bool):
+		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", key, on))
 	# Toggle-mode buttons render with the "pressed" stylebox whenever
 	# button_pressed is true, automatically — no signal handler needed, this
 	# just needs to be a visibly different style from the default "normal"/
