@@ -141,6 +141,9 @@ func _ready() -> void:
 	_build_session_ui()
 
 	_refresh_status()
+	# Deferred so the editor finishes loading first; a no-op unless the
+	# server path or token changed since the last registration.
+	call_deferred("_ensure_local_registration")
 
 func _process(_delta: float) -> void:
 	_poll_session()
@@ -286,6 +289,40 @@ func _mcp_config_args(report: Callable) -> Array:
 		"env": {"GODOT_LIVE_MCP_TOKEN": token},
 	}}}
 	return ["--mcp-config", JSON.stringify(config)]
+
+## Registers this project's server + token with Claude Code at local scope
+## (stored in ~/.claude.json against this project folder, never in the
+## project's own files), so ANY `claude` session started in this folder —
+## not just ones this panel launches — reaches this editor with the right
+## token. Local scope takes precedence over a user-scope registration of the
+## same name (confirmed live). `claude mcp add` refuses an existing name, so
+## an update is remove-then-add. Skipped when the entry/token pair matches
+## what was last registered, since each `claude` invocation blocks the
+## editor for a moment.
+func _ensure_local_registration() -> void:
+	if OS.get_name() == "Windows" or not _has_command("claude"):
+		return
+	var entry := _resolve_server_entry()
+	var token := _read_bridge_token()
+	if entry.is_empty() or token.is_empty():
+		return
+	var signature := "%s|%s" % [entry, token]
+	var editor_settings := EditorInterface.get_editor_settings()
+	if editor_settings.get_project_metadata("godot_live_mcp", "local_registration", "") == signature:
+		return
+
+	var add_cmd := "claude mcp add -s local godot-live-mcp -e %s -- node %s" % [
+		_shell_quote("GODOT_LIVE_MCP_TOKEN=" + token), _shell_quote(entry)
+	]
+	var shell_cmd := "cd %s && { claude mcp remove -s local godot-live-mcp >/dev/null 2>&1; %s; }" % [
+		_shell_quote(ProjectSettings.globalize_path("res://")), add_cmd
+	]
+	var output: Array = []
+	if OS.execute("bash", ["-lc", shell_cmd], output, true) != 0:
+		_append_transcript("[color=yellow]Couldn't register godot-live-mcp for this project with Claude Code: %s[/color]" % "".join(output).strip_edges())
+		return
+	editor_settings.set_project_metadata("godot_live_mcp", "local_registration", signature)
+	_append_transcript("[i]Registered godot-live-mcp for this project folder — any `claude` session started here can now control this editor.[/i]")
 
 func _shell_quote(s: String) -> String:
 	return "'" + s.replace("'", "'\\''") + "'"

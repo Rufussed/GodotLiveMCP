@@ -36,6 +36,12 @@ Prerequisites: [Node.js](https://nodejs.org) 18+ and the
 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
 and logged in.
 
+**Prefer buttons to commands?** After cloning, open the launcher app,
+either by opening `launcher/project.godot` in Godot or with
+`godot --path launcher`. It checks for Node, npm and Claude Code, runs the
+server install for you, and links projects picked with a folder browser
+(steps 1–2 below). It can also unlink projects and open them in Godot.
+
 1. Clone this repo and build the server (`npm install` builds it too):
    ```
    git clone https://github.com/Rufussed/GodotLiveMCP.git
@@ -60,7 +66,12 @@ and logged in.
    click **Open in Terminal** for the full interactive CLI). The panel
    finds the server through the link and passes it to Claude along with
    this project's token, so there's no MCP config file to edit and no token
-   to copy.
+   to copy. When the plugin loads, the panel also registers the server for
+   this project folder with Claude Code (`claude mcp add -s local`, stored
+   in your own Claude config, not in the project's files). That means any
+   `claude` session you start in the project folder yourself (a terminal,
+   VS Code, a session manager) can control the editor too, alongside the
+   panel's own session.
 
 **Optional: one global token.** By default each project gets its own
 token, which the panel passes along automatically. If you also want to use
