@@ -18,7 +18,7 @@ extends Node
 const DEFAULT_PORT := 9090
 const HOST := "127.0.0.1"
 
-const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance", "AudioServer"]
+const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance", "AudioServer", "ResourceLoader", "ResourceSaver"]
 
 var _server: TCPServer
 var _peers: Array = []
@@ -193,7 +193,7 @@ func _cmd_eval_expression(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
-	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
+	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader, ResourceSaver]
 	for key_name in _KEY_CONSTANTS:
 		input_names.append(key_name)
 		input_values.append(_KEY_CONSTANTS[key_name])
@@ -428,7 +428,7 @@ func _cmd_wait_for_condition(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
-	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
+	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader, ResourceSaver]
 	for key_name in _KEY_CONSTANTS:
 		input_names.append(key_name)
 		input_values.append(_KEY_CONSTANTS[key_name])

@@ -22,7 +22,7 @@ const PLUGIN_ADDON_NAME := "godot_live_mcp"
 ## Global singletons exposed by name to eval_expression, in the same order
 ## as the values built alongside them (see _cmd_eval_expression). Without
 ## this, Expression has no way to resolve "ProjectSettings", "ClassDB", etc.
-const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance", "AudioServer"]
+const _SINGLETON_NAMES := ["ProjectSettings", "ClassDB", "Engine", "Input", "OS", "Time", "Performance", "AudioServer", "ResourceLoader", "ResourceSaver"]
 
 ## KEY_* constant values, mirrored from runtime_bridge.gd's own table
 ## (confirmed live there: global enums like Key aren't exposed through
@@ -556,7 +556,7 @@ func _cmd_eval_expression(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 
 	var input_names: Array = _SINGLETON_NAMES.duplicate()
-	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer]
+	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader, ResourceSaver]
 	for key_name in _KEY_CONSTANTS:
 		input_names.append(key_name)
 		input_values.append(_KEY_CONSTANTS[key_name])

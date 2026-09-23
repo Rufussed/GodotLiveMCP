@@ -92,7 +92,7 @@ Every `set_property`/`add_node_live`/etc. call changes the editor's
   and had to fall back to one long inlined expression each time.
 - `eval_expression`/`run_script` both have direct access to
   `ProjectSettings`, `ClassDB`, `Engine`, `Input`, `OS`, `Time`,
-  `Performance`, `AudioServer`, and (in-editor) `EditorInterface` as bare
+  `Performance`, `AudioServer`, `ResourceLoader` (use `ResourceLoader.load(...)`; plain `load()` fails in Expression), `ResourceSaver`, and (in-editor) `EditorInterface` as bare
   identifiers — no need to look up a dedicated tool for anything reachable
   through those singletons in one call, e.g.
   `ProjectSettings.get_setting("physics/2d/default_gravity")`.
