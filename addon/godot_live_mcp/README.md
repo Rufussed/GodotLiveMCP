@@ -6,10 +6,38 @@ live eval, scene tree inspection, node/property editing.
 
 ## Install
 
-The easiest route is the main README's Quick start: `npm run link-project`
-links this folder into your project, and the AI Assistant panel then wires
-up the server and token by itself, so steps 3–4 below aren't needed. The
-manual steps below are for copying the addon and using another MCP client.
+### Easiest: the launcher app (recommended)
+
+Prerequisites: [Node.js](https://nodejs.org) 18+ and the
+[Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
+and logged in.
+
+1. Clone the GodotLiveMCP repo.
+2. Open the launcher: open `launcher/project.godot` in Godot and press Play,
+   or run `godot --path launcher` from the repo root.
+3. The launcher checks for Node, npm and Claude Code. Click
+   **Install / rebuild MCP server** to build the MCP server (it's shared by all
+   your projects). The project buttons appear once it's installed.
+4. Click **Create new Godot project…** to name a new project and choose where
+   it goes, or **Add existing Godot project…** to pick a folder that already
+   has a `project.godot`. The launcher links this addon into the project's
+   `addons/` folder and enables the plugin in `project.godot`.
+5. The project appears in the list with **Open in Godot** and **Unlink**
+   buttons. Open it and the AI Assistant panel sets up the server and token
+   by itself. You don't need the manual steps below. (If the project was
+   already open in Godot while you added it, reopen it.)
+
+### Command line
+
+If you'd rather not use the launcher, the main README's Quick start does
+the same from a terminal: `npm run link-project` links this folder into
+your project and enables the plugin. After that, the AI Assistant panel
+sets up the server and token by itself, so you can skip the steps below.
+
+### Manual
+
+Use these steps if you're copying the addon by hand or using an MCP client
+other than Claude Code.
 
 1. Copy this `godot_live_mcp/` folder into your project's `addons/` directory,
    so you end up with `res://addons/godot_live_mcp/plugin.cfg`.

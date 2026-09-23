@@ -24,6 +24,36 @@ function fail(msg, code = 1) {
   process.exit(code);
 }
 
+const PLUGIN_CFG = 'res://addons/godot_live_mcp/plugin.cfg';
+
+// Adds or removes the addon in project.godot's [editor_plugins] enabled list,
+// the same entry Project Settings > Plugins writes. If the project is open in
+// Godot at the time, the editor may overwrite this when it next saves its
+// settings, so this is meant for projects that aren't open.
+function setPluginEnabled(projectFile, enabled) {
+  const text = fs.readFileSync(projectFile, 'utf8');
+  const sectionRe = /^\[editor_plugins\][^\[]*/m;
+  const listRe = /^enabled=PackedStringArray\((.*)\)$/m;
+  const section = text.match(sectionRe);
+  const listMatch = section && section[0].match(listRe);
+  const entries = listMatch
+    ? [...listMatch[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1])
+    : [];
+  if (entries.includes(PLUGIN_CFG) === enabled) return false;
+  const next = enabled ? [...entries, PLUGIN_CFG] : entries.filter((e) => e !== PLUGIN_CFG);
+  const line = `enabled=PackedStringArray(${next.map((e) => `"${e}"`).join(', ')})`;
+  let out;
+  if (listMatch) {
+    out = text.replace(sectionRe, section[0].replace(listRe, line));
+  } else if (section) {
+    out = text.replace(sectionRe, section[0].replace(/^\[editor_plugins\]\n/, `[editor_plugins]\n\n${line}\n`));
+  } else {
+    out = `${text.replace(/\n*$/, '\n')}\n[editor_plugins]\n\n${line}\n`;
+  }
+  fs.writeFileSync(projectFile, out);
+  return true;
+}
+
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const unlink = args.includes('--unlink');
@@ -36,6 +66,7 @@ const projectDir = path.resolve(positional[0]);
 if (!fs.existsSync(path.join(projectDir, 'project.godot'))) {
   fail(`no project.godot in ${projectDir} — pass the folder that contains it`);
 }
+const projectFile = path.join(projectDir, 'project.godot');
 const addonsDir = path.join(projectDir, 'addons');
 const linkPath = path.join(addonsDir, 'godot_live_mcp');
 
@@ -47,6 +78,9 @@ try {
 }
 
 if (unlink) {
+  if (setPluginEnabled(projectFile, false)) {
+    console.log('Disabled the plugin in project.godot.');
+  }
   if (!existing) {
     console.log(`Nothing to unlink at ${linkPath}.`);
     process.exit(0);
@@ -70,6 +104,7 @@ if (existing) {
     const current = path.resolve(addonsDir, fs.readlinkSync(linkPath));
     if (current === addonSource) {
       console.log(`Already linked: ${linkPath} -> ${addonSource}`);
+      if (setPluginEnabled(projectFile, true)) console.log('Enabled the plugin in project.godot.');
       process.exit(0);
     }
     fs.unlinkSync(linkPath);
@@ -90,7 +125,9 @@ if (existing) {
 fs.symlinkSync(addonSource, linkPath, 'junction');
 
 console.log(`Linked ${linkPath} -> ${addonSource}`);
+if (setPluginEnabled(projectFile, true)) console.log('Enabled the plugin in project.godot.');
 console.log('');
-console.log('Next: open the project in Godot, enable "GodotLive MCP Bridge" in');
-console.log('Project > Project Settings > Plugins, then start a session from the');
-console.log('AI Assistant panel — the server path and auth token are wired up automatically.');
+console.log('Next: open the project in Godot and start a session from the AI Assistant');
+console.log('panel — the server path and auth token are wired up automatically.');
+console.log('(If the project was already open, reopen it or enable "GodotLive MCP Bridge"');
+console.log('in Project > Project Settings > Plugins.)');
