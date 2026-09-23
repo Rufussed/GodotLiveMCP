@@ -1,6 +1,6 @@
 # GodotLiveMCP
 
-An MCP server that lets an AI coding agent drive a **running** Godot 4 editor
+An MCP server that lets an AI coding agent drive a **running** Godot 4.x editor
 session directly, not just edit files on disk. See
 [GodotLive_Project_Brief.md](GodotLive_Project_Brief.md) for the full rationale and scope.
 
