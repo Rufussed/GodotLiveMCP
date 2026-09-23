@@ -580,20 +580,134 @@ func _cmd_run_script(params: Dictionary):
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 
+	var run := _run_source(node, source)
+	if run[0] != "":
+		return _fail(run[0])
+	return {"value": var_to_str(run[1])}
+
+## Compiles `source` as the body of func _run(node) and calls it.
+## Returns [error_message_or_empty, value].
+func _run_source(node: Node, source: String) -> Array:
 	var indented := ""
 	for line in source.split("\n"):
 		indented += "\t%s\n" % line
-
 	var script := GDScript.new()
 	script.source_code = "extends RefCounted\nfunc _run(node):\n%s" % indented
 	var err := script.reload()
 	if err != OK:
-		return _fail("script compile error (code %d) — check GDScript syntax" % err)
+		return ["script compile error (code %d) — check GDScript syntax" % err, null]
 	var runner = script.new()
 	if not (runner is RefCounted and runner.has_method("_run")):
-		return _fail("internal error: compiled script has no _run() method")
-	var value = runner.call("_run", node)
-	return {"value": var_to_str(value)}
+		return ["internal error: compiled script has no _run() method", null]
+	return ["", runner.call("_run", node)]
+
+## Different property values on many nodes as ONE undoable action (one
+## Ctrl+Z), live-synced to a running game like any property edit. Everything
+## is validated before anything changes. For the same values on every node
+## matching a filter, batch_set_properties is simpler.
+func _cmd_set_properties_multi(params: Dictionary):
+	var edits: Array = params.get("edits", [])
+	if edits.is_empty():
+		return _fail("edits is required: [{node_path, properties}, ...]")
+	var planned := []  # [node, {name: decoded value}]
+	for edit in edits:
+		if typeof(edit) != TYPE_DICTIONARY:
+			return _fail("each edit must be {node_path, properties}")
+		var node_path := String(edit.get("node_path", ""))
+		var node := _resolve_node(node_path)
+		if node == null:
+			return _fail("node not found: %s (nothing was changed)" % node_path)
+		var valid := {}
+		for p in node.get_property_list():
+			valid[p.name] = true
+		var decoded := {}
+		var props: Dictionary = edit.get("properties", {})
+		for prop_name in props:
+			var name_str := String(prop_name)
+			if not valid.has(name_str):
+				return _fail("unknown %s property on %s: %s (nothing was changed)" % [node.get_class(), node_path, name_str])
+			decoded[name_str] = _decode_value(props[prop_name])
+		planned.append([node, decoded])
+
+	if _editor_plugin:
+		var ur := _editor_plugin.get_undo_redo()
+		ur.create_action("GodotLiveMCP: set properties on %d nodes" % planned.size(), UndoRedo.MERGE_DISABLE, _get_scene_root())
+		for item in planned:
+			for name_str in item[1]:
+				ur.add_do_property(item[0], name_str, item[1][name_str])
+				ur.add_undo_property(item[0], name_str, item[0].get(name_str))
+		ur.commit_action()
+	else:
+		for item in planned:
+			for name_str in item[1]:
+				item[0].set(name_str, item[1][name_str])
+
+	var mismatched := []
+	for item in planned:
+		for name_str in item[1]:
+			var actual = item[0].get(name_str)
+			var requested = item[1][name_str]
+			if typeof(actual) != typeof(requested) or not _values_approximately_equal(actual, requested):
+				mismatched.append("%s.%s (requested %s, property is a %s)" % [
+					_rel_path(item[0]), name_str, var_to_str(requested), type_string(typeof(actual))])
+	if not mismatched.is_empty():
+		return _fail("values didn't take — check the var_to_str() encoding: %s" % "; ".join(mismatched))
+	return {"ok": true, "nodes": planned.size()}
+
+## Runs a GDScript body that builds an Image or a Resource and saves it as a
+## file (Image -> .png/.jpg/.webp, Resource -> .tres/.res), registered with
+## the editor. Files, unlike in-memory resources, can be sent to a running
+## game: assign the result with "load:<path>" via set_property etc.
+func _cmd_save_resource_file(params: Dictionary):
+	var path := String(params.get("path", ""))
+	var source := String(params.get("source", ""))
+	if not path.begins_with("res://"):
+		return _fail("path must be a res:// path")
+	if source.strip_edges() == "":
+		return _fail("source is required: a GDScript body that returns an Image or Resource")
+	var run := _run_source(_get_scene_root(), source)
+	if run[0] != "":
+		return _fail(run[0])
+	var value = run[1]
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var ext := path.get_extension().to_lower()
+	var err := OK
+	if value is Image:
+		match ext:
+			"png": err = (value as Image).save_png(path)
+			"jpg", "jpeg": err = (value as Image).save_jpg(path)
+			"webp": err = (value as Image).save_webp(path)
+			_: return _fail("an Image must be saved as .png, .jpg or .webp")
+	elif value is Resource:
+		if not ext in ["tres", "res"]:
+			return _fail("a Resource must be saved as .tres or .res")
+		err = ResourceSaver.save(value, path)
+	else:
+		return _fail("source must return an Image or a Resource (got %s)" % type_string(typeof(value)))
+	if err != OK:
+		return _fail("saving %s failed (error %d)" % [path, err])
+	var fs := EditorInterface.get_resource_filesystem()
+	if value is Image:
+		# Images need importing before load() returns a texture. A scan picks
+		# up new files and folders (update_file alone misses a new folder);
+		# then import, and wait (up to ~5 s) so "load:<path>" works as soon
+		# as this returns.
+		fs.scan()
+		var imported := false
+		for i in 300:
+			await get_tree().process_frame
+			if fs.is_scanning():
+				continue
+			if ResourceLoader.exists(path) and load(path) != null:
+				break
+			if not imported:
+				fs.reimport_files(PackedStringArray([path]))
+				imported = true
+	else:
+		fs.update_file(path)
+		if load(path) == null:
+			return _fail("saved %s but Godot hasn't imported it yet — try assigning it again shortly" % path)
+	return {"ok": true, "path": path, "assign_with": "load:%s" % path}
 
 func _cmd_list_scene_tree(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))

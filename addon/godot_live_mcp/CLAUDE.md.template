@@ -35,13 +35,18 @@ running game — use the structured tools instead while it's running.
 
 Textures, meshes and other resources reach a running game only if they're
 **files** (Godot sends the game a file path, not the data). To apply a
-generated texture live: write it to a file first (e.g. build the `Image` in
-`run_script` and `save_png("res://checker.png")`), then assign it with a
-structured tool — `set_material_3d` / `set_nested_property` /
+generated texture live: save it as a file with `save_resource_file` (a
+GDScript body that returns the `Image` or resource; it also imports it),
+then assign it with a structured tool — `set_material_3d` / `set_nested_property` /
 `set_property` with `"load:res://checker.png"`. An `ImageTexture` or
 material built in memory and assigned inside `run_script` only shows up on
 the next Play. Don't tell the user to restart the game for something these
 tools can do live.
+
+For edits across many nodes (e.g. "space these 100 balls out"), use
+`set_properties_multi` — different values per node, one Ctrl+Z, live-synced
+— or `batch_set_properties` for the same values on every matching node,
+not a `run_script` loop.
 
 A `run_script`/`eval_expression` result with a `scene_changed_note` means
 that code changed the scene directly — the user can't Ctrl+Z it and a

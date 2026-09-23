@@ -50,6 +50,8 @@ export const bridgeToolNames = new Set([
   'clear_editor_selection',
   'validate_script',
   'edit_script_text',
+  'set_properties_multi',
+  'save_resource_file',
   'get_script_text',
   'setup_collision',
   'get_collision_info',
@@ -372,6 +374,48 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: { script_path: { type: 'string', description: 'res:// path to the script' } },
       required: ['script_path'],
+    },
+  },
+  {
+    name: 'set_properties_multi',
+    description:
+      'Set different properties/values on many nodes as ONE undoable edit (one Ctrl+Z), live-synced to ' +
+      'a running game. Everything is validated before anything changes. Use instead of run_script loops ' +
+      'for edits like "space these 100 nodes out". Values use var_to_str() encoding ("Vector3(1, 2, 3)"), ' +
+      'or "load:res://..." for files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        edits: {
+          type: 'array',
+          description: 'List of {node_path, properties: {name: value}}',
+          items: {
+            type: 'object',
+            properties: {
+              node_path: { type: 'string' },
+              properties: { type: 'object' },
+            },
+            required: ['node_path', 'properties'],
+          },
+        },
+      },
+      required: ['edits'],
+    },
+  },
+  {
+    name: 'save_resource_file',
+    description:
+      'Build an Image or Resource with a GDScript body (like run_script; must `return` it) and save it as a ' +
+      'file: Image -> .png/.jpg/.webp, Resource (material, mesh, ...) -> .tres/.res. The file is registered ' +
+      'with the editor. Then assign it with "load:<path>" (set_property / set_material_3d / ...) — unlike an ' +
+      'in-memory resource, a file reaches a running game live. Use for generated textures etc.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'res:// path to save to' },
+        source: { type: 'string', description: 'GDScript body returning an Image or Resource' },
+      },
+      required: ['path', 'source'],
     },
   },
   {
@@ -1185,6 +1229,10 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('validate_script', {
         script_path: params.script_path,
       }));
+    case 'set_properties_multi':
+      return textResult(await client.call('set_properties_multi', { edits: params.edits ?? [] }));
+    case 'save_resource_file':
+      return textResult(await client.call('save_resource_file', { path: params.path, source: params.source }));
     case 'edit_script_text':
       return textResult(await client.call('edit_script_text', {
         path: params.path,
