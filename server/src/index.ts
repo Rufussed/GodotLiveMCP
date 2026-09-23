@@ -961,6 +961,7 @@ class GodotServer {
             tool: request.params.name,
             args: request.params.arguments,
             ok: true,
+            ...(JSON.stringify(response).includes('scene_changed_note') ? { raw_scene_edit: true } : {}),
             cwd: process.cwd(),
             pid: process.pid,
             duration_ms: Date.now() - startedAt,
