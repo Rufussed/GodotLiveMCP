@@ -237,23 +237,91 @@ func _resolve_node(node_path: String) -> Node:
 		return root
 	return root.get_node_or_null(NodePath(node_path))
 
-## Mirrors a scene-structure change into a game running from the editor,
-## the way the editor's own Scene dock does, using the editor debugger's
-## live-edit methods (see Debug > Synchronize Scene Changes). Property edits
-## don't need this: they go through UndoRedo, which the debugger already
-## watches. A no-op when no game is running.
+# The editor debugger, whose live-edit methods mirror scene-structure edits
+# into a game running from the editor (Debug > Synchronize Scene Changes).
+# Property edits don't need them: the debugger already watches UndoRedo.
 var _debugger_node: Node = null
 
-func _live_debug(method: String, args: Array) -> void:
-	if not EditorInterface.is_playing_scene():
-		return
+func _find_debugger_node() -> Node:
 	if not is_instance_valid(_debugger_node):
 		_debugger_node = null
 		for n in EditorInterface.get_base_control().get_tree().root.find_children("*", "EditorDebuggerNode", true, false):
 			_debugger_node = n
 			break
-	if _debugger_node and _debugger_node.has_method(method):
-		_debugger_node.callv(method, args)
+	return _debugger_node
+
+## Scene-structure edits go through Godot's undo system as one action each,
+## built the way the editor's own Scene dock builds them: do/undo method
+## pairs on the scene nodes, plus the editor debugger's live-edit calls so
+## a running game follows along (and follows undo/redo too).
+var _node_action_ur: EditorUndoRedoManager = null
+
+func _begin_node_action(action_name: String) -> bool:
+	if _editor_plugin == null:
+		return false
+	_node_action_ur = _editor_plugin.get_undo_redo()
+	# The scene root as context keeps this in the scene's own undo history.
+	_node_action_ur.create_action("GodotLiveMCP: " + action_name, UndoRedo.MERGE_DISABLE, _get_scene_root())
+	return true
+
+func _do(obj: Object, method: String, args: Array = []) -> void:
+	_node_action_ur.callv("add_do_method", [obj, method] + args)
+
+func _undo(obj: Object, method: String, args: Array = []) -> void:
+	_node_action_ur.callv("add_undo_method", [obj, method] + args)
+
+func _do_live(method: String, args: Array) -> void:
+	var dbg := _find_debugger_node()
+	if dbg and dbg.has_method(method):
+		_do(dbg, method, args)
+
+func _undo_live(method: String, args: Array) -> void:
+	var dbg := _find_debugger_node()
+	if dbg and dbg.has_method(method):
+		_undo(dbg, method, args)
+
+func _commit_node_action() -> void:
+	_node_action_ur.commit_action()
+	_node_action_ur = null
+
+## A child name that's free under parent, numbered the way the editor does
+## ("Box" -> "Box2"), so the names sent to a running game are known up front.
+func _unique_child_name(parent: Node, base: String, exclude: Node = null) -> String:
+	var existing := parent.get_node_or_null(NodePath(base))
+	if existing == null or existing == exclude:
+		return base
+	var stem := base
+	var n := 2
+	var m := RegEx.create_from_string("^(.*?)(\\d+)$").search(base)
+	if m:
+		stem = m.get_string(1)
+		n = int(m.get_string(2)) + 1
+	while true:
+		var candidate := "%s%d" % [stem, n]
+		var other := parent.get_node_or_null(NodePath(candidate))
+		if other == null or other == exclude:
+			return candidate
+		n += 1
+	return base
+
+## Taking a node out of the tree clears its owner (and its descendants'), so
+## a moved or restored node would silently drop out of the saved .tscn.
+## These record the subtree's owners before an edit and put them back.
+## A node with no owner yet gets the scene root.
+func _capture_owners(node: Node) -> Array:
+	var root := _get_scene_root()
+	var pairs := []
+	for n in [node] + node.find_children("*", "", true, false):
+		var o: Node = n.owner
+		if o == null and n == node:
+			o = root
+		pairs.append([n, o])
+	return pairs
+
+func _apply_owners(pairs: Array) -> void:
+	for pair in pairs:
+		if is_instance_valid(pair[0]):
+			pair[0].owner = pair[1]
 
 func _rel_path(node: Node) -> String:
 	var root := _get_scene_root()
@@ -923,10 +991,23 @@ func _cmd_remove_node(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	if node == _get_scene_root():
 		return _fail("cannot remove the scene root")
+	var parent := node.get_parent()
 	var rel := NodePath(_rel_path(node))
-	node.get_parent().remove_child(node)
-	node.queue_free()
-	_live_debug("live_debug_remove_node", [rel])
+	var parent_rel := NodePath(_rel_path(parent))
+	var index := node.get_index()
+	if not _begin_node_action("remove node"):
+		parent.remove_child(node)
+		node.queue_free()
+		return {"ok": true}
+	# Kept alive (not freed) so undo can put it back, owners and all.
+	_do(parent, "remove_child", [node])
+	_do_live("live_debug_remove_and_keep_node", [rel, node.get_instance_id()])
+	_undo(parent, "add_child", [node])
+	_undo(parent, "move_child", [node, index])
+	_undo(self, "_apply_owners", [_capture_owners(node)])
+	_undo_live("live_debug_restore_node", [node.get_instance_id(), parent_rel, index])
+	_node_action_ur.add_undo_reference(node)
+	_commit_node_action()
 	return {"ok": true}
 
 func _cmd_reparent_node(params: Dictionary):
@@ -945,25 +1026,39 @@ func _cmd_reparent_node(params: Dictionary):
 	if node.get_parent() == new_parent:
 		return {"path": _rel_path(node)}
 
-	var old_rel := NodePath(_rel_path(node))
-	node.get_parent().remove_child(node)
-	new_parent.add_child(node)
-	_live_debug("live_debug_reparent_node", [old_rel, NodePath(_rel_path(new_parent)), String(node.name), -1])
-
-	# Godot's scene serializer silently drops any node whose `owner` isn't
-	# set to the scene root — confirmed live: reparenting without this left
-	# nodes fully visible and working in the live editor, but they never
-	# made it into the saved .tscn at all, so every actual play session was
-	# missing them entirely, with no error anywhere. add_node_live already
-	# set this for newly-created nodes; reparent_node never did for moved
-	# ones. Fixed recursively over the whole moved subtree (not just the
-	# top node), matching what the editor's own "Move to New Parent"
-	# operation does, since a multi-node subtree can have its own owned
-	# descendants that need the same fix.
 	var root := _get_scene_root()
-	if root:
-		_fix_owner_recursive(node, root)
-
+	var old_parent := node.get_parent()
+	var old_rel := NodePath(_rel_path(node))
+	var old_parent_rel := NodePath(_rel_path(old_parent))
+	var old_index := node.get_index()
+	var old_name := String(node.name)
+	var new_name := _unique_child_name(new_parent, old_name)
+	if not _begin_node_action("reparent node"):
+		old_parent.remove_child(node)
+		node.name = new_name
+		new_parent.add_child(node)
+		if root:
+			_fix_owner_recursive(node, root)
+		return {"path": _rel_path(node)}
+	_do(old_parent, "remove_child", [node])
+	if new_name != old_name:
+		_do(node, "set_name", [new_name])
+	_do(new_parent, "add_child", [node])
+	# Godot's serializer silently drops any node whose owner isn't set —
+	# reparenting without this once left moved nodes visible in the editor
+	# but missing from the saved .tscn. Restored over the whole subtree.
+	var owners := _capture_owners(node)
+	_do(self, "_apply_owners", [owners])
+	_do_live("live_debug_reparent_node", [old_rel, NodePath(_rel_path(new_parent)), new_name, -1])
+	_undo(new_parent, "remove_child", [node])
+	if new_name != old_name:
+		_undo(node, "set_name", [old_name])
+	_undo(old_parent, "add_child", [node])
+	_undo(old_parent, "move_child", [node, old_index])
+	_undo(self, "_apply_owners", [owners])
+	var new_rel := NodePath(String(_rel_path(new_parent)).path_join(new_name) if new_parent != root else new_name)
+	_undo_live("live_debug_reparent_node", [new_rel, old_parent_rel, old_name, old_index])
+	_commit_node_action()
 	return {"path": _rel_path(node)}
 
 func _fix_owner_recursive(node: Node, root: Node) -> void:
@@ -977,12 +1072,33 @@ func _cmd_duplicate_node(params: Dictionary):
 	var node := _resolve_node(node_path)
 	if node == null:
 		return _fail("node not found: %s" % node_path)
-	var dup: Node = node.duplicate()
-	node.get_parent().add_child(dup, true)
+	if node == _get_scene_root():
+		return _fail("cannot duplicate the scene root")
+	var parent := node.get_parent()
 	var root := _get_scene_root()
-	if root:
-		_fix_owner_recursive(dup, root)
-	_live_debug("live_debug_duplicate_node", [NodePath(_rel_path(node)), String(dup.name)])
+	var dup: Node = node.duplicate()
+	dup.name = _unique_child_name(parent, String(node.name))
+	if not _begin_node_action("duplicate node"):
+		parent.add_child(dup)
+		if root:
+			_fix_owner_recursive(dup, root)
+		return {"path": _rel_path(dup)}
+	_do(parent, "add_child", [dup])
+	_do(parent, "move_child", [dup, node.get_index() + 1])
+	# Same owners as the original: this scene's own nodes are owned by the
+	# scene root, an instanced scene's inner nodes by that instance.
+	var dup_owners := [[dup, root]]
+	for n in node.find_children("*", "", true, false):
+		var twin := dup.get_node_or_null(node.get_path_to(n))
+		if twin:
+			dup_owners.append([twin, dup if n.owner == node else n.owner])
+	_do(self, "_apply_owners", [dup_owners])
+	_do_live("live_debug_duplicate_node", [NodePath(_rel_path(node)), String(dup.name)])
+	_node_action_ur.add_do_reference(dup)
+	_undo(parent, "remove_child", [dup])
+	var parent_rel := _rel_path(parent)
+	_undo_live("live_debug_remove_node", [NodePath(String(dup.name) if parent == root else parent_rel.path_join(String(dup.name)))])
+	_commit_node_action()
 	return {"path": _rel_path(dup)}
 
 func _cmd_add_node_live(params: Dictionary):
@@ -1007,17 +1123,30 @@ func _cmd_add_node_live(params: Dictionary):
 		new_node = ClassDB.instantiate(node_type)
 	if node_name != "":
 		new_node.name = node_name
-	parent.add_child(new_node, true)
+	elif scene_path == "":
+		new_node.name = node_type
+	new_node.name = _unique_child_name(parent, String(new_node.name))
 	var root := _get_scene_root()
+	if not _begin_node_action("add node"):
+		parent.add_child(new_node)
+		if root:
+			new_node.owner = root
+		return {"path": _rel_path(new_node)}
+	_do(parent, "add_child", [new_node])
+	# Only the new node itself is owned by this scene; an instanced scene's
+	# own children stay owned by it.
 	if root:
-		# Only the instance root is owned by this scene; the instanced
-		# scene's own children stay owned by it.
-		new_node.owner = root
+		_do(new_node, "set_owner", [root])
 	var parent_rel := NodePath(_rel_path(parent))
+	var new_rel := NodePath(String(new_node.name) if parent == root else String(parent_rel).path_join(String(new_node.name)))
 	if scene_path != "":
-		_live_debug("live_debug_instantiate_node", [parent_rel, scene_path, String(new_node.name)])
+		_do_live("live_debug_instantiate_node", [parent_rel, scene_path, String(new_node.name)])
 	else:
-		_live_debug("live_debug_create_node", [parent_rel, node_type, String(new_node.name)])
+		_do_live("live_debug_create_node", [parent_rel, node_type, String(new_node.name)])
+	_node_action_ur.add_do_reference(new_node)
+	_undo(parent, "remove_child", [new_node])
+	_undo_live("live_debug_remove_node", [new_rel])
+	_commit_node_action()
 	return {"path": _rel_path(new_node)}
 
 func _cmd_rename_node(params: Dictionary):
@@ -1028,11 +1157,25 @@ func _cmd_rename_node(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	if new_name == "":
 		return _fail("new_name is required")
-	var old_rel := NodePath(_rel_path(node))
-	node.name = new_name
+	var old_name := String(node.name)
+	if node.get_parent() and node != _get_scene_root():
+		new_name = _unique_child_name(node.get_parent(), new_name, node)
+	if new_name == old_name:
+		return {"path": _rel_path(node)}
+	if not _begin_node_action("rename node"):
+		node.name = new_name
+		return {"path": _rel_path(node)}
+	_do(node, "set_name", [new_name])
+	_undo(node, "set_name", [old_name])
 	if node != _get_scene_root():
 		# The editor's own rename is a reparent-in-place under a new name.
-		_live_debug("live_debug_reparent_node", [old_rel, NodePath(_rel_path(node.get_parent())), String(node.name), -1])
+		var parent_rel := _rel_path(node.get_parent())
+		var at_root := node.get_parent() == _get_scene_root()
+		var old_rel := NodePath(old_name if at_root else parent_rel.path_join(old_name))
+		var renamed_rel := NodePath(new_name if at_root else parent_rel.path_join(new_name))
+		_do_live("live_debug_reparent_node", [old_rel, NodePath(parent_rel), new_name, -1])
+		_undo_live("live_debug_reparent_node", [renamed_rel, NodePath(parent_rel), old_name, -1])
+	_commit_node_action()
 	return {"path": _rel_path(node)}
 
 func _cmd_connect_signal(params: Dictionary):
