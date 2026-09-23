@@ -1538,6 +1538,19 @@ func _cmd_setup_environment(params: Dictionary):
 
 	return {"ok": true, "environment": _read_back(env, environment_params.keys())}
 
+## set_material_3d only edits StandardMaterial3D; it used to silently replace
+## any other material (a real case: a checker ShaderMaterial was thrown away
+## by a "tint it blue" request). Now it refuses unless told to replace.
+func _other_material_msg(existing: Material) -> String:
+	var what := existing.get_class()
+	if existing is ShaderMaterial and (existing as ShaderMaterial).shader:
+		what += " using %s" % (existing as ShaderMaterial).shader.resource_path
+		return ("this node already has a %s — set_material_3d would replace it. To change it, use " +
+			"set_shader_material (shader_params) or edit the shader; pass replace_existing: true " +
+			"only if the user wants it replaced.") % what
+	return ("this node already has a %s — set_material_3d would replace it. Pass " +
+		"replace_existing: true only if the user wants it replaced.") % what
+
 func _cmd_set_material_3d(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var material_params: Dictionary = params.get("material_params", {})
@@ -1560,6 +1573,8 @@ func _cmd_set_material_3d(params: Dictionary):
 		var surf_new := false
 		if current_surf is StandardMaterial3D:
 			surf_mat = current_surf
+		elif current_surf != null and not bool(params.get("replace_existing", false)):
+			return _fail(_other_material_msg(current_surf))
 		else:
 			surf_mat = StandardMaterial3D.new()
 			surf_new = true
@@ -1573,6 +1588,8 @@ func _cmd_set_material_3d(params: Dictionary):
 	var created_new := false
 	if node.material_override is StandardMaterial3D:
 		mat = node.material_override
+	elif node.material_override != null and not bool(params.get("replace_existing", false)):
+		return _fail(_other_material_msg(node.material_override))
 	else:
 		mat = StandardMaterial3D.new()
 		created_new = true
