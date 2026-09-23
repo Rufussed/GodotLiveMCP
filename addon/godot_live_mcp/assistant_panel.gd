@@ -34,6 +34,7 @@ const _TERMINALS := [
 ]
 
 var _launch_button: Button
+var _codex_button: Button
 var _new_session_button: Button
 var _settings_button: Button
 var _settings_popup: PopupPanel
@@ -133,10 +134,16 @@ func _ready() -> void:
 	button_row.add_child(VSeparator.new())
 
 	_launch_button = Button.new()
-	_launch_button.text = "Open in Terminal"
+	_launch_button.text = "Open Claude"
 	_launch_button.pressed.connect(_on_launch_pressed)
 	button_row.add_child(_launch_button)
 	_compact_button_padding(_launch_button)
+
+	_codex_button = Button.new()
+	_codex_button.text = "Open Codex"
+	_codex_button.pressed.connect(_on_launch_codex_pressed)
+	button_row.add_child(_codex_button)
+	_compact_button_padding(_codex_button)
 
 	var editor_theme := EditorInterface.get_editor_theme()
 	_new_session_button = Button.new()
@@ -157,7 +164,7 @@ func _ready() -> void:
 	# Distribute the interactive buttons across the row's full width —
 	# icon/label/separator stay their natural size, only the buttons
 	# (toggles + terminal launcher) expand and share the leftover space.
-	for b in [_file_control_toggle, _terminal_toggle, _web_toggle, _launch_button]:
+	for b in [_file_control_toggle, _terminal_toggle, _web_toggle, _launch_button, _codex_button]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	_build_session_ui()
@@ -171,32 +178,23 @@ func _process(_delta: float) -> void:
 	_poll_session()
 
 func _refresh_status() -> void:
-	if not _has_command("claude"):
-		_launch_button.tooltip_text = (
-			"Claude Code CLI not found on PATH. Install it first: " +
-			"https://docs.claude.com/en/docs/claude-code — then reopen this panel."
-		)
-		_launch_button.disabled = true
-		return
-
 	var term := _find_terminal()
-	if term.is_empty():
-		_launch_button.tooltip_text = (
-			"Claude Code CLI found, but no supported terminal emulator was " +
-			"detected on PATH (tried $TERMINAL, alacritty, kitty, foot, " +
-			"ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
-		)
-		_launch_button.disabled = true
-		return
+	for pair in [[_launch_button, "claude", "Claude Code", "https://docs.claude.com/en/docs/claude-code"],
+			[_codex_button, "codex", "Codex", "https://github.com/openai/codex"]]:
+		var button: Button = pair[0]
+		button.disabled = true
+		if not _has_command(pair[1]):
+			button.tooltip_text = "%s CLI (`%s`) not found on PATH. Install it first: %s — then reopen this panel." % [pair[2], pair[1], pair[3]]
+		elif term.is_empty() and OS.get_name() != "Windows":
+			button.tooltip_text = (
+				"%s found, but no supported terminal emulator was detected on PATH (tried " +
+				"$TERMINAL, alacritty, kitty, foot, ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
+			) % pair[2]
+		else:
+			button.disabled = false
+			button.tooltip_text = "Opens a %s session in %s, in this project's directory." % [
+				pair[2], "a console" if term.is_empty() else term.bin]
 
-	_launch_button.tooltip_text = "Opens a Claude Code session in %s, in this project's directory." % term.bin
-	_launch_button.disabled = false
-
-## Toggle-derived --allowedTools list for the in-editor session (see
-## _start_session). The external terminal deliberately does NOT use this —
-## it's interactive, so Claude's own normal prompting already handles
-## permissions fine there; the toggles only exist to compensate for the
-## in-editor session having no way to answer a prompt.
 func _build_allowed_tools() -> Array:
 	var allowed := ["mcp__godot-live-mcp__*"]
 	if _file_control_toggle.button_pressed:
@@ -208,14 +206,33 @@ func _build_allowed_tools() -> Array:
 	return allowed
 
 func _on_launch_pressed() -> void:
-	var project_dir := ProjectSettings.globalize_path("res://")
 	# --mcp-config is variadic, so it goes last.
-	var claude_args := _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg))
+	_launch_in_terminal("claude", _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)))
+
+## Codex reads AGENTS.md (linked to CLAUDE.md by link-project) and takes the
+## same server + project token and the settings popup's preferences through
+## -c config overrides (values are TOML; JSON-quoted strings are valid TOML).
+func _on_launch_codex_pressed() -> void:
+	var args := ["-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
+	var entry := _resolve_server_entry()
+	var token := _read_bridge_token()
+	if not entry.is_empty() and not token.is_empty():
+		args += [
+			"-c", 'mcp_servers.godot-live-mcp.command="node"',
+			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
+			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
+		]
+	else:
+		_append_transcript("[color=yellow]Couldn't find this project's server/token — Codex will use its own godot-live-mcp registration, if any.[/color]")
+	_launch_in_terminal("codex", args)
+
+func _launch_in_terminal(cli: String, cli_args: Array) -> void:
+	var project_dir := ProjectSettings.globalize_path("res://")
 
 	if OS.get_name() == "Windows":
 		# OS.create_process's open_console is a real native console window
 		# on Windows; no terminal-emulator detection needed there.
-		OS.create_process("claude", claude_args, true)
+		OS.create_process(cli, cli_args, true)
 		return
 
 	var term := _find_terminal()
@@ -223,13 +240,13 @@ func _on_launch_pressed() -> void:
 		_refresh_status()  # re-check in case something changed since panel opened
 		return
 
-	var shell_cmd := "cd %s && claude" % _shell_quote(project_dir)
-	for arg in claude_args:
+	var shell_cmd := "cd %s && %s" % [_shell_quote(project_dir), cli]
+	for arg in cli_args:
 		shell_cmd += " " + _shell_quote(arg)
 
 	match term.style:
 		"xdg":
-			OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", "claude"] + claude_args)
+			OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", cli] + cli_args)
 		"direct":
 			# No native workdir flag — same shell `cd` fallback as flag_e/
 			# dashdash below, just without a leading terminal-specific flag.
@@ -559,13 +576,16 @@ func _on_tests_toggled(on: bool) -> void:
 ## Extra claude arguments from the settings popup (testing and saving preferences,
 ## as appended system-prompt text the user doesn't see in the transcript).
 func _behavior_args() -> Array:
+	return ["--append-system-prompt", _behavior_text()]
+
+func _behavior_text() -> String:
 	var es := EditorInterface.get_editor_settings()
 	var tests: bool = es.get_project_metadata("godot_live_mcp", _TESTS_SETTING, false)
 	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, false)
-	return ["--append-system-prompt", "\n\n".join([
+	return "\n\n".join([
 		_TESTS_ON_PROMPT if tests else _TESTS_OFF_PROMPT,
 		_SAVE_ON_PROMPT if saves else _SAVE_OFF_PROMPT,
-	])]
+	])
 
 ## The editor's Debug menu and the indices of its two "Synchronize ... Changes"
 ## check items. Godot doesn't expose these options to plugins, so they're

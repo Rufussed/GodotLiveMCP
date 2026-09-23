@@ -27,6 +27,12 @@ var _token: String = ""
 var _port: int = DEFAULT_PORT
 
 func _ready() -> void:
+	# Only when the game was launched from the editor (Play / play_scene):
+	# never open a control port in an exported build of the game.
+	if not OS.has_feature("editor_runtime"):
+		set_process(false)
+		queue_free()
+		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_token = _load_or_create_token()
 	_port = _load_port()

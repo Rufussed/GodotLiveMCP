@@ -78,6 +78,10 @@ machines, and every request must include the token.
 
 ## Live running-game control (optional)
 
+The runtime bridge only starts when the game is launched from the editor
+(`OS.has_feature("editor_runtime")`), so it never opens a port in an
+exported build.
+
 The steps above only wire up the **editor** bridge — it has no presence in
 an actual running game, since a game is a separate OS process an
 `EditorPlugin` never touches. To let the agent inspect/control a *running*

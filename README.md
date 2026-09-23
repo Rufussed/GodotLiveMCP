@@ -68,7 +68,7 @@ project…**, which links the addon, enables the plugin and adds `CLAUDE.md`
    was open while you linked it, reopen it). The bridge generates its auth
    token automatically.
 4. Open the **AI Assistant** tab in the bottom panel and type a message (or
-   click **Open in Terminal** for the full interactive CLI). The panel
+   click **Open Claude** or **Open Codex** for a full interactive CLI in a terminal). The panel
    finds the server through the link and passes it to Claude along with
    this project's token, so there's no MCP config file to edit and no token
    to copy. When the plugin loads, the panel also registers the server for
@@ -115,8 +115,8 @@ Then start `codex` inside the Godot project folder. The server finds that
 project's token itself (from `project.godot`'s name and the token file the
 bridge saved), so no token is needed in the registration unless you use a
 global one (add `--env GODOT_LIVE_MCP_TOKEN=<token>`); a wrong configured
-token also falls back to the project's. The panel's settings (testing,
-saving) only reach sessions the panel starts.
+token also falls back to the project's. The panel's **Open Codex** button passes the server, token and
+the settings popup's preferences (as `developer_instructions`) for you.
 
 **Other MCP clients / manual setup:** you can instead copy
 `addon/godot_live_mcp/` into the project's `addons/` folder and register
@@ -146,13 +146,16 @@ The aim is that the AI works in the editor the way a person does:
   Ctrl+Z) and **generated textures/resources** use `save_resource_file`
   (saved and imported as a file, then assigned with `"load:res://..."`,
   which reaches a running game).
+- **Shader parameters** (`set_shader_material`) are undoable and reach a
+  running game too. Values can be written as constructor calls, e.g.
+  `"Color(0.2, 0.4, 0.9)"`.
 - **`run_script` / `eval_expression`** are for reading and calculating.
   If one changes the scene, the result carries a `scene_changed_note` (not
   undoable, not live-synced) and the call is logged as `raw_scene_edit`
   for the tool-candidate review.
 
 **AI Assistant panel:** permission toggles (on by default, remembered per
-project), **Open in Terminal**, **New session** (refresh icon: next message
+project), **Open Claude** / **Open Codex** (a terminal session with this project's server, token and the settings below), **New session** (refresh icon: next message
 starts a fresh session and server) and **Settings** (tools icon): sync
 editor changes to the running game, whether the AI tests its own changes
 (off by default, to save tokens), and whether it saves its changes (off by
