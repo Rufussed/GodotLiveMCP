@@ -142,6 +142,10 @@ The aim is that the AI works in the editor the way a person does:
   reloaded in the game. Brand-new resources (a new material, say) can't be
   sent to a running game; the tool result says so (`live_note`) and they
   appear on the next Play.
+- **Bulk edits** use `set_properties_multi` (different values per node, one
+  Ctrl+Z) and **generated textures/resources** use `save_resource_file`
+  (saved and imported as a file, then assigned with `"load:res://..."`,
+  which reaches a running game).
 - **`run_script` / `eval_expression`** are for reading and calculating.
   If one changes the scene, the result carries a `scene_changed_note` (not
   undoable, not live-synced) and the call is logged as `raw_scene_edit`
