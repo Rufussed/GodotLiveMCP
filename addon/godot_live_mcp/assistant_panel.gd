@@ -184,11 +184,12 @@ func _build_allowed_tools() -> Array:
 
 func _on_launch_pressed() -> void:
 	var project_dir := ProjectSettings.globalize_path("res://")
+	var claude_args := _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg))
 
 	if OS.get_name() == "Windows":
 		# OS.create_process's open_console is a real native console window
 		# on Windows; no terminal-emulator detection needed there.
-		OS.create_process("claude", [], true)
+		OS.create_process("claude", claude_args, true)
 		return
 
 	var term := _find_terminal()
@@ -196,17 +197,21 @@ func _on_launch_pressed() -> void:
 		_refresh_status()  # re-check in case something changed since panel opened
 		return
 
+	var shell_cmd := "cd %s && claude" % _shell_quote(project_dir)
+	for arg in claude_args:
+		shell_cmd += " " + _shell_quote(arg)
+
 	match term.style:
 		"xdg":
-			OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", "claude"])
+			OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", "claude"] + claude_args)
 		"direct":
 			# No native workdir flag — same shell `cd` fallback as flag_e/
 			# dashdash below, just without a leading terminal-specific flag.
-			OS.create_process(term.bin, ["bash", "-lc", "cd %s && claude" % _shell_quote(project_dir)])
+			OS.create_process(term.bin, ["bash", "-lc", shell_cmd])
 		"flag_e":
-			OS.create_process(term.bin, ["-e", "bash", "-lc", "cd %s && claude" % _shell_quote(project_dir)])
+			OS.create_process(term.bin, ["-e", "bash", "-lc", shell_cmd])
 		"dashdash":
-			OS.create_process(term.bin, ["--", "bash", "-lc", "cd %s && claude" % _shell_quote(project_dir)])
+			OS.create_process(term.bin, ["--", "bash", "-lc", shell_cmd])
 
 func _find_terminal() -> Dictionary:
 	var env_term := OS.get_environment("TERMINAL")
@@ -228,6 +233,59 @@ func _has_command(bin_name: String) -> bool:
 	var output: Array = []
 	var code := OS.execute("which", [bin_name], output)
 	return code == 0 and not output.is_empty() and not String(output[0]).strip_edges().is_empty()
+
+## Finds the built MCP server. The preferred install links
+## res://addons/godot_live_mcp to the cloned repo (server/scripts/
+## link-project.js), so resolving that link leads back to the repo's
+## server/build/index.js with no configuration. Falls back to a copy bundled
+## inside the addon folder, if one exists. Returns "" if neither is found.
+func _resolve_server_entry() -> String:
+	var addons_dir := ProjectSettings.globalize_path("res://addons")
+	var da := DirAccess.open(addons_dir)
+	if da and da.is_link("godot_live_mcp"):
+		var target := da.read_link("godot_live_mcp")
+		if target.is_relative_path():
+			target = addons_dir.path_join(target)
+		var linked_entry := target.path_join("../../server/build/index.js").simplify_path()
+		if FileAccess.file_exists(linked_entry):
+			return linked_entry
+	var bundled := ProjectSettings.globalize_path("res://addons/godot_live_mcp/server/build/index.js")
+	if FileAccess.file_exists(bundled):
+		return bundled
+	return ""
+
+## Same precedence as bridge.gd's _load_or_create_token(): an env override
+## wins, otherwise the per-project token the bridge generated on first enable.
+func _read_bridge_token() -> String:
+	var override := OS.get_environment("GODOT_LIVE_MCP_TOKEN")
+	if override != "":
+		return override
+	var f := FileAccess.open("user://godot_live_mcp_token.txt", FileAccess.READ)
+	if f == null:
+		return ""
+	return f.get_as_text().strip_edges()
+
+## Hands `claude` this project's MCP server + token directly at launch, so
+## the user never registers the server or copies a token by hand — and each
+## project gets its own token, which a single globally-registered server
+## can't do. Returns [] (after explaining why) if the server or token can't
+## be found; the session then falls back to whatever MCP config the user
+## already has.
+func _mcp_config_args(report: Callable) -> Array:
+	var entry := _resolve_server_entry()
+	if entry.is_empty():
+		report.call("Couldn't find the GodotLiveMCP server (expected addons/godot_live_mcp to link to the cloned repo — run `npm run link-project -- <this project>` in the repo's server/ folder). Falling back to any manually registered godot-live-mcp server.")
+		return []
+	var token := _read_bridge_token()
+	if token.is_empty():
+		report.call("No bridge token found yet — is the GodotLive MCP Bridge plugin enabled? Falling back to any manually registered godot-live-mcp server.")
+		return []
+	var config := {"mcpServers": {"godot-live-mcp": {
+		"command": "node",
+		"args": [entry],
+		"env": {"GODOT_LIVE_MCP_TOKEN": token},
+	}}}
+	return ["--mcp-config", JSON.stringify(config)]
 
 func _shell_quote(s: String) -> String:
 	return "'" + s.replace("'", "'\\''") + "'"
@@ -371,6 +429,10 @@ func _start_session() -> bool:
 		"exec claude -p --input-format stream-json --output-format stream-json --verbose " +
 		"--permission-prompts none --allowedTools %s" % _shell_quote(",".join(allowed))
 	)
+	# Last on the line: --mcp-config is variadic, so anything after it would
+	# be swallowed as another config.
+	for arg in _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)):
+		claude_cmd += " " + _shell_quote(arg)
 	var shell_cmd := "cd %s && %s" % [_shell_quote(project_dir), claude_cmd]
 	_pipe = OS.execute_with_pipe("bash", ["-lc", shell_cmd], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:

@@ -28,7 +28,8 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/build.js",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "link-project": "node scripts/link-project.js",
+    "inspector":"npx @modelcontextprotocol/inspector build/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch"
   },
