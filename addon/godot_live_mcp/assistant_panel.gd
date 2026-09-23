@@ -229,6 +229,9 @@ func _on_launch_codex_pressed() -> void:
 		]
 	else:
 		_append_transcript("[color=yellow]Couldn't find this project's server/token — Codex will use its own godot-live-mcp registration, if any.[/color]")
+	# Godot control is always granted in this panel (like Claude's
+	# mcp__godot-live-mcp__*); without this Codex asks per MCP tool call.
+	args += ["-c", 'mcp_servers.godot-live-mcp.default_tools_approval_mode="approve"']
 	_launch_in_terminal("codex", args)
 
 func _launch_in_terminal(cli: String, cli_args: Array) -> void:
@@ -543,7 +546,7 @@ func _build_settings_popup() -> void:
 	var assistant_row := HBoxContainer.new()
 	box.add_child(assistant_row)
 	var assistant_label := Label.new()
-	assistant_label.text = "Assistant in this panel:"
+	assistant_label.text = "Coding agent:"
 	assistant_row.add_child(assistant_label)
 	_assistant_option = OptionButton.new()
 	_assistant_option.add_item("Claude")
@@ -844,6 +847,9 @@ func _start_codex_turn(text: String) -> bool:
 			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
 			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
 		]
+	# Godot control is always granted in this panel (like Claude's
+	# mcp__godot-live-mcp__*); without this Codex asks per MCP tool call.
+	args += ["-c", 'mcp_servers.godot-live-mcp.default_tools_approval_mode="approve"']
 	args.append(text)
 	var cmd := "exec codex"
 	for a in args:
