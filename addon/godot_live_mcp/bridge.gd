@@ -402,7 +402,18 @@ func _decode_value(raw_value):
 	var value_str := str(raw_value)
 	if value_str.begins_with("load:"):
 		return load(value_str.substr(5))
-	return str_to_var(value_str)
+	var value = str_to_var(value_str)
+	# str_to_var only takes Godot's stored form, e.g. Color with all four
+	# components; a constructor call like "Color(0.2, 0.4, 0.9)" comes back
+	# null. Evaluate those as an expression instead.
+	if value == null and value_str.strip_edges() != "null" \
+			and RegEx.create_from_string("^\\s*[A-Z][A-Za-z0-9]*\\(.*\\)\\s*$").search(value_str):
+		var expr := Expression.new()
+		if expr.parse(value_str) == OK:
+			var evaluated = expr.execute([], null, false)
+			if not expr.has_execute_failed():
+				return evaluated
+	return value
 
 ## Applies already-decoded values (no unknown-property check — caller's
 ## responsibility) through the editor's UndoRedo, batched as one action, so
@@ -2076,26 +2087,37 @@ func _cmd_set_shader_material(params: Dictionary):
 
 	var mat: ShaderMaterial
 	var current = node.get(prop_name)
-	if current is ShaderMaterial:
-		mat = current
-	else:
-		mat = ShaderMaterial.new()
+	var created_new := not (current is ShaderMaterial)
+	mat = ShaderMaterial.new() if created_new else current
 
+	var new_shader: Shader = null
 	if shader_path != "":
 		if not ResourceLoader.exists(shader_path):
 			return _fail("shader not found: %s" % shader_path)
-		mat.shader = load(shader_path)
-	if mat.shader == null:
+		new_shader = load(shader_path)
+	if new_shader == null and mat.shader == null:
 		return _fail("no shader set — pass shader_path, or the node's existing material must already have one")
+
+	# Shader parameters are the material's "shader_parameter/<name>"
+	# properties; setting them that way (through UndoRedo, not
+	# set_shader_parameter()) makes them undoable and live-synced.
+	var values := {}
+	if new_shader and new_shader != mat.shader:
+		values["shader"] = new_shader
+	for pname in shader_params:
+		values["shader_parameter/" + String(pname)] = _decode_value(shader_params[pname])
+
+	if created_new:
+		for key in values:
+			mat.set(key, values[key])
+		_commit_properties(node, {prop_name: mat})
+	else:
+		_commit_properties(mat, values)
 
 	var applied := {}
 	for pname in shader_params:
-		var pname_str := String(pname)
-		mat.set_shader_parameter(pname_str, _decode_value(shader_params[pname]))
-		applied[pname_str] = var_to_str(mat.get_shader_parameter(pname_str))
-
-	node.set(prop_name, mat)
-	return {"ok": true, "shader_path": mat.shader.resource_path, "shader_params": applied}
+		applied[String(pname)] = var_to_str(mat.get_shader_parameter(String(pname)))
+	return _with_live_note({"ok": true, "shader_path": mat.shader.resource_path, "shader_params": applied}, created_new)
 
 func _cmd_get_shader_material_info(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
