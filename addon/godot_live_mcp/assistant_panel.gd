@@ -34,6 +34,11 @@ const _TERMINALS := [
 ]
 
 var _launch_button: Button
+var _new_session_button: Button
+var _settings_button: Button
+var _settings_popup: PopupPanel
+var _sync_check: CheckBox
+var _tests_check: CheckBox
 
 # Permission toggles (in-editor session only — these configure the flags
 # `claude` launches with, so they only take effect at Start; there is no
@@ -132,6 +137,22 @@ func _ready() -> void:
 	button_row.add_child(_launch_button)
 	_compact_button_padding(_launch_button)
 
+	var editor_theme := EditorInterface.get_editor_theme()
+	_new_session_button = Button.new()
+	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
+	_new_session_button.tooltip_text = "New session: end the current conversation; your next message starts a fresh one (and picks up a rebuilt MCP server)."
+	_new_session_button.flat = true
+	_new_session_button.pressed.connect(_on_new_session_pressed)
+	button_row.add_child(_new_session_button)
+
+	_settings_button = Button.new()
+	_settings_button.icon = editor_theme.get_icon("Tools", "EditorIcons")
+	_settings_button.tooltip_text = "Settings"
+	_settings_button.flat = true
+	_settings_button.pressed.connect(_on_settings_pressed)
+	button_row.add_child(_settings_button)
+	_build_settings_popup()
+
 	# Distribute the interactive buttons across the row's full width —
 	# icon/label/separator stay their natural size, only the buttons
 	# (toggles + terminal launcher) expand and share the leftover space.
@@ -187,7 +208,8 @@ func _build_allowed_tools() -> Array:
 
 func _on_launch_pressed() -> void:
 	var project_dir := ProjectSettings.globalize_path("res://")
-	var claude_args := _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg))
+	# --mcp-config is variadic, so it goes last.
+	var claude_args := _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg))
 
 	if OS.get_name() == "Windows":
 		# OS.create_process's open_console is a real native console window
@@ -439,6 +461,111 @@ func shutdown() -> void:
 	if _session_active:
 		_stop_session("")
 
+func _on_new_session_pressed() -> void:
+	if _session_active:
+		_stop_session("Session ended — your next message starts a new one.")
+	else:
+		_append_transcript("[i]No session running — your next message starts a new one.[/i]")
+
+# ---- Settings popup ----
+
+const _TESTS_SETTING := "ai_runs_tests"
+
+const _TESTS_ON_PROMPT := (
+	"Testing preference (set by the user in the Godot AI Assistant settings): " +
+	"after making changes, verify them yourself — play the scene, check the result " +
+	"(game state, screenshots) and fix problems before reporting back."
+)
+const _TESTS_OFF_PROMPT := (
+	"Testing preference (set by the user in the Godot AI Assistant settings): the user " +
+	"tests changes themselves to save tokens. Don't play the scene, take screenshots, " +
+	"simulate input or run other verification steps unless the user asks. Make the " +
+	"change, then briefly say what to try. Quick checks that catch outright errors " +
+	"(like a script parse check) are still fine."
+)
+
+func _build_settings_popup() -> void:
+	_settings_popup = PopupPanel.new()
+	add_child(_settings_popup)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	_settings_popup.add_child(box)
+
+	_sync_check = CheckBox.new()
+	_sync_check.text = "Sync editor changes to the running game"
+	_sync_check.tooltip_text = (
+		"Godot's Debug > Synchronize Scene Changes / Script Changes. While the game runs from\n" +
+		"the editor, edits made in the editor (by you or the AI) also appear in the game.\n" +
+		"They're real editor edits, so they're kept after the game stops."
+	)
+	_sync_check.toggled.connect(_on_sync_toggled)
+	box.add_child(_sync_check)
+
+	_tests_check = CheckBox.new()
+	_tests_check.text = "AI tests its own changes (uses more tokens)"
+	_tests_check.tooltip_text = (
+		"On: the AI plays the scene and checks its work before reporting back.\n" +
+		"Off: the AI makes the change and tells you what to try; you test it.\n" +
+		"Applies from the next session (use the New session button)."
+	)
+	_tests_check.button_pressed = EditorInterface.get_editor_settings().get_project_metadata(
+		"godot_live_mcp", _TESTS_SETTING, false)
+	_tests_check.toggled.connect(_on_tests_toggled)
+	box.add_child(_tests_check)
+
+func _on_settings_pressed() -> void:
+	_sync_check.set_pressed_no_signal(_is_sync_enabled())
+	_sync_check.disabled = _debug_menu_items().is_empty()
+	var at := _settings_button.get_screen_position() + Vector2(0, _settings_button.size.y)
+	_settings_popup.popup(Rect2i(Vector2i(at), Vector2i.ZERO))
+
+func _on_tests_toggled(on: bool) -> void:
+	EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _TESTS_SETTING, on)
+	if _session_active:
+		_append_transcript("[i]Testing preference changed — it applies from the next session (New session button).[/i]")
+
+## Extra claude arguments from the settings popup (the testing preference,
+## as appended system-prompt text the user doesn't see in the transcript).
+func _behavior_args() -> Array:
+	var on: bool = EditorInterface.get_editor_settings().get_project_metadata(
+		"godot_live_mcp", _TESTS_SETTING, false)
+	return ["--append-system-prompt", _TESTS_ON_PROMPT if on else _TESTS_OFF_PROMPT]
+
+## The editor's Debug menu and the indices of its two "Synchronize ... Changes"
+## check items. Godot doesn't expose these options to plugins, so they're
+## found in the menu by their (English) labels; empty if not found.
+func _debug_menu_items() -> Dictionary:
+	for node in EditorInterface.get_base_control().find_children("*", "PopupMenu", true, false):
+		var menu := node as PopupMenu
+		var found := []
+		for i in menu.item_count:
+			if menu.get_item_text(i) in ["Synchronize Scene Changes", "Synchronize Script Changes"]:
+				found.append(i)
+		if found.size() == 2:
+			return {"menu": menu, "indices": found}
+	return {}
+
+func _is_sync_enabled() -> bool:
+	var items := _debug_menu_items()
+	if items.is_empty():
+		return false
+	var menu: PopupMenu = items.menu
+	for i in items.indices:
+		if not menu.is_item_checked(i):
+			return false
+	return true
+
+func _on_sync_toggled(on: bool) -> void:
+	var items := _debug_menu_items()
+	if items.is_empty():
+		return
+	var menu: PopupMenu = items.menu
+	# Pressing the menu items (rather than just setting the check marks) runs
+	# the editor's own handler, which applies and remembers the option.
+	for i in items.indices:
+		if menu.is_item_checked(i) != on:
+			menu.id_pressed.emit(menu.get_item_id(i))
+
 func _start_session() -> bool:
 	if not _has_command("claude"):
 		_append_transcript("[color=red]Claude Code CLI not found on PATH — install it first: https://docs.claude.com/en/docs/claude-code[/color]")
@@ -466,6 +593,8 @@ func _start_session() -> bool:
 		"exec claude -p --input-format stream-json --output-format stream-json --verbose " +
 		"--permission-prompts none --allowedTools %s" % _shell_quote(",".join(allowed))
 	)
+	for arg in _behavior_args():
+		claude_cmd += " " + _shell_quote(arg)
 	# Last on the line: --mcp-config is variadic, so anything after it would
 	# be swallowed as another config.
 	for arg in _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)):
