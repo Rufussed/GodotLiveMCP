@@ -41,6 +41,11 @@ var _settings_popup: PopupPanel
 var _sync_check: CheckBox
 var _tests_check: CheckBox
 var _save_check: CheckBox
+var _assistant_option: OptionButton
+# Codex in the panel runs one `codex exec --json` process per message and
+# resumes the same thread for the next one; this is that thread's id.
+var _codex_thread_id := ""
+var _session_kind := "claude"  # which CLI the running _pipe belongs to
 
 # Permission toggles (in-editor session only — these configure the flags
 # `claude` launches with, so they only take effect at Start; there is no
@@ -483,7 +488,16 @@ func shutdown() -> void:
 	if _session_active:
 		_stop_session("")
 
+func _preferred_assistant() -> String:
+	return String(EditorInterface.get_editor_settings().get_project_metadata(
+		"godot_live_mcp", _ASSISTANT_SETTING, "claude"))
+
 func _on_new_session_pressed() -> void:
+	if not _codex_thread_id.is_empty() and not _session_active:
+		_codex_thread_id = ""
+		_append_transcript("[i]Session ended — your next message starts a new one.[/i]")
+		return
+	_codex_thread_id = ""
 	if _session_active:
 		_stop_session("Session ended — your next message starts a new one.")
 	else:
@@ -493,6 +507,7 @@ func _on_new_session_pressed() -> void:
 
 const _TESTS_SETTING := "ai_runs_tests"
 const _SAVE_SETTING := "ai_saves_changes"
+const _ASSISTANT_SETTING := "panel_assistant"
 
 const _SAVE_ON_PROMPT := (
 	"Saving preference (set by the user in the Godot AI Assistant settings): save the scene " +
@@ -524,6 +539,22 @@ func _build_settings_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	_settings_popup.add_child(box)
+
+	var assistant_row := HBoxContainer.new()
+	box.add_child(assistant_row)
+	var assistant_label := Label.new()
+	assistant_label.text = "Assistant in this panel:"
+	assistant_row.add_child(assistant_label)
+	_assistant_option = OptionButton.new()
+	_assistant_option.add_item("Claude")
+	_assistant_option.add_item("Codex")
+	_assistant_option.selected = 1 if _preferred_assistant() == "codex" else 0
+	_assistant_option.item_selected.connect(func(i: int):
+		EditorInterface.get_editor_settings().set_project_metadata(
+			"godot_live_mcp", _ASSISTANT_SETTING, "codex" if i == 1 else "claude")
+		if _session_active or not _codex_thread_id.is_empty():
+			_append_transcript("[i]Assistant changed — it applies from the next session (New session button).[/i]"))
+	assistant_row.add_child(_assistant_option)
 
 	_sync_check = CheckBox.new()
 	_sync_check.text = "Sync editor changes to the running game"
@@ -662,6 +693,7 @@ func _start_session() -> bool:
 		_pipe = {}
 		return false
 
+	_session_kind = "claude"
 	_read_buffer = ""
 	_session_active = true
 	# Toggles only take effect at launch (no live "change permissions"
@@ -709,6 +741,14 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 	var text := _input_field.text.strip_edges()
 	if text.is_empty():
 		return
+	if _preferred_assistant() == "codex" or not _codex_thread_id.is_empty():
+		if _session_active:
+			_append_transcript("[i]Codex is still working on the last message — wait for it to finish.[/i]")
+			return
+		if _start_codex_turn(text):
+			_append_transcript("[b]You:[/b] %s" % text.xml_escape())
+			_input_field.text = ""
+		return
 	if not _session_active:
 		if not _start_session():
 			return
@@ -732,12 +772,16 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 func _poll_session() -> void:
 	if not _session_active or not _pipe.has("stdio") or _pipe.stdio == null:
 		return
-	if _pipe.has("pid") and not OS.is_process_running(_pipe.pid):
-		_stop_session("Session process exited.")
-		return
-
+	var running: bool = _pipe.has("pid") and OS.is_process_running(_pipe.pid)
 	var chunk: PackedByteArray = _pipe.stdio.get_buffer(65536)
 	if chunk.size() == 0:
+		if not running:
+			if _session_kind == "codex":
+				if not _read_buffer.strip_edges().is_empty():
+					_handle_stream_event(_read_buffer)
+				_stop_session("")  # one process per Codex turn; the thread lives on
+			else:
+				_stop_session("Session process exited.")
 		return
 	_read_buffer += chunk.get_string_from_utf8()
 
@@ -759,6 +803,9 @@ func _handle_stream_event(line: String) -> void:
 	var evt = JSON.parse_string(line)
 	if evt == null or not (evt is Dictionary):
 		return
+	if _session_kind == "codex":
+		_handle_codex_event(evt)
+		return
 	var event_type := String(evt.get("type", ""))
 
 	if event_type == "assistant":
@@ -771,6 +818,82 @@ func _handle_stream_event(line: String) -> void:
 				_append_transcript("[i]  → %s[/i]" % String(block.get("name", "")).xml_escape())
 	elif event_type == "result":
 		_append_transcript("[color=gray]— turn complete —[/color]")
+
+## Starts `codex exec --json` for one message (resuming the thread after the
+## first). Permission toggles map onto Codex's sandbox: File Control ->
+## workspace-write (else read-only), Web Access -> network inside it.
+## Approvals are "never" since the panel can't show a prompt: anything
+## outside the sandbox just fails, like Claude's denied tools here.
+func _start_codex_turn(text: String) -> bool:
+	if not _has_command("codex"):
+		_append_transcript("[color=red]Codex CLI not found on PATH — install it first: https://github.com/openai/codex[/color]")
+		return false
+	var args := ["exec"]
+	if not _codex_thread_id.is_empty():
+		args += ["resume", _codex_thread_id]
+	args += ["--json", "--skip-git-repo-check",
+		"-c", 'sandbox_mode="%s"' % ("workspace-write" if _file_control_toggle.button_pressed else "read-only"),
+		"-c", "sandbox_workspace_write.network_access=%s" % ("true" if _web_toggle.button_pressed else "false"),
+		"-c", 'approval_policy="never"',
+		"-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
+	var entry := _resolve_server_entry()
+	var token := _read_bridge_token()
+	if not entry.is_empty() and not token.is_empty():
+		args += [
+			"-c", 'mcp_servers.godot-live-mcp.command="node"',
+			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
+			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
+		]
+	args.append(text)
+	var cmd := "exec codex"
+	for a in args:
+		cmd += " " + _shell_quote(a)
+	var shell_cmd := "cd %s && %s < /dev/null" % [_shell_quote(ProjectSettings.globalize_path("res://")), cmd]
+	_pipe = OS.execute_with_pipe("bash", ["-lc", shell_cmd], false)
+	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
+		_append_transcript("[color=red]Failed to start Codex.[/color]")
+		_pipe = {}
+		return false
+	_session_kind = "codex"
+	_read_buffer = ""
+	_session_active = true
+	if _codex_thread_id.is_empty():
+		_append_transcript("[i]Codex session started. Sandbox: %s%s.[/i]" % [
+			"can edit project files" if _file_control_toggle.button_pressed else "read-only",
+			", network on" if _web_toggle.button_pressed else ""])
+	return true
+
+## One JSONL event from `codex exec --json`.
+func _handle_codex_event(evt: Dictionary) -> void:
+	var event_type := String(evt.get("type", ""))
+	match event_type:
+		"thread.started":
+			_codex_thread_id = String(evt.get("thread_id", ""))
+		"item.started", "item.completed":
+			var item: Dictionary = evt.get("item", {})
+			var item_type := String(item.get("type", ""))
+			if event_type == "item.started":
+				if item_type == "command_execution":
+					_append_transcript("[i]  → shell: %s[/i]" % String(item.get("command", "")).xml_escape())
+				elif item_type == "mcp_tool_call":
+					_append_transcript("[i]  → %s[/i]" % String(item.get("tool", "")).xml_escape())
+				elif item_type == "web_search":
+					_append_transcript("[i]  → web search: %s[/i]" % String(item.get("query", "")).xml_escape())
+			elif item_type == "agent_message":
+				_append_transcript("[b]Codex:[/b] %s" % String(item.get("text", "")).xml_escape())
+			elif item_type == "file_change":
+				_append_transcript("[i]  → edited files[/i]")
+			elif item_type == "error":
+				_append_transcript("[color=gray]%s[/color]" % String(item.get("message", "")).xml_escape())
+		"turn.completed":
+			_append_transcript("[color=gray]— turn complete —[/color]")
+		"turn.failed":
+			var msg := String(evt.get("error", {}).get("message", "unknown error"))
+			_append_transcript("[color=red]Codex failed: %s[/color]" % msg.xml_escape())
+			if msg.contains("401") or msg.containsn("unauthorized"):
+				_append_transcript("[color=yellow]Codex isn't logged in — run `codex login` in a terminal.[/color]")
+		"error":
+			pass  # reconnect chatter; a real failure also arrives as turn.failed
 
 func _append_transcript(bbcode_line: String) -> void:
 	_transcript.append_text(bbcode_line + "\n")

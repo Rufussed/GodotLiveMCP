@@ -160,7 +160,9 @@ starts a fresh session and server) and **Settings** (tools icon): sync
 editor changes to the running game, whether the AI tests its own changes
 (off by default, to save tokens), and whether it saves its changes (off by
 default). The last two are passed to the session as a hidden system-prompt
-addition.
+addition. The popup also picks the panel's assistant, **Claude** or **Codex**
+(Codex runs `codex exec --json` per message and resumes the same thread;
+File Control / Web Access map to its sandbox, approvals are off).
 
 Server changes need only **New session**; changes to the addon's `.gd`
 files need **Project > Reload Current Project**.
