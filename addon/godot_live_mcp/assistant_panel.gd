@@ -632,7 +632,7 @@ func _cli_default(agent: String, what: String) -> String:
 ## effort levels) from its model cache; Claude's model aliases and levels.
 func _choices(agent: String, what: String) -> Array:
 	if agent == "claude":
-		return ["opus", "sonnet", "haiku"] if what == "model" else ["low", "medium", "high", "xhigh", "max"]
+		return _CLAUDE_MODELS.keys() if what == "model" else ["low", "medium", "high", "xhigh", "max"]
 	var home := OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
 	var cache = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".codex/models_cache.json")))
 	var models: Array = cache.get("models", []) if cache is Dictionary else []
@@ -648,6 +648,24 @@ func _choices(agent: String, what: String) -> Array:
 			return m.get("supported_reasoning_levels", []).map(func(l): return String(l.get("effort", "")))
 	return ["low", "medium", "high"]
 
+# Claude models by exact ID, so the version shown is the version used (the
+# opus/sonnet/haiku aliases move to newer models on their own; they still
+# work typed in, and as a CLI default). Update this list when new models
+# ship.
+const _CLAUDE_MODELS := {
+	"claude-fable-5-1": "Fable 5.1",
+	"claude-opus-5-5": "Opus 5.5",
+	"claude-sonnet-5": "Sonnet 5",
+	"claude-haiku-4-5-20251001": "Haiku 4.5",
+}
+
+## Display text for a model/effort value: Claude model IDs get their name
+## and version, e.g. "Opus 5.5 (claude-opus-5-5)".
+func _choice_label(agent: String, value: String) -> String:
+	if agent == "claude" and _CLAUDE_MODELS.has(value):
+		return "%s (%s)" % [_CLAUDE_MODELS[value], value]
+	return value
+
 func _current_setting(agent: String, what: String) -> String:
 	var v := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", what + "_" + agent, ""))
 	return v if v != "" else _cli_default(agent, what)
@@ -662,7 +680,7 @@ func _show_choice_menu(agent: String, what: String) -> void:
 	menu.set_item_checked(0, override == "")
 	for c in _choices(agent, what):
 		values.append(c)
-		menu.add_radio_check_item(c)
+		menu.add_radio_check_item(_choice_label(agent, c))
 		menu.set_item_checked(values.size() - 1, c == override)
 	menu.id_pressed.connect(func(id: int):
 		var value: String = values[id] if values[id] != "" else "default"
@@ -832,7 +850,7 @@ func _refresh_model_effort_options() -> void:
 		if override != "" and not choices.has(override):
 			choices.append(override)  # a typed-in value not in the list
 		for c in choices:
-			opt.add_item(c)
+			opt.add_item(_choice_label(agent, c))
 			opt.set_item_metadata(opt.item_count - 1, c)
 			if c == override:
 				selected = opt.item_count - 1
