@@ -51,6 +51,7 @@ export const bridgeToolNames = new Set([
   'validate_script',
   'edit_script_text',
   'set_properties_multi',
+  'set_animation_keys',
   'save_resource_file',
   'get_script_text',
   'setup_collision',
@@ -374,6 +375,29 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: { script_path: { type: 'string', description: 'res:// path to the script' } },
       required: ['script_path'],
+    },
+  },
+  {
+    name: 'set_animation_keys',
+    description:
+      'Replace all keyframes of one animation track (and optionally the animation length) as ONE undoable ' +
+      'edit. Use instead of eval_expression track_remove_key/track_insert_key calls, which can\'t be undone. ' +
+      'Values use var_to_str() encoding, e.g. "Quaternion(0, 0, 0, 1)" or "Vector3(1, 2, 3)"; get_animation_info ' +
+      'shows track indices and current keys.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_path: { type: 'string', description: 'AnimationPlayer path' },
+        anim_name: { type: 'string' },
+        library_name: { type: 'string', description: 'Default "" (the default library)' },
+        track_index: { type: 'integer' },
+        keys: {
+          type: 'array',
+          items: { type: 'object', properties: { time: { type: 'number' }, value: {}, transition: { type: 'number' } }, required: ['time', 'value'] },
+        },
+        length: { type: 'number', description: 'Optional new animation length in seconds' },
+      },
+      required: ['node_path', 'anim_name', 'track_index', 'keys'],
     },
   },
   {
@@ -1228,6 +1252,15 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'validate_script':
       return textResult(await client.call('validate_script', {
         script_path: params.script_path,
+      }));
+    case 'set_animation_keys':
+      return textResult(await client.call('set_animation_keys', {
+        node_path: params.node_path ?? '.',
+        anim_name: params.anim_name,
+        library_name: params.library_name ?? '',
+        track_index: params.track_index,
+        keys: params.keys ?? [],
+        ...(params.length !== undefined ? { length: params.length } : {}),
       }));
     case 'set_properties_multi':
       return textResult(await client.call('set_properties_multi', { edits: params.edits ?? [] }));

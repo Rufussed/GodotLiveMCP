@@ -269,6 +269,14 @@ func _fingerprint_object(obj: Object, parts: PackedStringArray, seen: Dictionary
 			parts.append("%s=obj" % prop.name)
 		else:
 			parts.append("%s=%d" % [prop.name, hash(value)])
+			# Resources held in containers (AnimationPlayer's libraries ->
+			# AnimationLibrary -> Animation) are part of the scene too.
+			if value is Dictionary or value is Array:
+				for item in (value.values() if value is Dictionary else value):
+					if item is Resource and not seen.has(item) and \
+							(item.resource_path == "" or item.resource_path.contains("::")):
+						seen[item] = true
+						_fingerprint_object(item, parts, seen)
 
 func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 	var text := JSON.stringify(payload) + "\n"
@@ -1322,6 +1330,32 @@ func _cmd_add_node_live(params: Dictionary):
 	_commit_node_action()
 	return {"path": _rel_path(new_node)}
 
+## Adds a freshly made node (its own properties already set) under parent as
+## one undoable action, live-synced to a running game — the shared tail of
+## add_node_live / setup_collision / add_mesh_instance. The game gets a node
+## of the same class; resources created in memory (a new mesh or shape)
+## can't be sent to it, so those appear on the next Play.
+func _commit_add_node(parent: Node, new_node: Node) -> void:
+	if String(new_node.name) == "" or String(new_node.name).begins_with("@"):
+		new_node.name = new_node.get_class()
+	new_node.name = _unique_child_name(parent, String(new_node.name))
+	var root := _get_scene_root()
+	if not _begin_node_action("add " + new_node.get_class()):
+		parent.add_child(new_node)
+		if root:
+			new_node.owner = root
+		return
+	_do(parent, "add_child", [new_node])
+	if root:
+		_do(new_node, "set_owner", [root])
+	var parent_rel := NodePath(_rel_path(parent))
+	var new_rel := NodePath(String(new_node.name) if parent == root else String(parent_rel).path_join(String(new_node.name)))
+	_do_live("live_debug_create_node", [parent_rel, new_node.get_class(), String(new_node.name)])
+	_node_action_ur.add_do_reference(new_node)
+	_undo(parent, "remove_child", [new_node])
+	_undo_live("live_debug_remove_node", [new_rel])
+	_commit_node_action()
+
 func _cmd_rename_node(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var new_name := String(params.get("new_name", ""))
@@ -1737,12 +1771,9 @@ func _cmd_setup_collision(params: Dictionary):
 
 	var collision_node: Node = ClassDB.instantiate(collision_node_type)
 	collision_node.shape = shape
-	parent.add_child(collision_node)
-	var root := _get_scene_root()
-	if root:
-		collision_node.owner = root
+	_commit_add_node(parent, collision_node)
 
-	return {"path": _rel_path(collision_node), "shape": _read_back(shape, shape_params.keys())}
+	return _with_live_note({"path": _rel_path(collision_node), "shape": _read_back(shape, shape_params.keys())}, true)
 
 func _cmd_get_collision_info(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -1828,12 +1859,9 @@ func _cmd_add_mesh_instance(params: Dictionary):
 	mesh_instance.mesh = mesh
 	if node_name != "":
 		mesh_instance.name = node_name
-	parent.add_child(mesh_instance)
-	var root := _get_scene_root()
-	if root:
-		mesh_instance.owner = root
+	_commit_add_node(parent, mesh_instance)
 
-	return {"path": _rel_path(mesh_instance), "mesh": _read_back(mesh, mesh_params.keys())}
+	return _with_live_note({"path": _rel_path(mesh_instance), "mesh": _read_back(mesh, mesh_params.keys())}, true)
 
 func _cmd_setup_environment(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -2209,6 +2237,61 @@ func _cmd_add_animation_track(params: Dictionary):
 	var idx: int = anim.add_track(_TRACK_TYPES[track_type])
 	anim.track_set_path(idx, NodePath(track_node_path))
 	return {"track_index": idx}
+
+## Replaces one track's keyframes (and optionally the animation length) as
+## ONE undoable action, instead of a string of eval_expression
+## track_remove_key/track_insert_key calls that can't be undone and never
+## reach a running game.
+func _cmd_set_animation_keys(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var anim_name := String(params.get("anim_name", ""))
+	var library_name := String(params.get("library_name", ""))
+	var track_index := int(params.get("track_index", -1))
+	var keys: Array = params.get("keys", [])
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is AnimationPlayer):
+		return _fail("node is not an AnimationPlayer: %s" % node_path)
+	var player: AnimationPlayer = node
+	if not player.has_animation_library(library_name):
+		return _fail("animation library not found: %s" % library_name)
+	var library: AnimationLibrary = player.get_animation_library(library_name)
+	if not library.has_animation(anim_name):
+		return _fail("animation not found: %s" % anim_name)
+	var anim: Animation = library.get_animation(anim_name)
+	if track_index < 0 or track_index >= anim.get_track_count():
+		return _fail("track_index %d out of range (animation has %d tracks)" % [track_index, anim.get_track_count()])
+
+	var new_keys := []
+	for k in keys:
+		if typeof(k) != TYPE_DICTIONARY or not k.has("time") or not k.has("value"):
+			return _fail("each key must be {time, value[, transition]}")
+		new_keys.append([float(k["time"]), _decode_value(k["value"]), float(k.get("transition", 1.0))])
+	var old_keys := []
+	for i in anim.track_get_key_count(track_index):
+		old_keys.append([anim.track_get_key_time(track_index, i), anim.track_get_key_value(track_index, i),
+			anim.track_get_key_transition(track_index, i)])
+
+	if not _begin_node_action("set animation keys"):
+		return _fail("no editor undo system available")
+	for i in range(old_keys.size() - 1, -1, -1):
+		_do(anim, "track_remove_key", [track_index, i])
+	for k in new_keys:
+		_do(anim, "track_insert_key", [track_index, k[0], k[1], k[2]])
+	for i in range(new_keys.size() - 1, -1, -1):
+		_undo(anim, "track_remove_key", [track_index, i])
+	for k in old_keys:
+		_undo(anim, "track_insert_key", [track_index, k[0], k[1], k[2]])
+	if params.has("length"):
+		_node_action_ur.add_do_property(anim, "length", float(params["length"]))
+		_node_action_ur.add_undo_property(anim, "length", anim.length)
+	_commit_node_action()
+
+	var result := []
+	for i in anim.track_get_key_count(track_index):
+		result.append({"time": anim.track_get_key_time(track_index, i), "value": var_to_str(anim.track_get_key_value(track_index, i))})
+	return {"ok": true, "length": anim.length, "keys": result}
 
 func _cmd_get_animation_info(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
