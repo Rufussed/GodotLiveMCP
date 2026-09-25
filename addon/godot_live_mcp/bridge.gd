@@ -1038,7 +1038,7 @@ func _cmd_attach_script(params: Dictionary):
 	if not ResourceLoader.exists(script_path):
 		return _fail("script not found: %s" % script_path)
 	var script := load(script_path)
-	node.set_script(script)
+	_commit_properties(node, {"script": script})
 	return {"ok": true}
 
 func _cmd_validate_script(params: Dictionary):
@@ -1403,9 +1403,16 @@ func _cmd_connect_signal(params: Dictionary):
 	var callable := Callable(target, method_name)
 	if node.is_connected(signal_name, callable):
 		return _fail("already connected")
-	var err := node.connect(signal_name, callable)
-	if err != OK:
-		return _fail("connect failed with error code %d" % err)
+	# CONNECT_PERSIST is what the editor's own Node > Signals dock uses; without
+	# it the connection works live but is never saved to the .tscn.
+	if _begin_node_action("connect signal"):
+		_do(node, "connect", [signal_name, callable, CONNECT_PERSIST])
+		_undo(node, "disconnect", [signal_name, callable])
+		_commit_node_action()
+	else:
+		node.connect(signal_name, callable, CONNECT_PERSIST)
+	if not node.is_connected(signal_name, callable):
+		return _fail("connect failed")
 	return {"ok": true}
 
 func _cmd_disconnect_signal(params: Dictionary):
@@ -1422,7 +1429,16 @@ func _cmd_disconnect_signal(params: Dictionary):
 	var callable := Callable(target, method_name)
 	if not node.is_connected(signal_name, callable):
 		return _fail("not connected")
-	node.disconnect(signal_name, callable)
+	var flags := 0
+	for c in node.get_signal_connection_list(signal_name):
+		if c.callable == callable:
+			flags = c.flags
+	if _begin_node_action("disconnect signal"):
+		_do(node, "disconnect", [signal_name, callable])
+		_undo(node, "connect", [signal_name, callable, flags])
+		_commit_node_action()
+	else:
+		node.disconnect(signal_name, callable)
 	return {"ok": true}
 
 func _cmd_get_node_groups(params: Dictionary):
@@ -1443,12 +1459,26 @@ func _cmd_set_node_groups(params: Dictionary):
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 	var new_groups: Array = params.get("groups", [])
+	var old_groups := []
 	for g in node.get_groups():
-		var g_str := String(g)
-		if not g_str.begins_with("_"):
-			node.remove_from_group(g_str)
-	for g in new_groups:
-		node.add_to_group(String(g))
+		if not String(g).begins_with("_"):
+			old_groups.append(String(g))
+	# persistent = true, as the editor's Groups dock does, so they're saved.
+	if _begin_node_action("set node groups"):
+		for g in old_groups:
+			_do(node, "remove_from_group", [g])
+		for g in new_groups:
+			_do(node, "add_to_group", [String(g), true])
+		for g in new_groups:
+			_undo(node, "remove_from_group", [String(g)])
+		for g in old_groups:
+			_undo(node, "add_to_group", [g, true])
+		_commit_node_action()
+	else:
+		for g in old_groups:
+			node.remove_from_group(g)
+		for g in new_groups:
+			node.add_to_group(String(g), true)
 	return {"ok": true}
 
 func _cmd_get_editor_selection(_params: Dictionary):
@@ -1816,10 +1846,12 @@ func _cmd_set_physics_layers(params: Dictionary):
 	if not ("collision_layer" in node):
 		return _fail("node has no collision_layer/collision_mask (not a CollisionObject2D/3D or similar): %s" % node_path)
 
+	var values := {}
 	if params.has("layers"):
-		node.collision_layer = _layers_to_bitmask(params["layers"])
+		values["collision_layer"] = _layers_to_bitmask(params["layers"])
 	if params.has("mask"):
-		node.collision_mask = _layers_to_bitmask(params["mask"])
+		values["collision_mask"] = _layers_to_bitmask(params["mask"])
+	_commit_properties(node, values)
 	return {
 		"layers": _bitmask_to_layers(node.collision_layer),
 		"mask": _bitmask_to_layers(node.collision_mask),
@@ -1878,7 +1910,7 @@ func _cmd_setup_environment(params: Dictionary):
 	var apply_err := _apply_properties(env, environment_params)
 	if apply_err != "":
 		return _fail(apply_err)
-	node.environment = env
+	_commit_properties(node, {"environment": env})
 
 	return {"ok": true, "environment": _read_back(env, environment_params.keys())}
 
@@ -2006,7 +2038,7 @@ func _cmd_set_physics_material(params: Dictionary):
 	var apply_err := _apply_properties(mat, material_params)
 	if apply_err != "":
 		return _fail(apply_err)
-	node.set("physics_material_override", mat)
+	_commit_properties(node, {"physics_material_override": mat})
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
 ## Applies a layout preset to a live Control (Control.set_anchors_preset())
@@ -2034,7 +2066,20 @@ func _cmd_set_anchors_preset(params: Dictionary):
 		return _fail("unknown Control.LayoutPreset constant: %s" % preset_name)
 
 	var preset_value := ClassDB.class_get_integer_constant("Control", preset_name)
+	# Apply to find the resulting anchors/offsets, then put the old values
+	# back and commit the new ones as one undoable property change.
+	var keys := ["anchor_left", "anchor_top", "anchor_right", "anchor_bottom",
+		"offset_left", "offset_top", "offset_right", "offset_bottom"]
+	var before := {}
+	for k in keys:
+		before[k] = node.get(k)
 	node.set_anchors_preset(preset_value, keep_offsets)
+	var after := {}
+	for k in keys:
+		after[k] = node.get(k)
+	for k in keys:
+		node.set(k, before[k])
+	_commit_properties(node, after)
 	return {
 		"ok": true,
 		"anchor_left": node.anchor_left, "anchor_top": node.anchor_top,
@@ -2089,7 +2134,7 @@ func _cmd_set_theme_stylebox_override(params: Dictionary):
 	var apply_err := _apply_properties(stylebox, style_params)
 	if apply_err != "":
 		return _fail(apply_err)
-	node.add_theme_stylebox_override(override_name, stylebox)
+	_commit_properties(node, {"theme_override_styles/" + override_name: stylebox})
 	return {"ok": true, "style": _read_back(stylebox, style_params.keys())}
 
 ## Resolves which property holds a node's material: material_override for
@@ -2592,7 +2637,7 @@ func _cmd_set_particle_material(params: Dictionary):
 	var apply_err := _apply_properties(mat, material_params)
 	if apply_err != "":
 		return _fail(apply_err)
-	node.set("process_material", mat)
+	_commit_properties(node, {"process_material": mat})
 	return {"ok": true, "material": _read_back(mat, material_params.keys())}
 
 func _cmd_set_particle_color_gradient(params: Dictionary):
@@ -2621,7 +2666,7 @@ func _cmd_set_particle_color_gradient(params: Dictionary):
 
 	var mat := _get_or_create_particle_material(node)
 	mat.color_ramp = gradient_texture
-	node.set("process_material", mat)
+	_commit_properties(node, {"process_material": mat})
 	return {"ok": true}
 
 func _cmd_get_particle_info(params: Dictionary):
@@ -2675,7 +2720,7 @@ func _cmd_setup_navigation(params: Dictionary):
 		var apply_err := _apply_properties(navmesh, nav_params)
 		if apply_err != "":
 			return _fail(apply_err)
-		node.navigation_mesh = navmesh
+		_commit_properties(node, {"navigation_mesh": navmesh})
 		if bake:
 			node.bake_navigation_mesh(false)
 		return {"ok": true, "baked": bake, "navigation_mesh": _read_back(navmesh, nav_params.keys())}
@@ -2687,7 +2732,7 @@ func _cmd_setup_navigation(params: Dictionary):
 		var apply_err := _apply_properties(navpoly, nav_params)
 		if apply_err != "":
 			return _fail(apply_err)
-		node.navigation_polygon = navpoly
+		_commit_properties(node, {"navigation_polygon": navpoly})
 		if bake:
 			node.bake_navigation_polygon(false)
 		return {"ok": true, "baked": bake, "navigation_polygon": _read_back(navpoly, nav_params.keys())}
