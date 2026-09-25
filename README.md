@@ -127,44 +127,76 @@ plugin prints in the Output panel. A copied addon doesn't update with
 
 ## How AI edits behave in the editor
 
-The aim is that the AI works in the editor the way a person does:
+The aim is that the AI works in the editor the way a person does.
 
-- **Scenes** change in the editor's memory through the bridge tools: the
-  tab shows unsaved (*), Godot asks to save on close, and property and
-  node changes (add, remove, rename, reparent, duplicate) are one Ctrl+Z
-  each. Whether the AI saves as it goes is a panel setting.
-- **Scripts and shaders** are edited inside Godot's own script/shader editor
-  (`edit_script_text`), so there are no "reload from disk?" prompts and
-  Ctrl+Z works in the tab.
-- **While a game runs from the editor**, those edits also show up in the
-  game live (Godot's Debug > Synchronize Scene/Script Changes) and are kept
-  afterwards, as for a person's editor edits. Scripts are saved and
-  reloaded in the game. Brand-new resources (a new material, say) can't be
-  sent to a running game; the tool result says so (`live_note`) and they
-  appear on the next Play.
-- **Bulk edits** use `set_properties_multi` (different values per node, one
-  Ctrl+Z) and **generated textures/resources** use `save_resource_file`
-  (saved and imported as a file, then assigned with `"load:res://..."`,
-  which reaches a running game).
-- **Shader parameters** (`set_shader_material`) are undoable and reach a
-  running game too. Values can be written as constructor calls, e.g.
-  `"Color(0.2, 0.4, 0.9)"`.
-- **`run_script` / `eval_expression`** are for reading and calculating.
-  If one changes the scene, the result carries a `scene_changed_note` (not
-  undoable, not live-synced) and the call is logged as `raw_scene_edit`
-  for the tool-candidate review.
+**Scenes** change in the editor's memory: the tab shows unsaved (*), Godot
+asks to save on close, and each tool call is one Ctrl+Z. Nearly every
+editing tool goes through Godot's own `EditorUndoRedoManager`: properties
+(`set_property`, `set_properties`, `set_properties_multi`,
+`batch_set_properties`, `set_transform`, `set_nested_property`), nodes
+(`add_node_live` incl. `scene_path` instances, `remove_node`,
+`rename_node`, `reparent_node`, `duplicate_node`, `add_mesh_instance`,
+`setup_collision`), materials and shaders, animations
+(`create_animation`, `add_animation_track`, `set_animation_track_path`,
+`set_animation_keys`), scripts attached, signals, groups, physics layers,
+anchors, environment, navigation, particles and tilemaps. Signal
+connections and groups are saved to the `.tscn`, as with the editor's own
+docks. Whether the AI saves as it goes is a panel setting (off by default).
 
-**AI Assistant panel:** permission toggles (on by default, remembered per
-project), **Open Claude** / **Open Codex** (a terminal session with this project's server, token and the settings below), **New session** (refresh icon: next message
-starts a fresh session and server) and **Settings** (tools icon): sync
-editor changes to the running game, whether the AI tests its own changes
-(off by default, to save tokens), and whether it saves its changes (off by
-default). The last two are passed to the session as a hidden system-prompt
-addition. The popup also picks the panel's assistant, **Claude** or **Codex**
-(Codex runs `codex exec --json` per message and resumes the same thread;
-File Control / Web Access map to its sandbox, approvals are off). The CLIs' own slash commands don't exist in the panel;
-it handles `/model <name>` and `/effort <level>` (per agent, saved per project; `default`
-to reset) and points other slash commands at Open Claude / Open Codex.
+**Scripts and shaders** are edited inside Godot's own script/shader editor
+(`edit_script_text`), so there are no "reload from disk?" prompts and
+Ctrl+Z works in the tab.
+
+**While a game runs from the editor**, those edits also appear in the game
+live (Godot's Debug > Synchronize Scene/Script Changes) and are kept
+afterwards, as for a person's editor edits; undo and redo follow along.
+Scripts are saved and reloaded in the game. What doesn't reach a running
+game:
+
+- **Brand-new resources** (a first material, a new mesh or shape). Godot's
+  live sync can only point the game at a file, and a new resource lives
+  inside the scene until saved. It appears on the next Play; the tool says
+  so (`live_note`). Later edits to it sync live. To use a generated
+  texture/resource live, save it as a file with `save_resource_file` and
+  assign it with `"load:res://..."`.
+- **`run_script` / `eval_expression` edits.** These are for reading and
+  calculating (they can reach `ResourceLoader`/`ResourceSaver`; plain
+  `load()` doesn't work in Expression). A call that changes the scene
+  returns a `scene_changed_note` and is logged as `raw_scene_edit` for
+  the tool-candidate review.
+- **Audio buses**, a project-wide layout the game reads at startup.
+
+Values can be written as constructor calls, e.g. `"Color(0.2, 0.4, 0.9)"`.
+
+**Wayland note:** on native Wayland a window that isn't visible gets no
+frames, so a game (embedded in the Game tab or not) pauses while the editor
+is hidden and catches up when shown. Keep the editor on screen while
+testing, or run Godot under X11 for unattended play.
+
+## AI Assistant panel
+
+- **Permissions** toggles (on by default, remembered per project).
+- **Open Claude** / **Open Codex**: a terminal session with this project's
+  server, token, model/effort and preferences.
+- **New session** (refresh icon): the next message starts a fresh session
+  and server.
+- **Settings** (tools icon): **Coding agent** (Claude or Codex for the
+  panel chat), sync editor changes to the running game, whether the AI
+  tests its own changes (off by default, to save tokens), and whether it
+  saves its changes (off by default). The last two reach the session as a
+  hidden system-prompt addition (`developer_instructions` for Codex).
+- **Chat:** your messages in green; **Send** (paper plane) and **Stop**
+  (hand), which stops the current reply but keeps the conversation.
+- **Slash commands:** the CLIs' own ones don't exist in the panel. It
+  handles `/model <name>` and `/effort <level>` (per agent, saved per
+  project; `default` resets; otherwise each CLI's own settings apply) and
+  points others at Open Claude / Open Codex.
+- Codex in the panel runs `codex exec --json` per message and resumes the
+  same thread; File Control / Web Access map to its sandbox, approvals are
+  off, and the Godot tools are pre-approved.
+- On first load the plugin sets Editor Settings > Run > Bottom Panel >
+  Action On Play to "Do Nothing" (once), so Play doesn't switch away from
+  the chat.
 
 Server changes need only **New session**; changes to the addon's `.gd`
 files need **Project > Reload Current Project**.
