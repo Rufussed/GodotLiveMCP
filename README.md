@@ -189,7 +189,7 @@ testing, or run Godot under X11 for unattended play.
   hidden system-prompt addition (`developer_instructions` for Codex).
 - **Chat:** each turn ends with its token use and the session total
   (`— edits complete · 22.6k in (16.3k cached) / 61 out · session 45.3k /
-  122 · $0.03 —`; cost is shown for Claude). Your messages in yellow, the edits-complete line in green; **Send** (paper plane) and **Stop**
+  122 —`). Your messages in yellow, the edits-complete line in green; **Send** (paper plane) and **Stop**
   (hand), which stops the current reply but keeps the conversation.
 - **Slash commands:** the CLIs' own ones don't exist in the panel. It
   handles `/model` and `/effort`: on their own they open a menu showing the

@@ -1187,8 +1187,6 @@ func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> vo
 	var line := "— edits complete · %s in (%s cached) / %s out · session %s / %s" % [
 		_short_count(turn_in), _short_count(cached), _short_count(turn_out),
 		_short_count(_tokens_in), _short_count(_tokens_out)]
-	if cost >= 0.0:
-		line += " · $%.2f" % cost
 	_append_transcript("[color=#7ec07e]%s —[/color]" % line)
 
 func _short_count(n: int) -> String:
