@@ -1093,7 +1093,8 @@ func _handle_stream_event(line: String) -> void:
 				_append_transcript("[i]  → %s[/i]" % String(block.get("name", "")).xml_escape())
 	elif event_type == "result":
 		var usage: Dictionary = evt.get("usage", {})
-		var turn_in := int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0)) + int(usage.get("cache_read_input_tokens", 0))
+		# Fresh input = uncached input + cache writes; cache reads are separate.
+		var turn_in := int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
 		_turn_complete(turn_in, int(usage.get("cache_read_input_tokens", 0)), int(usage.get("output_tokens", 0)), float(evt.get("total_cost_usd", -1.0)))
 
 ## Starts `codex exec --json` for one message (resuming the thread after the
@@ -1170,7 +1171,8 @@ func _handle_codex_event(evt: Dictionary) -> void:
 				_append_transcript("[color=gray]%s[/color]" % String(item.get("message", "")).xml_escape())
 		"turn.completed":
 			var usage: Dictionary = evt.get("usage", {})
-			_turn_complete(int(usage.get("input_tokens", 0)), int(usage.get("cached_input_tokens", 0)), int(usage.get("output_tokens", 0)), -1.0)
+			# Codex's input_tokens includes the cached part; take it out.
+			_turn_complete(int(usage.get("input_tokens", 0)) - int(usage.get("cached_input_tokens", 0)), int(usage.get("cached_input_tokens", 0)), int(usage.get("output_tokens", 0)), -1.0)
 		"turn.failed":
 			var msg := String(evt.get("error", {}).get("message", "unknown error"))
 			_append_transcript("[color=red]Codex failed: %s[/color]" % msg.xml_escape())
@@ -1179,13 +1181,15 @@ func _handle_codex_event(evt: Dictionary) -> void:
 		"error":
 			pass  # reconnect chatter; a real failure also arrives as turn.failed
 
-## "— edits complete —" plus this turn's tokens (in, of which cached, and
-## out) and the conversation's running totals; Claude also reports cost.
+## "— edits complete —" plus this turn's fresh tokens in/out (cached reads
+## noted separately) and the conversation's running fresh totals.
 func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> void:
 	_tokens_in += turn_in
 	_tokens_out += turn_out
-	var line := "— edits complete · %s in (%s cached) / %s out · session %s / %s" % [
-		_short_count(turn_in), _short_count(cached), _short_count(turn_out),
+	# Fresh tokens first; cached reads cost far less and mostly don't count
+	# toward rate limits, so they're noted separately and left out of totals.
+	var line := "— edits complete · %s in / %s out (+%s cached) · session %s / %s" % [
+		_short_count(turn_in), _short_count(turn_out), _short_count(cached),
 		_short_count(_tokens_in), _short_count(_tokens_out)]
 	_append_transcript("[color=#7ec07e]%s —[/color]" % line)
 
