@@ -60,6 +60,7 @@ var _web_toggle: Button
 var _transcript: RichTextLabel
 var _input_field: TextEdit
 var _send_button: Button
+var _stop_button: Button
 var _pipe: Dictionary = {}       # result of OS.execute_with_pipe while a session is active
 var _read_buffer: String = ""    # accumulates partial reads until a full "\n"-terminated line exists
 var _session_active: bool = false
@@ -481,8 +482,65 @@ func _build_session_ui() -> void:
 
 	_send_button = Button.new()
 	_send_button.text = "Send"
+	_send_button.icon = _svg_icon("send.svg")
+	_send_button.tooltip_text = "Send (Enter)"
+	_send_button.custom_minimum_size.x = 84 * EditorInterface.get_editor_scale()
+	_style_button(_send_button, Color(0.22, 0.6, 0.28))
 	_send_button.pressed.connect(_on_send_pressed.bind(""))
 	input_row.add_child(_send_button)
+
+	_stop_button = Button.new()
+	_stop_button.text = "Stop"
+	_stop_button.icon = _svg_icon("stop_hand.svg")
+	_stop_button.tooltip_text = "Stop the current reply (the conversation is kept)"
+	_stop_button.custom_minimum_size.x = 64 * EditorInterface.get_editor_scale()
+	_style_button(_stop_button, Color(0.75, 0.2, 0.2))
+	_stop_button.pressed.connect(_on_stop_pressed)
+	input_row.add_child(_stop_button)
+
+## An icon from this addon's icons/ folder, rasterized from the SVG directly
+## (no import step, so it works the moment a project links the addon).
+func _svg_icon(file_name: String) -> Texture2D:
+	var svg := FileAccess.get_file_as_string("res://addons/godot_live_mcp/icons/" + file_name)
+	if svg.is_empty():
+		return null
+	var img := Image.new()
+	if img.load_svg_from_string(svg, EditorInterface.get_editor_scale()) != OK:
+		return null
+	return ImageTexture.create_from_image(img)
+
+func _style_button(b: Button, color: Color) -> void:
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var box := StyleBoxFlat.new()
+		box.bg_color = color.lightened(0.12) if state == "hover" else (color.darkened(0.15) if state == "pressed" else color)
+		box.set_corner_radius_all(4)
+		box.content_margin_left = 8
+		box.content_margin_right = 8
+		if state == "focus":
+			box.draw_center = false
+		b.add_theme_stylebox_override(state, box)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
+		b.add_theme_color_override(c, Color.WHITE)
+
+## Stops the reply in progress without ending the conversation: Claude gets
+## the stream-json "interrupt" control request (confirmed: the session and
+## its context carry on); a Codex turn is its own process, so it's ended and
+## the next message resumes the same thread.
+func _on_stop_pressed() -> void:
+	if not _session_active:
+		return
+	if _session_kind == "codex":
+		if _pipe.has("pid") and OS.is_process_running(_pipe.pid):
+			OS.kill(_pipe.pid)
+		_stop_session("Stopped.")
+		return
+	if _pipe.has("stdio") and _pipe.stdio:
+		_pipe.stdio.store_string(JSON.stringify({
+			"type": "control_request",
+			"request_id": "stop-%d" % Time.get_ticks_msec(),
+			"request": {"subtype": "interrupt"},
+		}) + "\n")
+		_append_transcript("[i]Stopped.[/i]")
 
 ## Called by plugin.gd's _exit_tree so a running `claude` subprocess doesn't
 ## leak past a plugin reload/disable — reload_plugin (used constantly while
@@ -788,13 +846,13 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 			_append_transcript("[i]Codex is still working on the last message — wait for it to finish.[/i]")
 			return
 		if _start_codex_turn(text):
-			_append_transcript("[b]You:[/b] %s" % text.xml_escape())
+			_append_transcript("[color=#7ec07e][b]You:[/b] %s[/color]" % text.xml_escape())
 			_input_field.text = ""
 		return
 	if not _session_active:
 		if not _start_session():
 			return
-	_append_transcript("[b]You:[/b] %s" % text.xml_escape())
+	_append_transcript("[color=#7ec07e][b]You:[/b] %s[/color]" % text.xml_escape())
 	var payload := {
 		"type": "user",
 		"message": {"role": "user", "content": [{"type": "text", "text": text}]},
