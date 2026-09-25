@@ -1021,13 +1021,13 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 			_append_transcript("[i]Codex is still working on the last message — wait for it to finish.[/i]")
 			return
 		if _start_codex_turn(text):
-			_append_transcript("[color=#7ec07e][b]You:[/b] %s[/color]" % text.xml_escape())
+			_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
 			_input_field.text = ""
 		return
 	if not _session_active:
 		if not _start_session():
 			return
-	_append_transcript("[color=#7ec07e][b]You:[/b] %s[/color]" % text.xml_escape())
+	_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
 	var payload := {
 		"type": "user",
 		"message": {"role": "user", "content": [{"type": "text", "text": text}]},
@@ -1189,7 +1189,7 @@ func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> vo
 		_short_count(_tokens_in), _short_count(_tokens_out)]
 	if cost >= 0.0:
 		line += " · $%.2f" % cost
-	_append_transcript("[color=gray]%s —[/color]" % line)
+	_append_transcript("[color=#7ec07e]%s —[/color]" % line)
 
 func _short_count(n: int) -> String:
 	if n >= 1000000:
