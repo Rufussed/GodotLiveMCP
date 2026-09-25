@@ -2591,10 +2591,16 @@ func _cmd_tilemap_fill_rect(params: Dictionary):
 		return _fail("size must have positive x and y")
 
 	var count := 0
+	# Paint, read back the layer's tile_map_data, restore it, then commit
+	# the new data as one undoable (and live-synced) property change.
+	var before: PackedByteArray = layer.tile_map_data
 	for x in range(pos.x, pos.x + size.x):
 		for y in range(pos.y, pos.y + size.y):
 			layer.set_cell(Vector2i(x, y), source_id, atlas_coords, alternative_tile)
 			count += 1
+	var after: PackedByteArray = layer.tile_map_data
+	layer.tile_map_data = before
+	_commit_properties(layer, {"tile_map_data": after})
 	return {"ok": true, "cells_set": count}
 
 func _cmd_tilemap_get_info(params: Dictionary):
