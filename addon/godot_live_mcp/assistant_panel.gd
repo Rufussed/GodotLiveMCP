@@ -42,6 +42,8 @@ var _sync_check: CheckBox
 var _tests_check: CheckBox
 var _save_check: CheckBox
 var _assistant_option: OptionButton
+var _model_option: OptionButton
+var _effort_option: OptionButton
 # Codex in the panel runs one `codex exec --json` process per message and
 # resumes the same thread for the next one; this is that thread's id.
 var _codex_thread_id := ""
@@ -749,9 +751,29 @@ func _build_settings_popup() -> void:
 	_assistant_option.item_selected.connect(func(i: int):
 		EditorInterface.get_editor_settings().set_project_metadata(
 			"godot_live_mcp", _ASSISTANT_SETTING, "codex" if i == 1 else "claude")
+		_refresh_model_effort_options()
 		if _session_active or not _codex_thread_id.is_empty():
 			_append_transcript("[i]Assistant changed — it applies from the next session (New session button).[/i]"))
 	assistant_row.add_child(_assistant_option)
+
+	# Model and effort for the chosen agent, in two columns.
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	box.add_child(grid)
+	for text in ["Model", "Effort"]:
+		var l := Label.new()
+		l.text = text
+		grid.add_child(l)
+	_model_option = OptionButton.new()
+	_model_option.item_selected.connect(func(i: int):
+		_set_model(_panel_agent(), String(_model_option.get_item_metadata(i)))
+		_refresh_model_effort_options())
+	grid.add_child(_model_option)
+	_effort_option = OptionButton.new()
+	_effort_option.item_selected.connect(func(i: int):
+		_effort_command(_panel_agent(), String(_effort_option.get_item_metadata(i))))
+	grid.add_child(_effort_option)
 
 	_sync_check = CheckBox.new()
 	_sync_check.text = "Sync editor changes to the running game"
@@ -790,7 +812,34 @@ func _build_settings_popup() -> void:
 			_append_transcript("[i]Saving preference changed — it applies from the next session (New session button).[/i]"))
 	box.add_child(_save_check)
 
+func _panel_agent() -> String:
+	return "codex" if _preferred_assistant() == "codex" else "claude"
+
+## Fills the Model/Effort drop-downs for the current agent: "Default
+## (currently X)" first, then the choices, selecting the active override.
+func _refresh_model_effort_options() -> void:
+	var agent := _panel_agent()
+	for pair in [[_model_option, "model"], [_effort_option, "effort"]]:
+		var opt: OptionButton = pair[0]
+		var what: String = pair[1]
+		var override := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", what + "_" + agent, ""))
+		var default_value := _cli_default(agent, what)
+		opt.clear()
+		opt.add_item("Default (%s)" % (default_value if default_value != "" else "CLI's own"))
+		opt.set_item_metadata(0, "default")
+		var selected := 0
+		var choices := _choices(agent, what)
+		if override != "" and not choices.has(override):
+			choices.append(override)  # a typed-in value not in the list
+		for c in choices:
+			opt.add_item(c)
+			opt.set_item_metadata(opt.item_count - 1, c)
+			if c == override:
+				selected = opt.item_count - 1
+		opt.select(selected)
+
 func _on_settings_pressed() -> void:
+	_refresh_model_effort_options()
 	_sync_check.set_pressed_no_signal(_is_sync_enabled())
 	_sync_check.disabled = _debug_menu_items().is_empty()
 	var at := _settings_button.get_screen_position() + Vector2(0, _settings_button.size.y)
