@@ -481,19 +481,17 @@ func _build_session_ui() -> void:
 	add_child(splitter)
 
 	_send_button = Button.new()
-	_send_button.text = "Send"
 	_send_button.icon = _svg_icon("send.svg")
 	_send_button.tooltip_text = "Send (Enter)"
-	_send_button.custom_minimum_size.x = 84 * EditorInterface.get_editor_scale()
+	_send_button.custom_minimum_size.x = 48 * EditorInterface.get_editor_scale()
 	_style_button(_send_button, Color(0.22, 0.6, 0.28))
 	_send_button.pressed.connect(_on_send_pressed.bind(""))
 	input_row.add_child(_send_button)
 
 	_stop_button = Button.new()
-	_stop_button.text = "Stop"
 	_stop_button.icon = _svg_icon("stop_hand.svg")
 	_stop_button.tooltip_text = "Stop the current reply (the conversation is kept)"
-	_stop_button.custom_minimum_size.x = 64 * EditorInterface.get_editor_scale()
+	_stop_button.custom_minimum_size.x = 36 * EditorInterface.get_editor_scale()
 	_style_button(_stop_button, Color(0.75, 0.2, 0.2))
 	_stop_button.pressed.connect(_on_stop_pressed)
 	input_row.add_child(_stop_button)
@@ -519,6 +517,7 @@ func _style_button(b: Button, color: Color) -> void:
 		if state == "focus":
 			box.draw_center = false
 		b.add_theme_stylebox_override(state, box)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
 		b.add_theme_color_override(c, Color.WHITE)
 
