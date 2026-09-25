@@ -570,8 +570,11 @@ func shutdown() -> void:
 func _handle_slash_command(text: String) -> void:
 	var agent := "codex" if (_preferred_assistant() == "codex" or not _codex_thread_id.is_empty()) else "claude"
 	var parts := text.split(" ", false, 1)
+	if parts[0] == "/effort":
+		_effort_command(agent, parts[1].strip_edges() if parts.size() > 1 else "")
+		return
 	if parts[0] != "/model":
-		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model; New session (refresh icon) replaces /clear.[/i]" % [
+		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model and /effort; New session (refresh icon) replaces /clear.[/i]" % [
 			parts[0].xml_escape(), "Codex" if agent == "codex" else "Claude"])
 		return
 	var key := "model_" + agent
@@ -592,12 +595,36 @@ func _handle_slash_command(text: String) -> void:
 			_stop_session("")
 		_append_transcript("[i]Claude model set to %s — your next message starts a new session with it.[/i]" % model.xml_escape())
 
+## /effort [level]: reasoning effort per agent, saved per project, like /model.
+## Codex: model_reasoning_effort (e.g. minimal, low, medium, high); Claude:
+## --effort (e.g. low, medium, high). Empty = the CLI's own setting.
+func _effort_command(agent: String, level: String) -> void:
+	var key := "effort_" + agent
+	var es := EditorInterface.get_editor_settings()
+	if level == "":
+		var current := String(es.get_project_metadata("godot_live_mcp", key, ""))
+		_append_transcript("[i]%s effort: %s. Change with /effort <level> (e.g. low, medium, high), or /effort default.[/i]" % [
+			agent.capitalize(), current if current != "" else "default (from its own settings)"])
+		return
+	es.set_project_metadata("godot_live_mcp", key, "" if level == "default" else level)
+	if agent == "codex":
+		_append_transcript("[i]Codex effort set to %s — used from your next message.[/i]" % level.xml_escape())
+	else:
+		if _session_active:
+			_stop_session("")
+		_append_transcript("[i]Claude effort set to %s — your next message starts a new session with it.[/i]" % level.xml_escape())
+
 ## ["--model"/"-m", name] for the agent's chosen model, or [] for its default.
 func _model_args(agent: String) -> Array:
-	var model := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "model_" + agent, ""))
-	if model == "":
-		return []
-	return ["-m", model] if agent == "codex" else ["--model", model]
+	var es := EditorInterface.get_editor_settings()
+	var model := String(es.get_project_metadata("godot_live_mcp", "model_" + agent, ""))
+	var effort := String(es.get_project_metadata("godot_live_mcp", "effort_" + agent, ""))
+	var args := []
+	if model != "":
+		args += ["-m", model] if agent == "codex" else ["--model", model]
+	if effort != "":
+		args += ["-c", "model_reasoning_effort=%s" % JSON.stringify(effort)] if agent == "codex" else ["--effort", effort]
+	return args
 
 func _preferred_assistant() -> String:
 	return String(EditorInterface.get_editor_settings().get_project_metadata(
