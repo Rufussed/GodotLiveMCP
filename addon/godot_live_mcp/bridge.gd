@@ -2664,16 +2664,25 @@ func _cmd_set_particle_color_gradient(params: Dictionary):
 		offsets.append(float(p.get("offset", 0.0)))
 		colors.append(_decode_value(p.get("color", "Color(1, 1, 1, 1)")))
 
+	var mat := _get_or_create_particle_material(node)
+	# An existing gradient is edited in place (undoable, and it reaches a
+	# running game); only a first-time gradient needs new resources, which
+	# can't be sent to a running game until the next Play.
+	var ramp = mat.color_ramp
+	if ramp is GradientTexture1D and (ramp as GradientTexture1D).gradient:
+		_commit_properties((ramp as GradientTexture1D).gradient, {"offsets": offsets, "colors": colors})
+		if mat != node.get("process_material"):
+			_commit_properties(node, {"process_material": mat})
+		return {"ok": true}
 	var gradient := Gradient.new()
 	gradient.offsets = offsets
 	gradient.colors = colors
 	var gradient_texture := GradientTexture1D.new()
 	gradient_texture.gradient = gradient
-
-	var mat := _get_or_create_particle_material(node)
-	mat.color_ramp = gradient_texture
-	_commit_properties(node, {"process_material": mat})
-	return {"ok": true}
+	_commit_properties(mat, {"color_ramp": gradient_texture})
+	if mat != node.get("process_material"):
+		_commit_properties(node, {"process_material": mat})
+	return _with_live_note({"ok": true}, true)
 
 func _cmd_get_particle_info(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
