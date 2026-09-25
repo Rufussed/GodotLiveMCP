@@ -48,6 +48,9 @@ var _effort_option: OptionButton
 # resumes the same thread for the next one; this is that thread's id.
 var _codex_thread_id := ""
 var _session_kind := "claude"  # which CLI the running _pipe belongs to
+# Token totals for the current conversation, shown after each turn.
+var _tokens_in := 0
+var _tokens_out := 0
 
 # Permission toggles (in-editor session only — these configure the flags
 # `claude` launches with, so they only take effect at Start; there is no
@@ -710,6 +713,8 @@ func _preferred_assistant() -> String:
 		"godot_live_mcp", _ASSISTANT_SETTING, "claude"))
 
 func _on_new_session_pressed() -> void:
+	_tokens_in = 0
+	_tokens_out = 0
 	if not _codex_thread_id.is_empty() and not _session_active:
 		_codex_thread_id = ""
 		_append_transcript("[i]Session ended — your next message starts a new one.[/i]")
@@ -958,6 +963,8 @@ func _start_session() -> bool:
 		return false
 
 	_session_kind = "claude"
+	_tokens_in = 0
+	_tokens_out = 0
 	_read_buffer = ""
 	_session_active = true
 	# Toggles only take effect at launch (no live "change permissions"
@@ -1085,7 +1092,9 @@ func _handle_stream_event(line: String) -> void:
 			elif block_type == "tool_use":
 				_append_transcript("[i]  → %s[/i]" % String(block.get("name", "")).xml_escape())
 	elif event_type == "result":
-		_append_transcript("[color=gray]— turn complete —[/color]")
+		var usage: Dictionary = evt.get("usage", {})
+		var turn_in := int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0)) + int(usage.get("cache_read_input_tokens", 0))
+		_turn_complete(turn_in, int(usage.get("cache_read_input_tokens", 0)), int(usage.get("output_tokens", 0)), float(evt.get("total_cost_usd", -1.0)))
 
 ## Starts `codex exec --json` for one message (resuming the thread after the
 ## first). Permission toggles map onto Codex's sandbox: File Control ->
@@ -1130,6 +1139,8 @@ func _start_codex_turn(text: String) -> bool:
 	_read_buffer = ""
 	_session_active = true
 	if _codex_thread_id.is_empty():
+		_tokens_in = 0
+		_tokens_out = 0
 		_append_transcript("[i]Codex session started. Sandbox: %s%s.[/i]" % [
 			"can edit project files" if _file_control_toggle.button_pressed else "read-only",
 			", network on" if _web_toggle.button_pressed else ""])
@@ -1158,7 +1169,8 @@ func _handle_codex_event(evt: Dictionary) -> void:
 			elif item_type == "error":
 				_append_transcript("[color=gray]%s[/color]" % String(item.get("message", "")).xml_escape())
 		"turn.completed":
-			_append_transcript("[color=gray]— turn complete —[/color]")
+			var usage: Dictionary = evt.get("usage", {})
+			_turn_complete(int(usage.get("input_tokens", 0)), int(usage.get("cached_input_tokens", 0)), int(usage.get("output_tokens", 0)), -1.0)
 		"turn.failed":
 			var msg := String(evt.get("error", {}).get("message", "unknown error"))
 			_append_transcript("[color=red]Codex failed: %s[/color]" % msg.xml_escape())
@@ -1166,6 +1178,25 @@ func _handle_codex_event(evt: Dictionary) -> void:
 				_append_transcript("[color=yellow]Codex isn't logged in — run `codex login` in a terminal.[/color]")
 		"error":
 			pass  # reconnect chatter; a real failure also arrives as turn.failed
+
+## "— turn complete —" plus this turn's tokens (in, of which cached, and
+## out) and the conversation's running totals; Claude also reports cost.
+func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> void:
+	_tokens_in += turn_in
+	_tokens_out += turn_out
+	var line := "— turn complete · %s in (%s cached) / %s out · session %s / %s" % [
+		_short_count(turn_in), _short_count(cached), _short_count(turn_out),
+		_short_count(_tokens_in), _short_count(_tokens_out)]
+	if cost >= 0.0:
+		line += " · $%.2f" % cost
+	_append_transcript("[color=gray]%s —[/color]" % line)
+
+func _short_count(n: int) -> String:
+	if n >= 1000000:
+		return "%.1fM" % (n / 1000000.0)
+	if n >= 1000:
+		return "%.1fk" % (n / 1000.0)
+	return str(n)
 
 func _append_transcript(bbcode_line: String) -> void:
 	_transcript.append_text(bbcode_line + "\n")

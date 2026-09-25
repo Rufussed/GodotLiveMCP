@@ -187,7 +187,9 @@ testing, or run Godot under X11 for unattended play.
   tests its own changes (off by default, to save tokens), and whether it
   saves its changes (off by default). The last two reach the session as a
   hidden system-prompt addition (`developer_instructions` for Codex).
-- **Chat:** your messages in green; **Send** (paper plane) and **Stop**
+- **Chat:** each turn ends with its token use and the session total
+  (`— turn complete · 22.6k in (16.3k cached) / 61 out · session 45.3k /
+  122 · $0.03 —`; cost is shown for Claude). Your messages in green; **Send** (paper plane) and **Stop**
   (hand), which stops the current reply but keeps the conversation.
 - **Slash commands:** the CLIs' own ones don't exist in the panel. It
   handles `/model` and `/effort`: on their own they open a menu showing the
