@@ -28,7 +28,9 @@ person.
 show up in the game live (Godot's Debug > Synchronize Scene/Script
 Changes): property changes, `add_node_live` (including `scene_path` to add
 an instance of a saved `.tscn`), `remove_node`, `rename_node`,
-`reparent_node`, `duplicate_node`, and `edit_script_text` (which then saves
+`reparent_node`, `duplicate_node`, `add_mesh_instance`, `setup_collision`,
+animation edits (`add_animation_track`, `set_animation_track_path`,
+`set_animation_keys`), and `edit_script_text` (which then saves
 the script right away and reloads it in the game). Changes made with
 `run_script`/`eval_expression` on the editor's scene do **not** reach a
 running game — use the structured tools instead while it's running.

@@ -52,6 +52,7 @@ export const bridgeToolNames = new Set([
   'edit_script_text',
   'set_properties_multi',
   'set_animation_keys',
+  'set_animation_track_path',
   'save_resource_file',
   'get_script_text',
   'setup_collision',
@@ -375,6 +376,23 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: { script_path: { type: 'string', description: 'res:// path to the script' } },
       required: ['script_path'],
+    },
+  },
+  {
+    name: 'set_animation_track_path',
+    description:
+      'Point an existing animation track at a different node/property, e.g. "LegLPivot:rotation" (relative to ' +
+      'the AnimationPlayer\'s root node), as one undoable edit. Use instead of track_set_path via run_script.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_path: { type: 'string', description: 'AnimationPlayer path' },
+        anim_name: { type: 'string' },
+        library_name: { type: 'string', description: 'Default "" (the default library)' },
+        track_index: { type: 'integer' },
+        track_node_path: { type: 'string' },
+      },
+      required: ['node_path', 'anim_name', 'track_index', 'track_node_path'],
     },
   },
   {
@@ -1252,6 +1270,14 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'validate_script':
       return textResult(await client.call('validate_script', {
         script_path: params.script_path,
+      }));
+    case 'set_animation_track_path':
+      return textResult(await client.call('set_animation_track_path', {
+        node_path: params.node_path ?? '.',
+        anim_name: params.anim_name,
+        library_name: params.library_name ?? '',
+        track_index: params.track_index,
+        track_node_path: params.track_node_path,
       }));
     case 'set_animation_keys':
       return textResult(await client.call('set_animation_keys', {
