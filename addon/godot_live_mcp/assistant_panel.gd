@@ -179,6 +179,22 @@ func _ready() -> void:
 	# Deferred so the editor finishes loading first; a no-op unless the
 	# server path or token changed since the last registration.
 	call_deferred("_ensure_local_registration")
+	call_deferred("_keep_panel_open_on_play")
+
+## Godot switches the bottom panel to Output on every Play by default, which
+## hides this chat mid-conversation. Once per editor install, if that
+## setting is still the default, switch it to "Do Nothing" and say so. A
+## marker setting records it, so a user who turns it back on keeps it.
+func _keep_panel_open_on_play() -> void:
+	var es := EditorInterface.get_editor_settings()
+	const MARKER := "godot_live_mcp/adjusted_action_on_play"
+	const SETTING := "run/bottom_panel/action_on_play"
+	if es.has_setting(MARKER) or not es.has_setting(SETTING):
+		return
+	es.set_setting(MARKER, true)
+	if int(es.get_setting(SETTING)) == 1:  # "Open Output", Godot's default
+		es.set_setting(SETTING, 0)  # "Do Nothing"
+		_append_transcript("[i]Set Editor Settings > Run > Bottom Panel > Action On Play to \"Do Nothing\", so pressing Play keeps this chat open. Change it back there if you prefer the Output tab.[/i]")
 
 func _process(_delta: float) -> void:
 	_poll_session()
