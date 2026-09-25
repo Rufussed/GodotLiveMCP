@@ -577,15 +577,14 @@ func _handle_slash_command(text: String) -> void:
 		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model and /effort; New session (refresh icon) replaces /clear.[/i]" % [
 			parts[0].xml_escape(), "Codex" if agent == "codex" else "Claude"])
 		return
-	var key := "model_" + agent
-	var es := EditorInterface.get_editor_settings()
 	if parts.size() == 1:
-		var current := String(es.get_project_metadata("godot_live_mcp", key, ""))
-		_append_transcript("[i]%s model: %s. Change with /model <name>, or /model default.[/i]" % [
-			agent.capitalize(), current if current != "" else "default"])
+		_show_choice_menu(agent, "model")
 		return
-	var model := parts[1].strip_edges()
-	es.set_project_metadata("godot_live_mcp", key, "" if model == "default" else model)
+	_set_model(agent, parts[1].strip_edges())
+
+func _set_model(agent: String, model: String) -> void:
+	EditorInterface.get_editor_settings().set_project_metadata(
+		"godot_live_mcp", "model_" + agent, "" if model == "default" else model)
 	if agent == "codex":
 		_append_transcript("[i]Codex model set to %s — used from your next message.[/i]" % model.xml_escape())
 	else:
@@ -599,20 +598,80 @@ func _handle_slash_command(text: String) -> void:
 ## Codex: model_reasoning_effort (e.g. minimal, low, medium, high); Claude:
 ## --effort (e.g. low, medium, high). Empty = the CLI's own setting.
 func _effort_command(agent: String, level: String) -> void:
-	var key := "effort_" + agent
-	var es := EditorInterface.get_editor_settings()
 	if level == "":
-		var current := String(es.get_project_metadata("godot_live_mcp", key, ""))
-		_append_transcript("[i]%s effort: %s. Change with /effort <level> (e.g. low, medium, high), or /effort default.[/i]" % [
-			agent.capitalize(), current if current != "" else "default (from its own settings)"])
+		_show_choice_menu(agent, "effort")
 		return
-	es.set_project_metadata("godot_live_mcp", key, "" if level == "default" else level)
+	EditorInterface.get_editor_settings().set_project_metadata(
+		"godot_live_mcp", "effort_" + agent, "" if level == "default" else level)
 	if agent == "codex":
 		_append_transcript("[i]Codex effort set to %s — used from your next message.[/i]" % level.xml_escape())
 	else:
 		if _session_active:
 			_stop_session("")
 		_append_transcript("[i]Claude effort set to %s — your next message starts a new session with it.[/i]" % level.xml_escape())
+
+# ---- /model and /effort pickers ----
+
+## The CLI's own default (what it uses when the panel doesn't override it):
+## Codex from ~/.codex/config.toml, Claude from ~/.claude/settings.json.
+func _cli_default(agent: String, what: String) -> String:
+	var home := OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
+	if agent == "codex":
+		var toml := FileAccess.get_file_as_string(home.path_join(".codex/config.toml"))
+		var key := "model" if what == "model" else "model_reasoning_effort"
+		var m := RegEx.create_from_string("(?m)^%s\\s*=\\s*\"([^\"]*)\"" % key).search(toml)
+		return m.get_string(1) if m else ""
+	var settings = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".claude/settings.json")))
+	if settings is Dictionary:
+		return String(settings.get("model" if what == "model" else "effortLevel", ""))
+	return ""
+
+## Choices for the picker: Codex's listed models (and the chosen model's
+## effort levels) from its model cache; Claude's model aliases and levels.
+func _choices(agent: String, what: String) -> Array:
+	if agent == "claude":
+		return ["opus", "sonnet", "haiku"] if what == "model" else ["low", "medium", "high", "xhigh", "max"]
+	var home := OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
+	var cache = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".codex/models_cache.json")))
+	var models: Array = cache.get("models", []) if cache is Dictionary else []
+	if what == "model":
+		var out := []
+		for m in models:
+			if String(m.get("visibility", "list")) == "list":
+				out.append(String(m.get("slug", "")))
+		return out
+	var current := _current_setting(agent, "model")
+	for m in models:
+		if String(m.get("slug", "")) == current:
+			return m.get("supported_reasoning_levels", []).map(func(l): return String(l.get("effort", "")))
+	return ["low", "medium", "high"]
+
+func _current_setting(agent: String, what: String) -> String:
+	var v := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", what + "_" + agent, ""))
+	return v if v != "" else _cli_default(agent, what)
+
+func _show_choice_menu(agent: String, what: String) -> void:
+	var override := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", what + "_" + agent, ""))
+	var default_value := _cli_default(agent, what)
+	var menu := PopupMenu.new()
+	add_child(menu)
+	var values := [""]
+	menu.add_radio_check_item("Default (currently %s)" % (default_value if default_value != "" else "the CLI's own"))
+	menu.set_item_checked(0, override == "")
+	for c in _choices(agent, what):
+		values.append(c)
+		menu.add_radio_check_item(c)
+		menu.set_item_checked(values.size() - 1, c == override)
+	menu.id_pressed.connect(func(id: int):
+		var value: String = values[id] if values[id] != "" else "default"
+		if what == "model":
+			_set_model(agent, value)
+		else:
+			_effort_command(agent, value))
+	menu.popup_hide.connect(menu.queue_free)
+	_append_transcript("[i]%s %s: %s — pick one from the menu.[/i]" % [
+		agent.capitalize(), what, override if override != "" else "default (%s)" % (default_value if default_value != "" else "CLI's own")])
+	menu.popup(Rect2i(Vector2i(_send_button.get_screen_position()) - Vector2i(0, 24 * (values.size() + 1)), Vector2i.ZERO))
 
 ## ["--model"/"-m", name] for the agent's chosen model, or [] for its default.
 func _model_args(agent: String) -> Array:

@@ -188,7 +188,9 @@ testing, or run Godot under X11 for unattended play.
 - **Chat:** your messages in green; **Send** (paper plane) and **Stop**
   (hand), which stops the current reply but keeps the conversation.
 - **Slash commands:** the CLIs' own ones don't exist in the panel. It
-  handles `/model <name>` and `/effort <level>` (per agent, saved per
+  handles `/model` and `/effort`: on their own they open a menu showing the
+  current choice (the CLI default is labelled), or take a value directly
+  (`/model <name>`, `/effort <level>`; per agent, saved per
   project; `default` resets; otherwise each CLI's own settings apply) and
   points others at Open Claude / Open Codex.
 - Codex in the panel runs `codex exec --json` per message and resumes the
