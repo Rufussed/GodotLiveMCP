@@ -1179,12 +1179,12 @@ func _handle_codex_event(evt: Dictionary) -> void:
 		"error":
 			pass  # reconnect chatter; a real failure also arrives as turn.failed
 
-## "— turn complete —" plus this turn's tokens (in, of which cached, and
+## "— edits complete —" plus this turn's tokens (in, of which cached, and
 ## out) and the conversation's running totals; Claude also reports cost.
 func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> void:
 	_tokens_in += turn_in
 	_tokens_out += turn_out
-	var line := "— turn complete · %s in (%s cached) / %s out · session %s / %s" % [
+	var line := "— edits complete · %s in (%s cached) / %s out · session %s / %s" % [
 		_short_count(turn_in), _short_count(cached), _short_count(turn_out),
 		_short_count(_tokens_in), _short_count(_tokens_out)]
 	if cost >= 0.0:
