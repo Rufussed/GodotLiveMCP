@@ -2204,14 +2204,24 @@ func _cmd_create_animation(params: Dictionary):
 		return _fail("anim_name is required")
 
 	var player: AnimationPlayer = node
-	var library := _get_or_create_library(player, library_name)
-	if library.has_animation(anim_name):
+	var library: AnimationLibrary = player.get_animation_library(library_name) if player.has_animation_library(library_name) else null
+	if library and library.has_animation(anim_name):
 		return _fail("animation already exists: %s" % anim_name)
 
 	var anim := Animation.new()
 	anim.length = length
-	library.add_animation(anim_name, anim)
-	return {"ok": true}
+	if not _begin_node_action("create animation"):
+		return _fail("no editor undo system available")
+	if library == null:
+		library = AnimationLibrary.new()
+		_do(player, "add_animation_library", [library_name, library])
+		_undo(player, "remove_animation_library", [library_name])
+		_node_action_ur.add_do_reference(library)
+	_do(library, "add_animation", [anim_name, anim])
+	_undo(library, "remove_animation", [anim_name])
+	_node_action_ur.add_do_reference(anim)
+	_commit_node_action()
+	return _with_live_note({"ok": true}, true)
 
 func _cmd_add_animation_track(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -2234,9 +2244,43 @@ func _cmd_add_animation_track(params: Dictionary):
 		return _fail("animation not found: %s" % anim_name)
 
 	var anim: Animation = library.get_animation(anim_name)
-	var idx: int = anim.add_track(_TRACK_TYPES[track_type])
-	anim.track_set_path(idx, NodePath(track_node_path))
+	var idx := anim.get_track_count()
+	if not _begin_node_action("add animation track"):
+		return _fail("no editor undo system available")
+	_do(anim, "add_track", [_TRACK_TYPES[track_type]])
+	_do(anim, "track_set_path", [idx, NodePath(track_node_path)])
+	_undo(anim, "remove_track", [idx])
+	_commit_node_action()
 	return {"track_index": idx}
+
+## Points an existing track at a different node/property ("LegLPivot:rotation"),
+## one undoable action — instead of track_set_path through run_script.
+func _cmd_set_animation_track_path(params: Dictionary):
+	var node_path := String(params.get("node_path", "."))
+	var anim_name := String(params.get("anim_name", ""))
+	var library_name := String(params.get("library_name", ""))
+	var track_index := int(params.get("track_index", -1))
+	var track_node_path := String(params.get("track_node_path", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not (node is AnimationPlayer):
+		return _fail("node is not an AnimationPlayer: %s" % node_path)
+	var player: AnimationPlayer = node
+	if not player.has_animation_library(library_name) or not player.get_animation_library(library_name).has_animation(anim_name):
+		return _fail("animation not found: %s" % anim_name)
+	var anim: Animation = player.get_animation_library(library_name).get_animation(anim_name)
+	if track_index < 0 or track_index >= anim.get_track_count():
+		return _fail("track_index %d out of range (animation has %d tracks)" % [track_index, anim.get_track_count()])
+	if track_node_path == "":
+		return _fail("track_node_path is required, e.g. \"LegLPivot:rotation\"")
+	var old_path := anim.track_get_path(track_index)
+	if not _begin_node_action("set animation track path"):
+		return _fail("no editor undo system available")
+	_do(anim, "track_set_path", [track_index, NodePath(track_node_path)])
+	_undo(anim, "track_set_path", [track_index, old_path])
+	_commit_node_action()
+	return {"ok": true, "track_index": track_index, "path": String(anim.track_get_path(track_index))}
 
 ## Replaces one track's keyframes (and optionally the animation length) as
 ## ONE undoable action, instead of a string of eval_expression
