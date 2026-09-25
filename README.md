@@ -181,6 +181,8 @@ testing, or run Godot under X11 for unattended play.
 - **New session** (refresh icon): the next message starts a fresh session
   and server.
 - **Settings** (tools icon): **Coding agent** (Claude or Codex for the
+  panel chat) with its **Model** and **Effort** drop-downs beside each other
+  (they switch with the agent; "Default" shows the CLI's own setting), plus
   panel chat), sync editor changes to the running game, whether the AI
   tests its own changes (off by default, to save tokens), and whether it
   saves its changes (off by default). The last two reach the session as a
