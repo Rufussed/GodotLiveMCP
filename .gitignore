@@ -11,3 +11,6 @@ test_project/*
 
 # Launcher app editor cache
 launcher/.godot/
+
+# Local test project (linked to this repo's addon)
+woop/
