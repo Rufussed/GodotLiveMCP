@@ -33,6 +33,12 @@ const _TERMINALS := [
 	{"bin": "xterm", "style": "flag_e"},
 ]
 
+## GUI apps on macOS get a minimal PATH, and a login shell there is zsh
+## reading ~/.zprofile, not bash. Prepend the usual install locations
+## (Node's .pkg and Homebrew on Intel -> /usr/local/bin, Homebrew on Apple
+## Silicon -> /opt/homebrew/bin, Claude's native installer -> ~/.local/bin).
+const _MAC_PATH_PREFIX := 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; '
+
 var _launch_button: Button
 var _codex_button: Button
 var _new_session_button: Button
@@ -212,7 +218,7 @@ func _refresh_status() -> void:
 		button.disabled = true
 		if not _has_command(pair[1]):
 			button.tooltip_text = "%s CLI (`%s`) not found on PATH. Install it first: %s — then reopen this panel." % [pair[2], pair[1], pair[3]]
-		elif term.is_empty() and OS.get_name() != "Windows":
+		elif term.is_empty() and OS.get_name() not in ["Windows", "macOS"]:
 			button.tooltip_text = (
 				"%s found, but no supported terminal emulator was detected on PATH (tried " +
 				"$TERMINAL, alacritty, kitty, foot, ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
@@ -220,7 +226,7 @@ func _refresh_status() -> void:
 		else:
 			button.disabled = false
 			button.tooltip_text = "Opens a %s session in %s, in this project's directory." % [
-				pair[2], "a console" if term.is_empty() else term.bin]
+				pair[2], "Terminal" if OS.get_name() == "macOS" else "a console" if term.is_empty() else term.bin]
 
 func _build_allowed_tools() -> Array:
 	var allowed := ["mcp__godot-live-mcp__*"]
@@ -265,6 +271,18 @@ func _launch_in_terminal(cli: String, cli_args: Array) -> void:
 		OS.create_process(cli, cli_args, true)
 		return
 
+	if OS.get_name() == "macOS":
+		# Terminal.app runs the command in the user's own interactive
+		# shell, so PATH is already right there.
+		var mac_cmd := "cd %s && %s" % [_shell_quote(project_dir), cli]
+		for arg in cli_args:
+			mac_cmd += " " + _shell_quote(arg)
+		var script := mac_cmd.replace("\\", "\\\\").replace("\"", "\\\"")
+		OS.create_process("osascript", [
+			"-e", 'tell application "Terminal" to do script "%s"' % script,
+			"-e", 'tell application "Terminal" to activate'])
+		return
+
 	var term := _find_terminal()
 	if term.is_empty():
 		_refresh_status()  # re-check in case something changed since panel opened
@@ -287,6 +305,8 @@ func _launch_in_terminal(cli: String, cli_args: Array) -> void:
 			OS.create_process(term.bin, ["--", "bash", "-lc", shell_cmd])
 
 func _find_terminal() -> Dictionary:
+	if OS.get_name() == "macOS":
+		return {}  # Terminal.app via osascript, see _launch_in_terminal
 	var env_term := OS.get_environment("TERMINAL")
 	if not env_term.is_empty() and _has_command(env_term):
 		for t in _TERMINALS:
@@ -300,11 +320,23 @@ func _find_terminal() -> Dictionary:
 			return t
 	return {}
 
+## [program, args] running `cmd` in a login shell, so CLIs installed via
+## version managers or per-user installers are on PATH.
+func _login_shell(cmd: String) -> Array:
+	if OS.get_name() == "macOS":
+		return ["zsh", ["-lc", _MAC_PATH_PREFIX + cmd]]
+	return ["bash", ["-lc", cmd]]
+
 func _has_command(bin_name: String) -> bool:
 	if bin_name.is_empty():
 		return false
 	var output: Array = []
-	var code := OS.execute("which", [bin_name], output)
+	var code: int
+	if OS.get_name() == "macOS":
+		var sh := _login_shell("command -v " + _shell_quote(bin_name))
+		code = OS.execute(sh[0], sh[1], output)
+	else:
+		code = OS.execute("which", [bin_name], output)
 	return code == 0 and not output.is_empty() and not String(output[0]).strip_edges().is_empty()
 
 ## Finds the built MCP server. The preferred install links
@@ -388,7 +420,8 @@ func _ensure_local_registration() -> void:
 		_shell_quote(ProjectSettings.globalize_path("res://")), add_cmd
 	]
 	var output: Array = []
-	if OS.execute("bash", ["-lc", shell_cmd], output, true) != 0:
+	var sh := _login_shell(shell_cmd)
+	if OS.execute(sh[0], sh[1], output, true) != 0:
 		_append_transcript("[color=yellow]Couldn't register godot-live-mcp for this project with Claude Code: %s[/color]" % "".join(output).strip_edges())
 		return
 	editor_settings.set_project_metadata("godot_live_mcp", "local_registration", signature)
@@ -956,7 +989,8 @@ func _start_session() -> bool:
 	for arg in _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)):
 		claude_cmd += " " + _shell_quote(arg)
 	var shell_cmd := "cd %s && %s" % [_shell_quote(project_dir), claude_cmd]
-	_pipe = OS.execute_with_pipe("bash", ["-lc", shell_cmd], false)
+	var sh := _login_shell(shell_cmd)
+	_pipe = OS.execute_with_pipe(sh[0], sh[1], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
 		_append_transcript("[color=red]Failed to start Claude session.[/color]")
 		_pipe = {}
@@ -1131,7 +1165,8 @@ func _start_codex_turn(text: String) -> bool:
 	for a in args:
 		cmd += " " + _shell_quote(a)
 	var shell_cmd := "cd %s && %s < /dev/null" % [_shell_quote(ProjectSettings.globalize_path("res://")), cmd]
-	_pipe = OS.execute_with_pipe("bash", ["-lc", shell_cmd], false)
+	var sh := _login_shell(shell_cmd)
+	_pipe = OS.execute_with_pipe(sh[0], sh[1], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
 		_append_transcript("[color=red]Failed to start Codex.[/color]")
 		_pipe = {}
