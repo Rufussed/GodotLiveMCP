@@ -40,7 +40,8 @@ and logged in.
 **Easiest: the launcher app.** After cloning, open `launcher/project.godot`
 in Godot and press Play (or run `godot --path launcher`; on macOS there's
 no `godot` command, so use
-`/Applications/Godot.app/Contents/MacOS/Godot --path launcher`). It checks for
+`/Applications/Godot.app/Contents/MacOS/Godot --path launcher`). Or double-click `launch.command` (macOS) or `launch.bat`
+(Windows) in the repo folder to start it directly. It checks for
 Node, npm and Claude Code, then walks through three steps: **Install /
 rebuild MCP server**; **Create new Godot project…** or **Add existing Godot
 project…**, which links the addon, enables the plugin and adds `CLAUDE.md`
