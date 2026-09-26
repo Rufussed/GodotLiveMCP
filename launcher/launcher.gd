@@ -6,8 +6,8 @@ extends Control
 ## `npm run link-project`), so this app only runs npm commands and shows
 ## their output — the actual logic lives in one place.
 ##
-## Run from inside a GodotLiveMCP checkout, it uses that checkout as is.
-## Run on its own (just this launcher folder), it keeps its own clone in a
+## Run from inside a GodotLiveMCP checkout, it `git pull`s that checkout on
+## launch when it's on main with no local changes. Run on its own (just this launcher folder), it keeps its own clone in a
 ## per-user data folder: cloned on first run, `git pull`ed on every launch,
 ## with the server rebuilt whenever the files changed.
 
@@ -55,8 +55,7 @@ func _ready() -> void:
 	_build_ui()
 	_load_projects()
 	_refresh()
-	if _managed:
-		_sync_repo()
+	_sync_repo()
 
 func _process(_delta: float) -> void:
 	_poll_proc()
@@ -228,21 +227,21 @@ var _server_built := false
 
 ## Re-checks prerequisites (spawns node/npm/claude, so only on demand).
 func _refresh() -> void:
-	var git := _version_of("git") if _managed else ""  # skip: may trigger the macOS tools popup
+	var git := _version_of("git")
 	var node := _version_of("node")
 	var npm := _version_of("npm")
 	var claude := _version_of("claude")
 	_has_npm = not npm.is_empty()
 	_server_built = FileAccess.file_exists(_server_dir.path_join("build/index.js"))
 	var lines := [
-		_check_line("Git", git, "install from https://git-scm.com") if _managed else "",
+		_check_line("Git", git, "install from https://git-scm.com"),
 		_check_line("Node.js", node, "install from https://nodejs.org"),
 		_check_line("npm", npm, "comes with Node.js"),
 		_check_line("Claude Code CLI", claude, "see https://docs.claude.com/en/docs/claude-code"),
 	]
 	lines.append("[color=#9e9ea8]GodotLiveMCP files: %s (%s)[/color]" % [
-		_repo_root.replace("[", "[lb]"), "kept up to date by this launcher" if _managed else "this checkout"])
-	_status_label.text = "\n".join(lines.filter(func(l): return not l.is_empty()))
+		_repo_root.replace("[", "[lb]"), "downloaded by this launcher" if _managed else "this checkout"])
+	_status_label.text = "\n".join(lines)
 	_update_controls()
 
 func _update_controls() -> void:
@@ -379,11 +378,24 @@ func _build_server(then: Callable) -> void:
 			then.call()
 	)
 
-## Managed mode only: clone on first run, otherwise fast-forward pull. The
-## server is (re)built when the files changed or it was never built. A
-## failed pull (offline, say) keeps the existing copy.
+## Clones on first run (managed mode), otherwise fast-forward pulls. A
+## checkout is only pulled when it's a git clone on main with no local
+## changes, so work in progress is never touched. The server is (re)built
+## when the files changed or it was never built. A failed pull (offline,
+## say) keeps the existing copy.
 func _sync_repo() -> void:
 	var cloned := DirAccess.dir_exists_absolute(_repo_root.path_join(".git"))
+	if not _managed:
+		var skip := ""
+		if not cloned:
+			skip = "not a git clone"
+		elif _git_out(["rev-parse", "--abbrev-ref", "HEAD"]) != "main":
+			skip = "not on the main branch"
+		elif not _git_out(["status", "--porcelain", "--untracked-files=no"]).is_empty():
+			skip = "it has local changes"
+		if not skip.is_empty():
+			_log_line("Not updating %s: %s." % [_repo_root.replace("[", "[lb]"), skip])
+			return
 	var before := _git_head() if cloned else ""
 	var args := ["-C", _repo_root, "pull", "--ff-only"] if cloned else ["clone", REPO_URL, _repo_root]
 	_run_async("git", args, func(code: int):
@@ -400,7 +412,11 @@ func _sync_repo() -> void:
 	)
 
 func _git_head() -> String:
-	var w := _wrap("git", ["-C", _repo_root, "rev-parse", "HEAD"])
+	return _git_out(["rev-parse", "HEAD"])
+
+## Output of `git -C <repo> <args>`, or "" if it fails.
+func _git_out(args: Array) -> String:
+	var w := _wrap("git", ["-C", _repo_root] + args)
 	var output: Array = []
 	if OS.execute(w[0], w[1], output, true) != 0 or output.is_empty():
 		return ""
