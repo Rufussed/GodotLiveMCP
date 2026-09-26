@@ -226,9 +226,9 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 		if watch and _scene_fingerprint() != before:
 			if typeof(result) != TYPE_DICTIONARY:
 				result = {"value": result} if ok else {}
-			result["scene_changed_note"] = _RAW_EDIT_NOTE
+			result["scene_changed_note"] = _mac_keys(_RAW_EDIT_NOTE)
 			if not ok:
-				error = "%s (%s)" % [error, _RAW_EDIT_NOTE]
+				error = "%s (%s)" % [error, _mac_keys(_RAW_EDIT_NOTE)]
 
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
 
@@ -282,6 +282,10 @@ func _fingerprint_object(obj: Object, parts: PackedStringArray, seen: Dictionary
 func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 	var text := JSON.stringify(payload) + "\n"
 	peer.put_data(text.to_utf8_buffer())
+
+## Shortcut names as the user sees them: Cmd rather than Ctrl on macOS.
+func _mac_keys(text: String) -> String:
+	return text.replace("Ctrl+", "Cmd+") if OS.get_name() == "macOS" else text
 
 func _fail(msg: String) -> Dictionary:
 	if msg.begins_with("node not found") and _get_scene_root() == null:
@@ -1116,7 +1120,7 @@ func _cmd_edit_script_text(params: Dictionary):
 		return {"ok": true, "created": created, "unsaved": false,
 			"note": "Saved right away and reloaded in the running game."}
 	return {"ok": true, "created": created, "unsaved": not created,
-		"note": "Saved on Ctrl+S or when the scene is played." if not created else "New file written to disk."}
+		"note": _mac_keys("Saved on Ctrl+S or when the scene is played.") if not created else "New file written to disk."}
 
 ## Reads a script's or shader's current text, including unsaved edits in an
 ## open editor tab (the file on disk can be older than what's on screen).
