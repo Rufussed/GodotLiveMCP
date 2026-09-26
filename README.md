@@ -58,7 +58,9 @@ You can also open `launcher/project.godot` in Godot and press Play, or run
 `godot --path launcher` (on macOS:
 `/Applications/Godot.app/Contents/MacOS/Godot --path launcher`).
 
-Run from a clone, the launcher uses that clone as is. Copied somewhere on
+Run from a clone, the launcher `git pull`s it on every launch (only when
+it's on `main` with no uncommitted changes) and rebuilds the server when
+updates arrive. Copied somewhere on
 its own (just the `launcher/` folder), it downloads GodotLiveMCP itself with
 git into a per-user folder (`~/.local/share/GodotLiveMCP`,
 `~/Library/Application Support/GodotLiveMCP` or `%APPDATA%\GodotLiveMCP`),
