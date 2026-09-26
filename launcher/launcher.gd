@@ -493,6 +493,10 @@ func _wrap(cmd: String, args: Array) -> Array:
 	var parts := [cmd]
 	for a in args:
 		parts.append(_shell_quote(String(a)))
+	if OS.get_name() == "macOS":
+		# GUI apps get a minimal PATH and the login shell is zsh; see the
+		# same prefix in assistant_panel.gd.
+		return ["zsh", ["-lc", 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ' + " ".join(parts)]]
 	return ["bash", ["-lc", " ".join(parts)]]
 
 func _shell_quote(s: String) -> String:
