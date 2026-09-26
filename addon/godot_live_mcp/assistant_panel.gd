@@ -319,6 +319,10 @@ func _find_terminal() -> Dictionary:
 			return t
 	return {}
 
+## Shortcut names as the user sees them: Cmd rather than Ctrl on macOS.
+func _mac_keys(text: String) -> String:
+	return text.replace("Ctrl+", "Cmd+") if OS.get_name() == "macOS" else text
+
 ## [program, args] running `cmd` in a login shell, so CLIs installed via
 ## version managers or per-user installers are on PATH.
 func _login_shell(cmd: String) -> Array:
@@ -856,7 +860,7 @@ func _build_settings_popup() -> void:
 	_save_check.text = "AI saves its changes"
 	_save_check.tooltip_text = (
 		"On: the AI saves the scene after each step.\n" +
-		"Off: changes stay unsaved (*) for you to save with Ctrl+S, like your own edits.\n" +
+		_mac_keys("Off: changes stay unsaved (*) for you to save with Ctrl+S, like your own edits.\n") +
 		"Applies from the next session (use the New session button)."
 	)
 	_save_check.button_pressed = EditorInterface.get_editor_settings().get_project_metadata(
@@ -916,7 +920,7 @@ func _behavior_text() -> String:
 	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, false)
 	return "\n\n".join([
 		_TESTS_ON_PROMPT if tests else _TESTS_OFF_PROMPT,
-		_SAVE_ON_PROMPT if saves else _SAVE_OFF_PROMPT,
+		_SAVE_ON_PROMPT if saves else _mac_keys(_SAVE_OFF_PROMPT),
 	])
 
 ## The editor's Debug menu and the indices of its two "Synchronize ... Changes"
