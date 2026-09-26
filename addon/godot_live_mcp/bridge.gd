@@ -96,7 +96,12 @@ func _press_script_editor_save() -> bool:
 				return true
 	return false
 
+const OutputCapture = preload("res://addons/godot_live_mcp/output_capture.gd")
+var _output_capture: Logger
+
 func _ready() -> void:
+	_output_capture = OutputCapture.new()
+	OS.add_logger(_output_capture)
 	_token = _load_or_create_token()
 	_port = _load_port()
 	_server = TCPServer.new()
@@ -118,6 +123,9 @@ func _ready() -> void:
 ## added since.
 func stop() -> void:
 	set_process(false)
+	if _output_capture:
+		OS.remove_logger(_output_capture)
+		_output_capture = null
 	for peer in _peers:
 		var stream: StreamPeerTCP = peer
 		stream.disconnect_from_host()
@@ -286,6 +294,63 @@ func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 ## Shortcut names as the user sees them: Cmd rather than Ctrl on macOS.
 func _mac_keys(text: String) -> String:
 	return text.replace("Ctrl+", "Cmd+") if OS.get_name() == "macOS" else text
+
+## What the user would see in the Output and Debugger panels, in memory
+## only: the Output panel's last `lines` lines (game prints included, since
+## a game played from the editor sends them there), the Debugger's Errors
+## tab for the current/last run (game errors and warnings never reach this
+## process's own Logger — the game is a separate process), the stack the
+## game is paused at, if any, and the editor's own errors/warnings captured
+## by output_capture.gd (`editor_since` returns only newer ones).
+func _cmd_get_output_log(params: Dictionary):
+	var lines := int(params.get("lines", 60))
+	var result := {"output": "", "game_errors": [], "game_paused_at": []}
+	var logs := EditorInterface.get_base_control().find_children("*", "EditorLog", true, false)
+	if not logs.is_empty():
+		var labels: Array = logs[0].find_children("*", "RichTextLabel", true, false)
+		if not labels.is_empty():
+			var text_lines: PackedStringArray = labels[0].get_parsed_text().strip_edges().split("\n")
+			result.output = "\n".join(text_lines.slice(maxi(0, text_lines.size() - lines)))
+	# ScriptEditorDebugger's tabs are built in a fixed order: Stack Trace,
+	# then Errors. Found by position since tab titles are translated.
+	for dbg in EditorInterface.get_base_control().find_children("*", "ScriptEditorDebugger", true, false):
+		var tabs: Array = dbg.find_children("*", "TabContainer", false, false)
+		if tabs.is_empty() or tabs[0].get_child_count() < 2:
+			continue
+		var stack_trees: Array = tabs[0].get_child(0).find_children("*", "Tree", true, false)
+		if not stack_trees.is_empty():
+			result.game_paused_at += _tree_rows(stack_trees[0], false)
+		var error_trees: Array = tabs[0].get_child(1).find_children("*", "Tree", true, false)
+		if not error_trees.is_empty():
+			result.game_errors += _tree_rows(error_trees[0], true)
+	result.game_errors = result.game_errors.slice(maxi(0, result.game_errors.size() - 50))
+	if _output_capture:
+		var editor: Dictionary = _output_capture.read(int(params.get("editor_since", 0)), true, 30)
+		result.editor_errors = editor.entries
+		result.editor_next_since = editor.next_since
+	return result
+
+## Top-level rows of a debugger Tree as text: "time  message" plus, with
+## `details`, each child row ("<GDScript Source> main.gd:7 @ _ready()").
+func _tree_rows(tree: Tree, details: bool) -> Array:
+	var rows := []
+	var root := tree.get_root()
+	if root == null:
+		return rows
+	var item := root.get_first_child()
+	while item:
+		var text := item.get_text(0) if tree.columns == 1 else "%s  %s" % [item.get_text(0), item.get_text(1)]
+		if details:
+			var row := {"error": text, "details": []}
+			var child := item.get_first_child()
+			while child:
+				row.details.append(("%s %s" % [child.get_text(0), child.get_text(1)]).strip_edges())
+				child = child.get_next()
+			rows.append(row)
+		else:
+			rows.append(text)
+		item = item.get_next()
+	return rows
 
 func _fail(msg: String) -> Dictionary:
 	if msg.begins_with("node not found") and _get_scene_root() == null:

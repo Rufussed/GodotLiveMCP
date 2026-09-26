@@ -168,6 +168,13 @@ instead of manually looping `game_eval_expression` calls).
   server owns directly, which proved unreliable in practice (the process
   can vanish mid-session with no crash trace). `play_scene`/`stop_scene`
   reuse the editor's own Play/Stop mechanism instead.
+
+- After `play_scene`, or whenever something seems wrong, call
+  `get_output_log` instead of asking the user to copy errors across. It
+  returns the Output panel's recent lines (game `print()` output
+  included), the Debugger's game errors/warnings with file:line, where the
+  game is paused after a script error (`stop_scene` to end it), and the
+  editor's own errors.
 - Editor tools (`eval_expression`, `set_property`, ...) and runtime tools
   (`game_*`) target genuinely separate processes with independent state —
   a `set_property` call is not the same operation as `game_set_property`,
