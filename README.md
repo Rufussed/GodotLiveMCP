@@ -58,6 +58,12 @@ You can also open `launcher/project.godot` in Godot and press Play, or run
 `godot --path launcher` (on macOS:
 `/Applications/Godot.app/Contents/MacOS/Godot --path launcher`).
 
+Run from a clone, the launcher uses that clone as is. Copied somewhere on
+its own (just the `launcher/` folder), it downloads GodotLiveMCP itself with
+git into a per-user folder (`~/.local/share/GodotLiveMCP`,
+`~/Library/Application Support/GodotLiveMCP` or `%APPDATA%\GodotLiveMCP`),
+pulls updates on every launch and rebuilds the server when they arrive.
+
 The launcher checks for Node, npm and Claude Code, then walks through three
 steps: **Install / rebuild MCP server**; **Create new Godot project…** or
 **Add existing Godot project…**, which links the addon, enables the plugin
