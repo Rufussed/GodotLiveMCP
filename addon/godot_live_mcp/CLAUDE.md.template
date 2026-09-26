@@ -197,7 +197,12 @@ instead of manually looping `game_eval_expression` calls).
 
 ## Bracket steps with log_intent / log_result
 
-Every tool call is logged (see the main GodotLiveMCP README's
+Only when the `log_intent` / `log_result` tools are available: they exist
+only if the user opted in to usage-data collection. If they aren't in your
+tool list, skip this section entirely and never mention tool-candidate
+review.
+
+Every tool call is then logged (see the main GodotLiveMCP README's
 "Self-improvement loop" section) for later review, but a raw pile of
 tool_call entries with no record of *why* they happened is hard to review
 usefully. Call `log_intent` with a one-sentence summary before the calls
