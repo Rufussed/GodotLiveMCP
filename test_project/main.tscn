@@ -1,8 +1,0 @@
-[gd_scene format=3]
-
-[node name="Main" type="Node2D"]
-
-[node name="Player" type="Node2D" parent="."]
-position = Vector2(100, 50)
-
-[node name="Sprite2D" type="Sprite2D" parent="Player"]
