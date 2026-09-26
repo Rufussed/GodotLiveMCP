@@ -26,7 +26,7 @@ import { bridgeToolDefinitions, handleBridgeTool, isBridgeTool } from './bridgeT
 import { runtimeToolDefinitions, handleRuntimeTool, isRuntimeTool } from './runtimeTools.js';
 import { intentToolDefinitions, handleIntentTool, isIntentTool } from './intentTools.js';
 import { lspToolDefinitions, handleLspTool, isLspTool } from './lspTools.js';
-import { logEvent } from './callLog.js';
+import { logEvent, isToolDataEnabled } from './callLog.js';
 
 // Check if debug mode is enabled
 const DEBUG_MODE: boolean = process.env.DEBUG === 'true';
@@ -939,7 +939,8 @@ class GodotServer {
         },
         ...bridgeToolDefinitions,
         ...runtimeToolDefinitions,
-        ...intentToolDefinitions,
+        // Only offered when usage data is opted in (GODOT_LIVE_MCP_TOOL_DATA=on).
+        ...(isToolDataEnabled() ? intentToolDefinitions : []),
         ...lspToolDefinitions,
       ],
     }));

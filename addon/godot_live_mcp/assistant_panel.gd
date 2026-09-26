@@ -253,6 +253,7 @@ func _on_launch_codex_pressed() -> void:
 			"-c", 'mcp_servers.godot-live-mcp.command="node"',
 			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
 			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
+			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOOL_DATA=%s" % JSON.stringify(_server_env(token).GODOT_LIVE_MCP_TOOL_DATA),
 		]
 	else:
 		_append_transcript("[color=yellow]Couldn't find this project's server/token — Codex will use its own godot-live-mcp registration, if any.[/color]")
@@ -379,6 +380,15 @@ func _read_bridge_token() -> String:
 ## can't do. Returns [] (after explaining why) if the server or token can't
 ## be found; the session then falls back to whatever MCP config the user
 ## already has.
+## Opt-in (off by default): usage logging for tool-candidate review.
+func _tool_data_enabled() -> bool:
+	return EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", _TOOL_DATA_SETTING, false)
+
+## Environment for the MCP server process: this project's bridge token and
+## whether usage data is collected (see server/src/callLog.ts).
+func _server_env(token: String) -> Dictionary:
+	return {"GODOT_LIVE_MCP_TOKEN": token, "GODOT_LIVE_MCP_TOOL_DATA": "on" if _tool_data_enabled() else "off"}
+
 func _mcp_config_args(report: Callable) -> Array:
 	var entry := _resolve_server_entry()
 	if entry.is_empty():
@@ -391,7 +401,7 @@ func _mcp_config_args(report: Callable) -> Array:
 	var config := {"mcpServers": {"godot-live-mcp": {
 		"command": "node",
 		"args": [entry],
-		"env": {"GODOT_LIVE_MCP_TOKEN": token},
+		"env": _server_env(token),
 	}}}
 	return ["--mcp-config", JSON.stringify(config)]
 
@@ -411,13 +421,15 @@ func _ensure_local_registration() -> void:
 	var token := _read_bridge_token()
 	if entry.is_empty() or token.is_empty():
 		return
-	var signature := "%s|%s" % [entry, token]
+	var signature := "%s|%s|%s" % [entry, token, _tool_data_enabled()]
 	var editor_settings := EditorInterface.get_editor_settings()
 	if editor_settings.get_project_metadata("godot_live_mcp", "local_registration", "") == signature:
 		return
 
-	var add_cmd := "claude mcp add -s local godot-live-mcp -e %s -- node %s" % [
-		_shell_quote("GODOT_LIVE_MCP_TOKEN=" + token), _shell_quote(entry)
+	var add_cmd := "claude mcp add -s local godot-live-mcp -e %s -e %s -- node %s" % [
+		_shell_quote("GODOT_LIVE_MCP_TOKEN=" + token),
+		_shell_quote("GODOT_LIVE_MCP_TOOL_DATA=" + _server_env(token).GODOT_LIVE_MCP_TOOL_DATA),
+		_shell_quote(entry)
 	]
 	var shell_cmd := "cd %s && { claude mcp remove -s local godot-live-mcp >/dev/null 2>&1; %s; }" % [
 		_shell_quote(ProjectSettings.globalize_path("res://")), add_cmd
@@ -765,6 +777,7 @@ func _on_new_session_pressed() -> void:
 
 const _TESTS_SETTING := "ai_runs_tests"
 const _SAVE_SETTING := "ai_saves_changes"
+const _TOOL_DATA_SETTING := "collect_tool_data"
 const _ASSISTANT_SETTING := "panel_assistant"
 
 const _SAVE_ON_PROMPT := (
@@ -864,12 +877,29 @@ func _build_settings_popup() -> void:
 		"Applies from the next session (use the New session button)."
 	)
 	_save_check.button_pressed = EditorInterface.get_editor_settings().get_project_metadata(
-		"godot_live_mcp", _SAVE_SETTING, false)
+		"godot_live_mcp", _SAVE_SETTING, true)
 	_save_check.toggled.connect(func(on: bool):
 		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _SAVE_SETTING, on)
 		if _session_active:
 			_append_transcript("[i]Saving preference changed — it applies from the next session (New session button).[/i]"))
 	box.add_child(_save_check)
+
+	var data_check := CheckBox.new()
+	data_check.text = "Collect usage data for tool improvement"
+	data_check.tooltip_text = (
+		"On: every tool call is logged (on this computer only, in ~/.local/share/godot-live-mcp)\n" +
+		"so recurring problems can later be reviewed as candidates for new GodotLiveMCP tools,\n" +
+		"and the AI mentions when a batch is ready to review.\n" +
+		"Off: nothing is written to disk and nothing is offered for review.\n" +
+		"Applies from the next session (use the New session button)."
+	)
+	data_check.button_pressed = _tool_data_enabled()
+	data_check.toggled.connect(func(on: bool):
+		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _TOOL_DATA_SETTING, on)
+		_ensure_local_registration()
+		if _session_active:
+			_append_transcript("[i]Usage-data preference changed — it applies from the next session (New session button).[/i]"))
+	box.add_child(data_check)
 
 func _panel_agent() -> String:
 	return "codex" if _preferred_assistant() == "codex" else "claude"
@@ -917,7 +947,7 @@ func _behavior_args() -> Array:
 func _behavior_text() -> String:
 	var es := EditorInterface.get_editor_settings()
 	var tests: bool = es.get_project_metadata("godot_live_mcp", _TESTS_SETTING, false)
-	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, false)
+	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, true)
 	return "\n\n".join([
 		_TESTS_ON_PROMPT if tests else _TESTS_OFF_PROMPT,
 		_SAVE_ON_PROMPT if saves else _mac_keys(_SAVE_OFF_PROMPT),
@@ -1158,6 +1188,7 @@ func _start_codex_turn(text: String) -> bool:
 			"-c", 'mcp_servers.godot-live-mcp.command="node"',
 			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
 			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
+			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOOL_DATA=%s" % JSON.stringify(_server_env(token).GODOT_LIVE_MCP_TOOL_DATA),
 		]
 	# Godot control is always granted in this panel (like Claude's
 	# mcp__godot-live-mcp__*); without this Codex asks per MCP tool call.

@@ -170,7 +170,7 @@ editing tool goes through Godot's own `EditorUndoRedoManager`: properties
 `set_animation_keys`), scripts attached, signals, groups, physics layers,
 anchors, environment, navigation, particles and tilemaps. Signal
 connections and groups are saved to the `.tscn`, as with the editor's own
-docks. Whether the AI saves as it goes is a panel setting (off by default).
+docks. Whether the AI saves as it goes is a panel setting (on by default).
 
 **Scripts and shaders** are edited inside Godot's own script/shader editor
 (`edit_script_text`), so there are no "reload from disk?" prompts and
@@ -214,8 +214,10 @@ testing, or run Godot under X11 for unattended play.
   (they switch with the agent; "Default" shows the CLI's own setting), plus
   sync editor changes to the running game, whether the AI
   tests its own changes (off by default, to save tokens), and whether it
-  saves its changes (off by default). The last two reach the session as a
-  hidden system-prompt addition (`developer_instructions` for Codex).
+  saves its changes (on by default). The last two reach the session as a
+  hidden system-prompt addition (`developer_instructions` for Codex). A
+  fourth, **Collect usage data for tool improvement** (off by default),
+  turns on the self-improvement log below for this project's sessions.
 - **Chat:** each turn ends with its token use and the session total
   (`— edits complete · 6.4k in / 61 out (+16.3k cached) · session 12.7k /
   122 —`; in/out are fresh tokens, cached reads noted separately). Your messages in yellow, the edits-complete line in green; **Send** (paper plane) and **Stop**
@@ -238,7 +240,12 @@ files need **Project > Reload Current Project**.
 
 ## Self-improvement loop
 
-Every tool call (bridge-backed or lifecycle) is logged to
+**Opt-in, off by default.** Nothing below happens unless the server runs
+with `GODOT_LIVE_MCP_TOOL_DATA=on` (the panel's "Collect usage data"
+setting sets it). Off, nothing is written to disk, `log_intent` /
+`log_result` aren't offered, and the agent never brings up review.
+
+When on, every tool call (bridge-backed or lifecycle) is logged to
 `~/.local/share/godot-live-mcp/calls.ndjson` — shared across every
 workspace pointed at this server, since it's registered once at MCP-client
 user scope. The log doesn't grow forever: once enough "candidate signal"
@@ -271,7 +278,8 @@ Logging behavior is configurable via env vars on the MCP server:
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `GODOT_LIVE_MCP_LOG` | (on) | Set to `off` to disable logging entirely |
+| `GODOT_LIVE_MCP_TOOL_DATA` | (off) | Set to `on` to opt in to the usage log and review prompts |
+| `GODOT_LIVE_MCP_LOG` | (on) | Set to `off` to disable logging even when opted in |
 | `GODOT_LIVE_MCP_LOG_REVIEW` | (on) | Set to `off` to permanently skip review — batches are discarded at rotation instead of held for review, with no further prompting |
 | `GODOT_LIVE_MCP_LOG_PATH` | `~/.local/share/godot-live-mcp/calls.ndjson` | Override the log location |
 | `GODOT_LIVE_MCP_LOG_CANDIDATE_THRESHOLD` | `3` | Candidate-signal count that triggers rotation |

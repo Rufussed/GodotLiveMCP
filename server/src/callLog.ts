@@ -56,8 +56,16 @@
  * a candidate signal in its own right, independent of the time-gap
  * detector.
  *
- * Env vars (all optional; defaults preserve always-on logging):
- * - GODOT_LIVE_MCP_LOG=off              disable logging entirely.
+ * Env vars (all optional):
+ * - GODOT_LIVE_MCP_TOOL_DATA=on         opt in to this log at all. Off by
+ *                                       default: nothing is written to disk,
+ *                                       no batches are handed to review, and
+ *                                       log_intent/log_result aren't offered.
+ *                                       (get_debug_output keeps its own
+ *                                       in-memory buffer, so it's unaffected.)
+ *                                       The editor panel's "Collect usage
+ *                                       data" setting sets this.
+ * - GODOT_LIVE_MCP_LOG=off              disable logging even when opted in.
  * - GODOT_LIVE_MCP_LOG_REVIEW=off       permanent opt-out of review: batches
  *                                       are discarded at rotation instead of
  *                                       being handed to
@@ -118,8 +126,12 @@ function pendingReviewPath(logPath: string): string {
   return join(dirname(logPath), 'calls.pending-review.ndjson');
 }
 
+export function isToolDataEnabled(): boolean {
+  return (process.env.GODOT_LIVE_MCP_TOOL_DATA || '').toLowerCase() === 'on';
+}
+
 function isLoggingEnabled(): boolean {
-  return (process.env.GODOT_LIVE_MCP_LOG || '').toLowerCase() !== 'off';
+  return isToolDataEnabled() && (process.env.GODOT_LIVE_MCP_LOG || '').toLowerCase() !== 'off';
 }
 
 function isReviewEnabled(): boolean {
@@ -284,6 +296,7 @@ async function rotate(logPath: string): Promise<void> {
  * it can only piggyback on a response to a call the agent already made.
  */
 export async function hasPendingReview(): Promise<boolean> {
+  if (!isLoggingEnabled() || !isReviewEnabled()) return false;
   try {
     const size = (await stat(pendingReviewPath(resolveLogPath()))).size;
     return size > 0;
