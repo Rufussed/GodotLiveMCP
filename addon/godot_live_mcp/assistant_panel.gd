@@ -2,9 +2,8 @@
 extends VBoxContainer
 
 ## Bottom-panel tab: "AI Assistant". Two independent on-ramps, offered
-## together rather than as a mode switch (per PLUGIN_OUTPUT_PANEL_PLAN.md
-## Phase 1): an external-terminal launcher (Phase 1a, the native TUI, no
-## parsing needed) and an in-editor structured session (this addition) that
+## together rather than as a mode switch: an external-terminal launcher
+## (the native TUI, no parsing needed) and an in-editor structured session (this addition) that
 ## drives `claude` via stream-json and renders it as native Godot UI
 ## instead of a terminal emulation. Both can run at once; they're separate
 ## subprocesses with no shared state.
@@ -1103,8 +1102,7 @@ func _poll_session() -> void:
 		if not line.strip_edges().is_empty():
 			_handle_stream_event(line)
 
-## One line of the CLI's --output-format stream-json — see
-## PLUGIN_OUTPUT_PANEL_PLAN.md Phase 1 for the confirmed event shape.
+## One line of the CLI's --output-format stream-json.
 ## Only "assistant" (rendered) and "result" (a turn-complete marker) are
 ## surfaced; "system"/"rate_limit_event" are real events but not
 ## conversation content, so skipped rather than cluttering the transcript.

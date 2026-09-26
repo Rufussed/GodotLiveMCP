@@ -3,14 +3,9 @@ build/
 *.log
 .DS_Store
 
-# Godot editor cache/import artifacts
-test_project/.godot/
-test_project/*.import
-test_project/export_presets.cfg
-test_project/*
-
 # Launcher app editor cache
 launcher/.godot/
 
-# Local test project (linked to this repo's addon)
+# Local test projects (linked to this repo's addon)
+test_project/
 woop/
