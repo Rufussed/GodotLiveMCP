@@ -135,8 +135,9 @@ func _get_scene_root() -> Node:
 		return _scene_root
 	if Engine.is_editor_hint():
 		var edited := EditorInterface.get_edited_scene_root()
-		if edited:
-			return edited
+		# No scene open: don't fall back to the editor's own UI tree, which
+		# is ~30k nodes of editor internals (listing it stalls the editor).
+		return edited
 	return get_tree().root if is_inside_tree() else null
 
 ## Socket I/O only happens here, once per rendered frame — so any command
@@ -283,6 +284,8 @@ func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 	peer.put_data(text.to_utf8_buffer())
 
 func _fail(msg: String) -> Dictionary:
+	if msg.begins_with("node not found") and _get_scene_root() == null:
+		msg += " (no scene is open in the editor; open or create one first)"
 	return {"__error__": msg}
 
 func _resolve_node(node_path: String) -> Node:
@@ -560,6 +563,10 @@ func _cmd_eval_expression(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var expr_src := String(params.get("expression", ""))
 	var node := _resolve_node(node_path)
+	# With no scene open, a root-level eval still runs (against the bridge
+	# itself), so singletons like EditorInterface can open or create one.
+	if node == null and (node_path == "" or node_path == ".") and _get_scene_root() == null:
+		node = self
 	if node == null:
 		return _fail("node not found: %s" % node_path)
 
