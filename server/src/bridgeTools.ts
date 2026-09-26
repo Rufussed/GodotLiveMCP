@@ -90,6 +90,7 @@ export const bridgeToolNames = new Set([
   'find_nodes',
   'batch_set_properties',
   'get_editor_screenshot',
+  'get_output_log',
   'get_material_info',
   'add_animation_state',
   'add_animation_transition',
@@ -1106,6 +1107,23 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'get_output_log',
+    description:
+      'Read what the user would see in Godot\'s Output and Debugger panels, to diagnose problems — especially ' +
+      'after play_scene: the Output panel\'s last lines (includes the game\'s print() output), the Debugger\'s ' +
+      'game errors/warnings with file:line and stack details, the stack the game is paused at after a script ' +
+      'error (game_paused_at; stop_scene to end it), and the editor\'s own errors/warnings (tool scripts, plugins). ' +
+      'Held in memory only. Pass editor_since=<editor_next_since from the last call> to get only newer editor errors.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lines: { type: 'integer', description: 'How many of the Output panel\'s last lines to return (default 60)' },
+        editor_since: { type: 'integer', description: 'Only editor errors newer than this (editor_next_since from a previous call)' },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'get_editor_screenshot',
     description:
       'Capture the live editor\'s 3D viewport as a PNG image — the only way to get visual state, since ' +
@@ -1491,6 +1509,11 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         type: params.type ?? '',
         name_pattern: params.name_pattern ?? '',
         properties: params.properties ?? {},
+      }));
+    case 'get_output_log':
+      return textResult(await client.call('get_output_log', {
+        lines: params.lines ?? 60,
+        editor_since: params.editor_since ?? 0,
       }));
     case 'get_editor_screenshot':
       return imageResult(await client.call('get_editor_screenshot', {

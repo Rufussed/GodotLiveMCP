@@ -12,7 +12,8 @@ Two parts:
   sub-resources, array elements, and dictionary keys), transform, node CRUD,
   signals, groups, physics/collision, 3D materials and shaders, animation
   (including state machines), navigation baking, audio buses, tilemaps,
-  particles, theme/UI, editor screenshots, and its own Play/Stop/reload/
+  particles, theme/UI, editor screenshots, the Output/Debugger panels'
+  errors (`get_output_log`, in memory only), and its own Play/Stop/reload/
   restart control. Property changes and node add/remove/rename/reparent/
   duplicate route through Godot's own `EditorUndoRedoManager`, so
   bridge-driven edits get the same save-prompt and Ctrl+Z behavior as

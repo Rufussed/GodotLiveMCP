@@ -130,10 +130,8 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
 
 func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
-	print("RTB: sending: %s" % JSON.stringify(payload))
 	var text := JSON.stringify(payload) + "\n"
-	var err := peer.put_data(text.to_utf8_buffer())
-	print("RTB: put_data err=%d" % err)
+	peer.put_data(text.to_utf8_buffer())
 
 func _fail(msg: String) -> Dictionary:
 	return {"__error__": msg}
