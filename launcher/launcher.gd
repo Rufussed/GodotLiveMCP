@@ -5,10 +5,17 @@ extends Control
 ## Linking always goes through server/scripts/link-project.js (via
 ## `npm run link-project`), so this app only runs npm commands and shows
 ## their output — the actual logic lives in one place.
+##
+## Run from inside a GodotLiveMCP checkout, it uses that checkout as is.
+## Run on its own (just this launcher folder), it keeps its own clone in a
+## per-user data folder: cloned on first run, `git pull`ed on every launch,
+## with the server rebuilt whenever the files changed.
 
 const CONFIG_PATH := "user://launcher.cfg"
+const REPO_URL := "https://github.com/Rufussed/GodotLiveMCP.git"
 
 var _repo_root: String
+var _managed := false  # true when _repo_root is our own clone, not a checkout
 var _server_dir: String
 var _addon_dir: String
 
@@ -40,11 +47,16 @@ var _on_proc_done: Callable
 
 func _ready() -> void:
 	_repo_root = ProjectSettings.globalize_path("res://").path_join("..").simplify_path()
+	if not FileAccess.file_exists(_repo_root.path_join("server/package.json")):
+		_managed = true
+		_repo_root = OS.get_data_dir().path_join("GodotLiveMCP")
 	_server_dir = _repo_root.path_join("server")
 	_addon_dir = _repo_root.path_join("addon/godot_live_mcp")
 	_build_ui()
 	_load_projects()
 	_refresh()
+	if _managed:
+		_sync_repo()
 
 func _process(_delta: float) -> void:
 	_poll_proc()
@@ -216,22 +228,28 @@ var _server_built := false
 
 ## Re-checks prerequisites (spawns node/npm/claude, so only on demand).
 func _refresh() -> void:
+	var git := _version_of("git") if _managed else ""  # skip: may trigger the macOS tools popup
 	var node := _version_of("node")
 	var npm := _version_of("npm")
 	var claude := _version_of("claude")
 	_has_npm = not npm.is_empty()
 	_server_built = FileAccess.file_exists(_server_dir.path_join("build/index.js"))
 	var lines := [
+		_check_line("Git", git, "install from https://git-scm.com") if _managed else "",
 		_check_line("Node.js", node, "install from https://nodejs.org"),
 		_check_line("npm", npm, "comes with Node.js"),
 		_check_line("Claude Code CLI", claude, "see https://docs.claude.com/en/docs/claude-code"),
 	]
-	_status_label.text = "\n".join(lines)
+	lines.append("[color=#9e9ea8]GodotLiveMCP files: %s (%s)[/color]" % [
+		_repo_root.replace("[", "[lb]"), "kept up to date by this launcher" if _managed else "this checkout"])
+	_status_label.text = "\n".join(lines.filter(func(l): return not l.is_empty()))
 	_update_controls()
 
 func _update_controls() -> void:
-	_install_button.disabled = not _has_npm or _busy()
-	_install_button.tooltip_text = "" if _has_npm else "Install Node.js first."
+	var have_repo := FileAccess.file_exists(_server_dir.path_join("package.json"))
+	_install_button.disabled = not _has_npm or not have_repo or _busy()
+	_install_button.tooltip_text = ("Install Node.js first." if not _has_npm
+		else "" if have_repo else "Waiting for the GodotLiveMCP files to download.")
 	if _busy():
 		_server_state.text = "Working…"
 		_server_state.modulate = Color(1, 1, 1, 0.6)
@@ -361,6 +379,33 @@ func _build_server(then: Callable) -> void:
 			then.call()
 	)
 
+## Managed mode only: clone on first run, otherwise fast-forward pull. The
+## server is (re)built when the files changed or it was never built. A
+## failed pull (offline, say) keeps the existing copy.
+func _sync_repo() -> void:
+	var cloned := DirAccess.dir_exists_absolute(_repo_root.path_join(".git"))
+	var before := _git_head() if cloned else ""
+	var args := ["-C", _repo_root, "pull", "--ff-only"] if cloned else ["clone", REPO_URL, _repo_root]
+	_run_async("git", args, func(code: int):
+		if code != 0:
+			_log_line("[color=#e06c6c]Couldn't %s the GodotLiveMCP files (exit %d)%s.[/color]" % [
+				"update" if cloned else "download", code, "; using the existing copy" if cloned else ""])
+			_refresh()
+			return
+		var changed := _git_head() != before
+		_refresh()
+		if _has_npm and (changed or not _server_built):
+			_log_line("[color=#7ec07e]GodotLiveMCP files %s; building the server.[/color]" % ("updated" if cloned else "downloaded"))
+			_build_server(func(): pass)
+	)
+
+func _git_head() -> String:
+	var w := _wrap("git", ["-C", _repo_root, "rev-parse", "HEAD"])
+	var output: Array = []
+	if OS.execute(w[0], w[1], output, true) != 0 or output.is_empty():
+		return ""
+	return String(output[0]).strip_edges()
+
 func _on_folder_selected(path: String) -> void:
 	path = path.simplify_path()
 	if not FileAccess.file_exists(path.path_join("project.godot")):
@@ -371,7 +416,8 @@ func _on_folder_selected(path: String) -> void:
 func _on_new_pressed() -> void:
 	_new_name.text = ""
 	if _new_dest.text.is_empty():
-		_new_dest.text = _repo_root.get_base_dir()
+		_new_dest.text = (OS.get_environment("USERPROFILE") if OS.get_name() == "Windows"
+			else OS.get_environment("HOME")) if _managed else _repo_root.get_base_dir()
 	_validate_new()
 	_new_dialog.popup_centered()
 	_new_name.grab_focus()
