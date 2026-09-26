@@ -37,16 +37,34 @@ Prerequisites: [Node.js](https://nodejs.org) 18+ and the
 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
 and logged in.
 
-**Easiest: the launcher app.** After cloning, open `launcher/project.godot`
-in Godot and press Play (or run `godot --path launcher`; on macOS there's
-no `godot` command, so use
-`/Applications/Godot.app/Contents/MacOS/Godot --path launcher`). Or double-click `launch.command` (macOS) or `launch.bat`
-(Windows), or run `./launch.sh` (Linux), in the repo folder to start it directly. It checks for
-Node, npm and Claude Code, then walks through three steps: **Install /
-rebuild MCP server**; **Create new Godot project…** or **Add existing Godot
-project…**, which links the addon, enables the plugin and adds `CLAUDE.md`
-/ `AGENTS.md`; then **Open in Godot** (which closes the launcher) or
-**Unlink**. The steps below do the same from a terminal.
+**Easiest: the launcher app.** Clone the repo, then start the launcher with
+the script for your system, from the repo folder:
+
+```
+git clone https://github.com/Rufussed/GodotLiveMCP.git
+```
+
+- **macOS:** double-click `launch.command` in Finder. It finds Godot via
+  `$GODOT`, a `godot` command, or any `Godot*.app` in `/Applications` or
+  `~/Applications`. If macOS says it isn't allowed to run, run
+  `chmod +x launch.command` once.
+- **Windows:** double-click `launch.bat`. It uses `%GODOT%` or `godot` on
+  PATH; otherwise it asks you to drag the Godot `.exe` into its window
+  once and remembers it (in `launcher/.godot_path`).
+- **Linux:** run `./launch.sh`. It uses `$GODOT`, `godot`, `godot4` or the
+  Flatpak (`org.godotengine.Godot`).
+
+You can also open `launcher/project.godot` in Godot and press Play, or run
+`godot --path launcher` (on macOS:
+`/Applications/Godot.app/Contents/MacOS/Godot --path launcher`).
+
+The launcher checks for Node, npm and Claude Code, then walks through three
+steps: **Install / rebuild MCP server**; **Create new Godot project…** or
+**Add existing Godot project…**, which links the addon, enables the plugin
+and adds `CLAUDE.md` / `AGENTS.md`; then **Open in Godot** (which closes
+the launcher) or **Unlink**. On macOS, if a popup asks to install the
+command line developer tools, accept it (or run `xcode-select --install`).
+The steps below do the same from a terminal.
 
 1. Clone this repo and build the server (`npm install` builds it too):
    ```
