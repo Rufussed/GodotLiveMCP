@@ -121,6 +121,7 @@ export class BridgeClient {
       const socket: Socket = connect({ host: this.host, port: this.port });
       let buffer = '';
       let settled = false;
+      let connected = false;
 
       const cleanup = () => {
         socket.removeAllListeners();
@@ -131,12 +132,21 @@ export class BridgeClient {
         if (settled) return;
         settled = true;
         cleanup();
-        reject(new BridgeError(
-          `Timed out waiting for bridge response (is the GodotLiveMCP addon running in the editor?)`
+        // Once connected, the addon is demonstrably running (nothing else
+        // listens on this port), so blaming it was wrong: real use saw this
+        // message on save_scene_live while a call two seconds later was
+        // answered. What silence means is a busy editor or a modal dialog —
+        // and that the command may still finish, so a retry could repeat it.
+        reject(new BridgeError(connected
+          ? `No reply to "${command}" within ${this.timeoutMs / 1000}s. The GodotLiveMCP addon is connected, so the editor is ` +
+            `probably busy or showing a dialog (check the editor window). The command may still complete — check the ` +
+            `result before repeating it.`
+          : `Timed out connecting to the GodotLiveMCP bridge (is the addon running in the editor?)`
         ));
       }, this.timeoutMs);
 
       socket.on('connect', () => {
+        connected = true;
         socket.write(payload);
       });
 

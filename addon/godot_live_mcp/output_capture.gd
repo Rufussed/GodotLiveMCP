@@ -41,6 +41,13 @@ func _add(entry: Dictionary) -> void:
 		_entries.pop_front()
 	_mutex.unlock()
 
+## The newest entry's seq, so a caller can read only what comes after it.
+func last_seq() -> int:
+	_mutex.lock()
+	var seq := _seq
+	_mutex.unlock()
+	return seq
+
 ## Entries with seq > `since`, optionally errors/warnings only, newest
 ## `limit` of them. `next_since` is what to pass next time to get only
 ## newer entries; `truncated` says older matches were cut by `limit` or

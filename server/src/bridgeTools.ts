@@ -32,6 +32,7 @@ export const bridgeToolNames = new Set([
   'eval_expression',
   'list_scene_tree',
   'get_node_properties',
+  'open_scene',
   'set_property',
   'set_properties',
   'set_transform',
@@ -119,7 +120,8 @@ export const bridgeToolDefinitions = [
       'Also has KEY_* constants (e.g. "Input.is_key_pressed(KEY_A)") — these are ordinary GDScript ' +
       "globals elsewhere, but Expression doesn't resolve them unless explicitly bound like this. " +
       'Note: Expression syntax cannot parse assignment statements or loops — for those, use a ' +
-      'structured tool.' + VALUE_ENCODING_NOTE,
+      'structured tool. "Invalid named index \'x\' for base type Object" means `.x` was read from a null ' +
+      '(a find_child/get_node that found nothing, or an unset property), or x isn\'t in scope.' + VALUE_ENCODING_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -171,14 +173,43 @@ export const bridgeToolDefinitions = [
   {
     name: 'get_node_properties',
     description:
-      'Get all editor-visible properties of a live node and their current values. For a Node2D/Node3D, ' +
+      'Get the editor-visible properties of one or more live nodes and their current values. For a Node2D/Node3D, ' +
       'position/rotation/scale here are LOCAL (relative to the parent) — global_position/global_rotation/' +
       'global_transform (world-space, what matters most under nested parents) are also included even though ' +
-      'Godot doesn\'t flag them editor-visible, since they\'re real settable properties too.' + VALUE_ENCODING_NOTE,
+      'Godot doesn\'t flag them editor-visible, since they\'re real settable properties too. To inspect several ' +
+      'nodes (e.g. every control in a panel), pass node_paths in ONE call rather than one call per node, and pass ' +
+      'properties to get just the values you need instead of every property of every node.' + VALUE_ENCODING_NOTE,
     inputSchema: {
       type: 'object',
-      properties: { ...NODE_PATH_PROPERTY },
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        node_paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Several nodes to read at once; returns {nodes: {path: {...}}, not_found?: [...]}. Replaces node_path.',
+        },
+        properties: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Only these property names (e.g. ["size", "custom_minimum_size"]). A node that lacks one just omits it.',
+        },
+      },
       required: [],
+    },
+  },
+  {
+    name: 'open_scene',
+    description:
+      'Open a scene in the editor, or switch to its tab if it\'s already open, making it the scene every other ' +
+      'tool edits. Use it when a node path that just worked reports "node not found" because the edited scene ' +
+      'changed (the error names the scene being edited), or to work on a different scene. Returns the root and ' +
+      'the list of open scenes. Prefer this over EditorInterface.open_scene_from_path() in eval_expression.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'res:// path of the scene, e.g. "res://scenes/level01.tscn"' },
+      },
+      required: ['path'],
     },
   },
   {
@@ -1205,6 +1236,12 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'get_node_properties':
       return textResult(await client.call('get_node_properties', {
         node_path: params.node_path ?? '.',
+        node_paths: params.node_paths ?? [],
+        properties: params.properties ?? [],
+      }));
+    case 'open_scene':
+      return textResult(await client.call('open_scene', {
+        path: params.path,
       }));
     case 'set_property':
       return textResult(await client.call('set_property', {
