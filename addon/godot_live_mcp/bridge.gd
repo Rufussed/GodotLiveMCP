@@ -223,15 +223,25 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 		# Awaited so a command can wait a frame for the editor (a no-op for
 		# the ones that don't suspend).
 		var watch := command in _RAW_EDIT_COMMANDS
-		var before := _scene_fingerprint() if watch else 0
+		var before := _scene_fingerprint() if watch else {}
+		var root_before: Node = _get_scene_root() if watch else null
 		var response = await call("_cmd_" + command, params)
 		if typeof(response) == TYPE_DICTIONARY and response.has("__error__"):
 			ok = false
 			error = response["__error__"]
+			# The usual reason a path that worked a moment ago stops
+			# resolving — or a property that should exist "doesn't" — is
+			# that a different scene tab is now being edited; seen in real
+			# use, where the agent had no way to tell. Name the scene on any
+			# failed call that targeted a node.
+			if params.has("node_path") or params.has("node_paths") or params.has("parent_path") or params.has("edits"):
+				error = "%s (the edited scene is %s)" % [error, _edited_scene_label()]
 		else:
 			result = response
 		# Also on errors: a script can change the scene before it fails.
-		if watch and _scene_fingerprint() != before:
+		# Opening or switching to another scene changes the fingerprint too,
+		# but isn't an edit — it used to be flagged as one.
+		if watch and _get_scene_root() == root_before and await _scene_edited_since(before):
 			if typeof(result) != TYPE_DICTIONARY:
 				result = {"value": result} if ok else {}
 			result["scene_changed_note"] = _mac_keys(_RAW_EDIT_NOTE)
@@ -239,6 +249,12 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 				error = "%s (%s)" % [error, _mac_keys(_RAW_EDIT_NOTE)]
 
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
+
+func _edited_scene_label() -> String:
+	var root := _get_scene_root()
+	if root == null:
+		return "none (no scene open)"
+	return root.scene_file_path if root.scene_file_path != "" else "an unsaved scene (%s)" % root.name
 
 ## Commands that run arbitrary code on the editor's scene. Their changes
 ## bypass Godot's undo system and never reach a running game, so the scene
@@ -248,44 +264,80 @@ const _RAW_EDIT_NOTE := ("This changed the editor's scene directly: the change c
 	"with Ctrl+Z and won't show in a running game. Tell the user, and prefer the structured " +
 	"tools (set_property, set_properties, add_node_live, ...) for edits to the scene.")
 
-## A hash of the edited scene's structure and saved property values,
+## The edited scene's structure and saved property values as {key: hash},
 ## including built-in sub-resources (materials, meshes, shapes...). Values are
 ## hashed rather than printed so big arrays (mesh data) stay cheap.
-func _scene_fingerprint() -> int:
+func _scene_fingerprint() -> Dictionary:
+	var parts := {}
 	var root := _get_scene_root()
 	if root == null:
-		return 0
-	var parts := PackedStringArray()
+		return parts
 	var seen := {}
 	for n in [root] + root.find_children("*", "", true, false):
-		parts.append("%s:%s" % [root.get_path_to(n), n.get_class()])
-		_fingerprint_object(n, parts, seen)
-	return "\n".join(parts).hash()
+		var label := str(root.get_path_to(n))
+		parts["%s|class" % label] = n.get_class()
+		_fingerprint_object(n, label, parts, seen)
+	return parts
 
-func _fingerprint_object(obj: Object, parts: PackedStringArray, seen: Dictionary) -> void:
+## Whether the scene changed since `before` was taken, ignoring values that
+## change by themselves. Tool scripts animate properties on their own (the
+## Sky3D addon drifts its cloud shader parameters every frame), so with a
+## plain before/after comparison any command that let a frame pass — a
+## reimport, a filesystem scan — was reported as a raw scene edit, in real
+## use (reimport_files on some textures). When something differs, sample the
+## scene again a couple of frames later: what still moves without anyone
+## touching it is not an edit. Costs nothing unless something differs.
+func _scene_edited_since(before: Dictionary) -> bool:
+	var after := _scene_fingerprint()
+	var differing := _differing_keys(before, after)
+	if differing.is_empty():
+		return false
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var later := _scene_fingerprint()
+	for key in _differing_keys(after, later):
+		differing.erase(key)
+	return not differing.is_empty()
+
+func _differing_keys(a: Dictionary, b: Dictionary) -> Dictionary:
+	var keys := {}
+	for key in a:
+		if not b.has(key) or a[key] != b[key]:
+			keys[key] = true
+	for key in b:
+		if not a.has(key):
+			keys[key] = true
+	return keys
+
+func _fingerprint_object(obj: Object, label: String, parts: Dictionary, seen: Dictionary) -> void:
 	for prop in obj.get_property_list():
 		if not (prop.usage & PROPERTY_USAGE_STORAGE):
 			continue
 		var value = obj.get(prop.name)
+		var key := "%s|%s" % [label, prop.name]
 		if value is Resource:
 			var res := value as Resource
-			parts.append("%s=res:%s" % [prop.name, res.resource_path])
-			# Built-in resources are part of the scene; files are not.
-			if (res.resource_path == "" or res.resource_path.contains("::")) and not seen.has(res):
-				seen[res] = true
-				_fingerprint_object(res, parts, seen)
+			parts[key] = "res:%s" % res.resource_path
+			_fingerprint_owned_resource(res, parts, seen)
 		elif value is Object:
-			parts.append("%s=obj" % prop.name)
+			parts[key] = "obj"
 		else:
-			parts.append("%s=%d" % [prop.name, hash(value)])
+			parts[key] = hash(value)
 			# Resources held in containers (AnimationPlayer's libraries ->
 			# AnimationLibrary -> Animation) are part of the scene too.
 			if value is Dictionary or value is Array:
 				for item in (value.values() if value is Dictionary else value):
-					if item is Resource and not seen.has(item) and \
-							(item.resource_path == "" or item.resource_path.contains("::")):
-						seen[item] = true
-						_fingerprint_object(item, parts, seen)
+					if item is Resource:
+						_fingerprint_owned_resource(item, parts, seen)
+
+## Built-in resources are part of the scene; files are not.
+func _fingerprint_owned_resource(res: Resource, parts: Dictionary, seen: Dictionary) -> void:
+	if (res.resource_path == "" or res.resource_path.contains("::")) and not seen.has(res):
+		# Numbered in the order found, so resources with no path of their own
+		# still get a stable key.
+		seen[res] = true
+		var label := res.resource_path if res.resource_path != "" else "res#%d" % seen.size()
+		_fingerprint_object(res, label, parts, seen)
 
 func _send(peer: StreamPeerTCP, payload: Dictionary) -> void:
 	var text := JSON.stringify(payload) + "\n"
@@ -544,6 +596,17 @@ func _commit_properties(obj: Object, values: Dictionary) -> void:
 ## than guessing at the full Variant type list and risking a runtime
 ## "Invalid call" on some untested type silently passing the same way (1)
 ## did — everything else falls back to plain ==, unchanged from before.
+## Whether a property read back after a set holds what was requested.
+## Godot converts int <-> float on assignment, so "66" (decoded as an int)
+## that reads back as 66.0 from a float property like offset_top did take —
+## a strict type comparison reported those as failures after they'd been
+## committed (seen in real use on Control offsets).
+func _value_took(actual, requested) -> bool:
+	var numeric := [TYPE_INT, TYPE_FLOAT]
+	if typeof(actual) in numeric and typeof(requested) in numeric:
+		return is_equal_approx(float(actual), float(requested))
+	return typeof(actual) == typeof(requested) and _values_approximately_equal(actual, requested)
+
 func _values_approximately_equal(actual, requested) -> bool:
 	match typeof(actual):
 		TYPE_FLOAT:
@@ -604,7 +667,7 @@ func _apply_properties(obj: Object, props: Dictionary) -> String:
 	for name_str in to_apply:
 		var actual = obj.get(name_str)
 		var requested = to_apply[name_str]
-		if typeof(actual) != typeof(requested) or not _values_approximately_equal(actual, requested):
+		if not _value_took(actual, requested):
 			mismatched.append("%s (requested %s, property is a %s — check the var_to_str() encoding, e.g. \"Vector2(1, 2)\" not a JSON array/object)" % [
 				name_str, var_to_str(requested), type_string(typeof(actual))
 			])
@@ -648,6 +711,10 @@ func _cmd_eval_expression(params: Dictionary):
 		input_names.append("EditorInterface")
 		input_values.append(EditorInterface)
 
+	var statement_hint := _eval_statement_hint(expr_src)
+	if statement_hint != "":
+		return _fail(statement_hint)
+
 	var expr := Expression.new()
 	var parse_err := expr.parse(expr_src, input_names)
 	if parse_err != OK:
@@ -655,9 +722,37 @@ func _cmd_eval_expression(params: Dictionary):
 
 	var value = expr.execute(input_values, node, true)
 	if expr.has_execute_failed():
-		return _fail("execute error: %s" % expr.get_error_text())
+		return _fail("execute error: %s%s" % [expr.get_error_text(), _eval_named_index_hint(expr.get_error_text())])
 
 	return {"value": var_to_str(value)}
+
+## Expression takes a single expression. Statements used to come back as
+## "Invalid named index 'var' for base type Object" or "Expected '='",
+## which doesn't say what went wrong or where to go instead (seen in real
+## use, several times). Returns "" when src looks like an expression.
+func _eval_statement_hint(src: String) -> String:
+	var stripped := RegEx.create_from_string("\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'").sub(src, "\"\"", true)
+	var is_statement := RegEx.create_from_string("^\\s*(var|const|for|while|if|match|return|await)\\b").search(stripped) != null \
+			or stripped.contains(";") \
+			or RegEx.create_from_string("[^=!<>+\\-*/%&|^]=[^=]").search(stripped) != null
+	if not is_statement:
+		return ""
+	return "eval_expression takes one expression, not statements (var, loops, `;`, `=` assignment). Use run_script for statements, or set_property / set_nested_property to change a value (undoable, and reaches a running game)."
+
+## "Invalid named index 'x' for base type Object" is what Expression says
+## both for a name that isn't in scope (only the singletons it was given
+## are) and for `.x` read off a null — a find_child() that found nothing, an
+## unset material or override. Real use hit both and retried blind. Checked
+## live on 4.7: chained reads off a non-null call result work fine.
+func _eval_named_index_hint(error_text: String) -> String:
+	var m := RegEx.create_from_string("Invalid named index '([^']+)' for base type Object").search(error_text)
+	if m == null:
+		return ""
+	var index_name := m.get_string(1)
+	var first := index_name.substr(0, 1)
+	if first == first.to_upper() and first != "_":
+		return " — %s isn't available inside Expression (only the built-in singletons are); use run_script" % index_name
+	return " — the value `.%s` was read from is null (a lookup that found nothing, or an unset property)" % index_name
 
 ## eval_expression's Expression class can only parse a single statement — no
 ## var declarations, no loops, no `;`-chained assignments. This runs actual
@@ -683,18 +778,56 @@ func _cmd_run_script(params: Dictionary):
 ## Compiles `source` as the body of func _run(node) and calls it.
 ## Returns [error_message_or_empty, value].
 func _run_source(node: Node, source: String) -> Array:
+	var lines := source.split("\n")
+	# Indent the body with the same character the caller indented with: a
+	# tab in front of space-indented lines is "mixed tabs and spaces", a
+	# compile error the caller never wrote (seen in real use).
+	var unit := "\t"
+	for line in lines:
+		if line.begins_with(" "):
+			unit = "    "
+			break
+		if line.begins_with("\t"):
+			break
 	var indented := ""
-	for line in source.split("\n"):
-		indented += "\t%s\n" % line
+	for line in lines:
+		indented += unit + line + "\n"
 	var script := GDScript.new()
-	script.source_code = "extends RefCounted\nfunc _run(node):\n%s" % indented
-	var err := script.reload()
-	if err != OK:
-		return ["script compile error (code %d) — check GDScript syntax" % err, null]
+	# @tool, so a parse error is reported with its message — see _compile_script.
+	script.source_code = "@tool\nextends RefCounted\nfunc _run(node):\n%s" % indented
+	var compile_error := _compile_script(script, 3)
+	if compile_error != "":
+		return ["script compile error: %s (the body runs inside func _run(node) on a RefCounted, so reach the scene through `node`, e.g. node.get_tree())" % compile_error, null]
 	var runner = script.new()
 	if not (runner is RefCounted and runner.has_method("_run")):
 		return ["internal error: compiled script has no _run() method", null]
 	return ["", runner.call("_run", node)]
+
+## Compiles `script` and returns "" on success, or the parser's own messages
+## with line numbers counted from the caller's first line (`line_offset` is
+## how many wrapper lines come before it). GDScript.reload() only returns an
+## error code — before this, run_script and validate_script answered every
+## mistake with "code 43", leaving the caller to guess. The message goes to
+## the Output panel instead, and only for a script that may run in the
+## editor (@tool), so it's read back from the in-memory log capture.
+func _compile_script(script: GDScript, line_offset: int) -> String:
+	var since: int = _output_capture.last_seq() if _output_capture else 0
+	var err := script.reload()
+	if err == OK:
+		return ""
+	var messages := []
+	if _output_capture:
+		for entry in _output_capture.read(since, true, 20).entries:
+			var text: String = entry.text
+			if text.begins_with("Parse Error: "):
+				text = text.substr(13)
+			var line_match := RegEx.create_from_string(":(\\d+) @").search(String(entry.get("where", "")))
+			if line_match:
+				text = "line %d: %s" % [int(line_match.get_string(1)) - line_offset, text]
+			messages.append(text)
+	if messages.is_empty():
+		return "error code %d, no message reported (check the editor's Output panel)" % err
+	return "; ".join(messages)
 
 ## Different property values on many nodes as ONE undoable action (one
 ## Ctrl+Z), live-synced to a running game like any property edit. Everything
@@ -742,7 +875,7 @@ func _cmd_set_properties_multi(params: Dictionary):
 		for name_str in item[1]:
 			var actual = item[0].get(name_str)
 			var requested = item[1][name_str]
-			if typeof(actual) != typeof(requested) or not _values_approximately_equal(actual, requested):
+			if not _value_took(actual, requested):
 				mismatched.append("%s.%s (requested %s, property is a %s)" % [
 					_rel_path(item[0]), name_str, var_to_str(requested), type_string(typeof(actual))])
 	if not mismatched.is_empty():
@@ -822,18 +955,52 @@ func _describe_node(node: Node) -> Dictionary:
 		"children": children,
 	}
 
+## node_paths reads several nodes in one call, and properties narrows what
+## comes back — real use read 5-25 nodes one call at a time, each returning
+## every property, several times in one session (the read-side counterpart
+## to set_properties_multi).
 func _cmd_get_node_properties(params: Dictionary):
-	var node_path := String(params.get("node_path", "."))
-	var node := _resolve_node(node_path)
-	if node == null:
-		return _fail("node not found: %s" % node_path)
+	var wanted: Array = params.get("properties", [])
+	var node_paths: Array = params.get("node_paths", [])
+	if node_paths.is_empty():
+		var node_path := String(params.get("node_path", "."))
+		var node := _resolve_node(node_path)
+		if node == null:
+			return _fail("node not found: %s" % node_path)
+		var single := _node_properties(node, wanted)
+		if not wanted.is_empty() and single.is_empty():
+			return _fail("%s has none of these properties: %s" % [node.get_class(), ", ".join(wanted)])
+		return single
 
+	var nodes := {}
+	var not_found := []
+	var any_matched := false
+	for path in node_paths:
+		var node := _resolve_node(String(path))
+		if node == null:
+			not_found.append(String(path))
+			continue
+		var props := _node_properties(node, wanted)
+		any_matched = any_matched or not props.is_empty()
+		nodes[String(path)] = props
+	if nodes.is_empty():
+		return _fail("none of these nodes were found: %s" % ", ".join(not_found))
+	if not wanted.is_empty() and not any_matched:
+		return _fail("none of the nodes have any of these properties: %s" % ", ".join(wanted))
+	var result := {"nodes": nodes}
+	if not not_found.is_empty():
+		result["not_found"] = not_found
+	return result
+
+## Every editor-visible property of node (or just the `wanted` names it
+## has), var_to_str()-encoded.
+func _node_properties(node: Node, wanted: Array) -> Dictionary:
 	var props := {}
 	for prop in node.get_property_list():
 		if prop.usage & PROPERTY_USAGE_EDITOR == 0:
 			continue
-		var name: String = prop.name
-		props[name] = var_to_str(node.get(name))
+		var prop_name: String = prop.name
+		props[prop_name] = var_to_str(node.get(prop_name))
 
 	# position/rotation/scale above are LOCAL (relative to the parent) —
 	# real properties (already settable via set_property/eval_expression)
@@ -851,7 +1018,35 @@ func _cmd_get_node_properties(params: Dictionary):
 		props["global_rotation"] = var_to_str(node.global_rotation)
 		props["global_transform"] = var_to_str(node.global_transform)
 
-	return props
+	if wanted.is_empty():
+		return props
+	var picked := {}
+	for prop_name in wanted:
+		var name_str := String(prop_name)
+		if props.has(name_str):
+			picked[name_str] = props[name_str]
+		elif name_str in node:
+			picked[name_str] = var_to_str(node.get(name_str))
+	return picked
+
+## Opens a scene in the editor, or switches to its tab if it's already open.
+## Real use reached for EditorInterface.open_scene_from_path() through
+## eval_expression after the edited scene had changed under it — which was
+## also flagged as a raw scene edit, since the fingerprint changed.
+func _cmd_open_scene(params: Dictionary):
+	var path := String(params.get("path", ""))
+	if not path.begins_with("res://"):
+		return _fail("path must be a res:// path: %s" % path)
+	if not ResourceLoader.exists(path):
+		return _fail("no such scene: %s" % path)
+	if not ResourceLoader.load(path) is PackedScene:
+		return _fail("not a scene: %s" % path)
+	EditorInterface.open_scene_from_path(path)
+	await get_tree().process_frame
+	var root := _get_scene_root()
+	if root == null or root.scene_file_path != path:
+		return _fail("the editor didn't switch to %s (edited scene is %s)" % [path, _edited_scene_label()])
+	return {"scene": path, "root": root.name, "root_type": root.get_class(), "open_scenes": Array(EditorInterface.get_open_scenes())}
 
 func _cmd_set_property(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
@@ -1128,10 +1323,13 @@ func _cmd_validate_script(params: Dictionary):
 	f.close()
 
 	var scr := GDScript.new()
-	scr.source_code = source
-	var err := scr.reload()
-	if err != OK:
-		return _fail("parse failed with error code %d (see the editor's Output panel for the message)" % err)
+	# @tool so the parser reports its message (see _compile_script); a
+	# script that already has it would fail on a second one.
+	var has_tool := RegEx.create_from_string("(?m)^@tool\\b").search(source) != null
+	scr.source_code = source if has_tool else "@tool\n" + source
+	var compile_error := _compile_script(scr, 0 if has_tool else 1)
+	if compile_error != "":
+		return _fail("parse failed: %s" % compile_error)
 	return {"ok": true}
 
 ## Replaces a script's or shader's text the way a person would: opens it in

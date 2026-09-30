@@ -91,7 +91,7 @@
  * against.
  */
 
-import { appendFile, mkdir, readFile, stat, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readFile, rename, stat, unlink } from 'fs/promises';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 
@@ -238,8 +238,10 @@ export async function logEvent(entry: Record<string, any>): Promise<void> {
       shouldRotate = await exceedsSizeBackstop(logPath);
     }
     if (shouldRotate) {
-      await rotate(logPath);
+      // Reset before awaiting, so other logEvent calls already in flight in
+      // this process don't also see the threshold crossed.
       candidateCount = 0;
+      await rotate(logPath);
     }
   } catch {
     // Diagnostic-only — never let a filesystem hiccup affect the actual operation.
@@ -258,17 +260,26 @@ async function exceedsSizeBackstop(logPath: string): Promise<boolean> {
  * Mechanical batch rotation — pure file movement, no judgment about the
  * content is made or needed here. Called once a trigger (candidate-signal
  * count or the size backstop) has already decided rotation should happen.
+ *
+ * The live log is claimed with an atomic rename before it's read, so only
+ * one rotation can ever take a given batch. This used to read, append, then
+ * truncate, and concurrent logEvent calls (launch_editor logs every output
+ * line without awaiting, and several server processes share the same file)
+ * each appended the same batch — review found pending files holding one
+ * batch up to 9 times, and entries written between the read and the
+ * truncate were lost. A rotation that loses the rename race just returns;
+ * the next append recreates the live log.
  */
 async function rotate(logPath: string): Promise<void> {
-  let currentBatch: string;
+  const claimedPath = `${logPath}.rotating-${process.pid}-${Date.now()}`;
   try {
-    currentBatch = await readFile(logPath, 'utf8');
+    await rename(logPath, claimedPath);
   } catch {
-    return; // doesn't exist yet — nothing to rotate
+    return; // doesn't exist, or another rotation already claimed it
   }
-  if (currentBatch.length === 0) return;
-
-  if (isReviewEnabled()) {
+  try {
+    const currentBatch = await readFile(claimedPath, 'utf8');
+    if (currentBatch.length === 0 || !isReviewEnabled()) return;
     const pendingPath = pendingReviewPath(logPath);
     let pendingSize = 0;
     try {
@@ -282,10 +293,10 @@ async function rotate(logPath: string): Promise<void> {
     // else: the hard cap is already reached and nobody has run the review
     // skill — drop this batch rather than growing without bound. The
     // existing pending file is left untouched for whenever review happens.
+  } finally {
+    // Review disabled, or this batch was handled above either way.
+    await unlink(claimedPath).catch(() => undefined);
   }
-  // Review disabled, or this batch was handled above either way — the live
-  // log always starts fresh so new entries never land in an oversized file.
-  await writeFile(logPath, '', 'utf8');
 }
 
 /**
