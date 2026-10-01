@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b5vk0740glmvv"
-path="res://.godot/imported/claude.svg-cb6435501ae1dae6a85e865bb0c50fee.ctex"
+uid="uid://beu6o3vpngk4q"
+path="res://.godot/imported/cli.svg-a244302c1d63408a1e0444883c26e699.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/godot_live_mcp/icons/claude.svg"
-dest_files=["res://.godot/imported/claude.svg-cb6435501ae1dae6a85e865bb0c50fee.ctex"]
+source_file="res://addons/godot_live_mcp/icons/cli.svg"
+dest_files=["res://.godot/imported/cli.svg-a244302c1d63408a1e0444883c26e699.ctex"]
 
 [params]
 

@@ -2,6 +2,11 @@
 class_name GodotLiveMCPBridge
 extends Node
 
+## Emitted once per request the bridge answers (ok = whether it succeeded). The
+## AI Assistant panel's robot uses it to show that an AI is working in the
+## editor, whichever client (chat, CLI, a separate terminal, another tool) it is.
+signal activity(ok: bool)
+
 ## Headless local socket bridge for the GodotLiveMCP MCP server.
 ##
 ## Protocol: newline-delimited JSON over TCP, localhost-only.
@@ -248,6 +253,7 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 			if not ok:
 				error = "%s (%s)" % [error, _mac_keys(_RAW_EDIT_NOTE)]
 
+	activity.emit(ok)
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
 
 func _edited_scene_label() -> String:

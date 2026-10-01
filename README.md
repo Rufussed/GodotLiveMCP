@@ -98,7 +98,7 @@ The steps below do the same from a terminal.
    was open while you linked it, reopen it). The bridge generates its auth
    token automatically.
 4. Open the **AI Assistant** tab in the bottom panel and type a message (or
-   use the **Open external CLI with:** buttons — Claude, Codex, OpenCode, Gemini — for a full interactive CLI in a terminal). The panel
+   use the **CLI** or **External** modes for a full interactive CLI). The panel
    finds the server through the link and passes it to Claude along with
    this project's token, so there's no MCP config file to edit and no token
    to copy. When the plugin loads, the panel also registers the server for
@@ -205,23 +205,38 @@ testing, or run Godot under X11 for unattended play.
 
 ## AI Assistant panel
 
-- **Permissions** toggles (on by default, remembered per project).
-- **Open external CLI with:** Claude / Codex / OpenCode / Gemini: a terminal session with this
-  project's server and token (Claude, Codex and OpenCode also get the model/effort and
-  preferences; Gemini uses its own; Gemini's server entry is written
-  to the project's `.gemini/settings.json`, which holds the local bridge token). Each button is enabled when its CLI is
-  found on PATH.
-- **New session** (refresh icon): the next message starts a fresh session
-  and server.
-- **Settings** (tools icon): **Coding agent** (Claude, Codex or OpenCode for the
-  panel chat) with its **Model** and **Effort** drop-downs beside each other
-  (they switch with the agent; "Default" shows the CLI's own setting), plus
-  sync editor changes to the running game, whether the AI
-  tests its own changes (off by default, to save tokens), and whether it
-  saves its changes (on by default). The last two reach the session as a
-  hidden system-prompt addition (`developer_instructions` for Codex). A
-  fourth, **Collect usage data for tool improvement** (off by default),
-  turns on the self-improvement log below for this project's sessions.
+The panel's header is one line: the title, the **Agent** menu with the current choice printed after it,
+a **Chat | CLI | External** toggle (defaults to Chat), and refresh and settings on the right. You
+choose the agent and model once, and all three modes use that choice.
+
+- **Agent** (menu, then e.g. "Claude · Sonnet 5.5"): the agent (Claude, Codex, OpenCode or Gemini;
+  only CLIs found on PATH are listed) with **Model…** and **Effort…** submenus ("Default" shows the
+  CLI's own setting; Gemini uses its own). Switching the agent keeps each agent's own saved session.
+- **Chat**: the structured chat box (Claude, Codex and OpenCode; Gemini has no chat view yet, so
+  Chat greys out for it).
+- **CLI** (shown if the optional [GodotXterm](https://github.com/lihop/godot-xterm) addon is
+  installed, Linux/macOS): the chosen agent's full interactive CLI running right in the editor —
+  same server, token and settings as External. Its font size and colour scheme are in **Settings**,
+  under the Terminal subhead.
+- **External**: the same CLI in a separate terminal window, in this project. Claude, Codex and
+  OpenCode also get the model/effort and preferences; Gemini uses its own, and its server entry is
+  written to the project's `.gemini/settings.json`, which holds the local bridge token. The panel
+  then shrinks to just its header, giving the height back to the editor, and returns to its size
+  when you switch back to Chat or CLI. Switch away and back to open another window.
+- **The robot** (the logo) is a status light: orange and blinking when idle, yellow while an AI is
+  working, green for a moment when it finishes, red when something fails. It watches three things:
+  the chat's reply, the editor bridge (any call an AI makes to the editor, from Chat, CLI, a separate
+  terminal window or another client), and the embedded CLI's own "esc to interrupt" hint. A CLI in
+  an External window is only seen through its editor calls.
+- **Refresh icon**: in Chat, the next message starts a fresh session (and picks up a rebuilt
+  server); in CLI, it restarts the CLI (picking up changed settings); in External it's off.
+- **Settings** (cog), in two columns. Left: **Permissions** (File Control, Terminal Commands, Web
+  Access; on by default, remembered per project) and **Preferences**: sync editor changes to the running game, whether
+  the AI tests its own changes (off by default, to save tokens), and whether it saves its changes
+  (on by default). The last two reach the session as a hidden system-prompt addition
+  (`developer_instructions` for Codex). A fourth, **Collect usage data for tool improvement** (off
+  by default), turns on the self-improvement log below for this project's sessions.
+  Right: **Terminal** (font size, colour scheme; shown with GodotXterm).
 - **Chat:** each turn ends with its token use and the session total
   (`— edits complete · 6.4k in / 61 out (+16.3k cached) · session 12.7k /
   122 —`; in/out are fresh tokens, cached reads noted separately). Your messages in yellow, the edits-complete line in green; **Send** (paper plane) and **Stop**
