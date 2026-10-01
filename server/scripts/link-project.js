@@ -5,6 +5,13 @@
 // find the built MCP server — no manual path or token setup.
 //
 // Usage: npm run link-project -- <path/to/godot/project> [--force | --unlink]
+//        npm run link-project -- <path/to/godot/project> --xterm <GodotXterm addon folder>
+//        npm run link-project -- <path/to/godot/project> --unlink-xterm
+//
+// The --xterm forms only link (or unlink) the optional GodotXterm addon, which
+// gives the AI Assistant panel its in-editor CLI view. <GodotXterm addon
+// folder> is the `godot_xterm` folder of a GodotXterm release (the launcher
+// downloads one for you). Nothing else in the project is touched.
 //
 // Exit codes: 0 success, 1 error, 2 an existing non-link addon folder is in
 // the way (re-run with --force to replace it) — distinct so a caller like
@@ -86,9 +93,15 @@ function addClaudeMd() {
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const unlink = args.includes('--unlink');
-const positional = args.filter((a) => !a.startsWith('--'));
+const unlinkXterm = args.includes('--unlink-xterm');
+const xtermIndex = args.indexOf('--xterm');
+const xtermSource = xtermIndex === -1 ? null : args[xtermIndex + 1];
+if (xtermIndex !== -1 && (!xtermSource || xtermSource.startsWith('--'))) {
+  fail('--xterm needs the path of the GodotXterm addon folder (the one containing plugin.cfg)');
+}
+const positional = args.filter((a, i) => !a.startsWith('--') && !(xtermIndex !== -1 && i === xtermIndex + 1));
 if (positional.length !== 1) {
-  fail('usage: npm run link-project -- <path/to/godot/project> [--force | --unlink]');
+  fail('usage: npm run link-project -- <path/to/godot/project> [--force | --unlink | --xterm <folder> | --unlink-xterm]');
 }
 
 const projectDir = path.resolve(positional[0]);
@@ -98,6 +111,54 @@ if (!fs.existsSync(path.join(projectDir, 'project.godot'))) {
 const projectFile = path.join(projectDir, 'project.godot');
 const addonsDir = path.join(projectDir, 'addons');
 const linkPath = path.join(addonsDir, 'godot_live_mcp');
+const xtermLinkPath = path.join(addonsDir, 'godot_xterm');
+
+function lstatOrNull(p) {
+  try {
+    return fs.lstatSync(p);
+  } catch {
+    return null;
+  }
+}
+
+// Links (or unlinks) the optional GodotXterm addon. It is a GDExtension, so the
+// panel finds it without it being enabled under Project > Plugins; Godot picks
+// it up when the project is opened (restart the editor if it was already open).
+if (xtermSource || unlinkXterm) {
+  const existingX = lstatOrNull(xtermLinkPath);
+  if (unlinkXterm) {
+    if (!existingX) {
+      console.log(`Nothing to unlink at ${xtermLinkPath}.`);
+    } else if (!existingX.isSymbolicLink()) {
+      fail(`${xtermLinkPath} is a real folder (an installed copy), not a link — not removing it.`);
+    } else {
+      fs.unlinkSync(xtermLinkPath);
+      console.log(`Unlinked ${xtermLinkPath}`);
+    }
+    process.exit(0);
+  }
+  const source = path.resolve(xtermSource);
+  if (!fs.existsSync(path.join(source, 'plugin.cfg')) || !fs.existsSync(path.join(source, 'godot-xterm.gdextension'))) {
+    fail(`${source} doesn't look like the GodotXterm addon folder (plugin.cfg / godot-xterm.gdextension missing)`);
+  }
+  if (existingX && !existingX.isSymbolicLink()) {
+    console.log(`${xtermLinkPath} is already a real folder (GodotXterm installed in the project) — leaving it.`);
+    process.exit(0);
+  }
+  if (existingX) {
+    if (path.resolve(addonsDir, fs.readlinkSync(xtermLinkPath)) === source) {
+      console.log(`Already linked: ${xtermLinkPath} -> ${source}`);
+      process.exit(0);
+    }
+    fs.unlinkSync(xtermLinkPath);
+  }
+  fs.mkdirSync(addonsDir, { recursive: true });
+  fs.symlinkSync(source, xtermLinkPath, 'junction');
+  console.log(`Linked ${xtermLinkPath} -> ${source}`);
+  console.log('Open the project in Godot (restart the editor if it was already open) and the AI');
+  console.log("Assistant panel gets a CLI view: its own CLI session running inside the editor.");
+  process.exit(0);
+}
 
 let existing = null;
 try {

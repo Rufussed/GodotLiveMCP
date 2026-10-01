@@ -34,9 +34,14 @@ Two parts:
 
 ## Quick start
 
-Prerequisites: [Node.js](https://nodejs.org) 18+ and the
-[Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
-and logged in.
+Prerequisites: [Node.js](https://nodejs.org) 18+ and at least one coding agent CLI,
+installed and logged in: [Claude Code](https://docs.claude.com/en/docs/claude-code),
+[Codex](https://github.com/openai/codex), [OpenCode](https://opencode.ai) or
+[Gemini CLI](https://github.com/google-gemini/gemini-cli).
+
+Why Node.js? The MCP server, the program your agent CLI starts to talk to the editor, is a
+Node.js program (`node server/build/index.js`); `npm install` builds it. Nothing else here
+needs Node.
 
 **Easiest: the launcher app.** Clone the repo, then start the launcher with
 the script for your system, from the repo folder:
@@ -67,13 +72,23 @@ git into a per-user folder (`~/.local/share/GodotLiveMCP`,
 `~/Library/Application Support/GodotLiveMCP` or `%APPDATA%\GodotLiveMCP`),
 pulls updates on every launch and rebuilds the server when they arrive.
 
-The launcher checks for Node, npm and Claude Code, then walks through three
+The launcher checks for Git, Node, npm and which coding agent CLIs are installed (at least one is
+needed), then walks through three
 steps: **Install / rebuild MCP server**; **Create new Godot project…** or
 **Add existing Godot project…**, which links the addon, enables the plugin
 and adds `CLAUDE.md` / `AGENTS.md`; then **Open in Godot** (which closes
 the launcher) or **Unlink**. On macOS, if a popup asks to install the
 command line developer tools, accept it (or run `xcode-select --install`).
 The steps below do the same from a terminal.
+
+**Optional: the in-editor CLI view (Linux and macOS).** The launcher also has an
+"Optional — terminal panel" section. **Download GodotXterm** fetches the latest release of
+[GodotXterm](https://github.com/lihop/godot-xterm) (MIT, about 11 MB) once into a per-user folder;
+**Add terminal** on a project then links it in, the way the addon is linked, so one download
+serves every project and **Update GodotXterm** updates them all. With it, the AI Assistant tab
+gets a **CLI** mode. Restart the editor if the project is open. From a terminal:
+`npm run link-project -- /path/to/project --xterm /path/to/godot_xterm` (and `--unlink-xterm`).
+Installing GodotXterm yourself, for example from the AssetLib, works just as well.
 
 1. Clone this repo and build the server (`npm install` builds it too):
    ```
