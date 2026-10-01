@@ -8,14 +8,17 @@ live eval, scene tree inspection, node/property editing.
 
 ### Easiest: the launcher app (recommended)
 
-Prerequisites: [Node.js](https://nodejs.org) 18+ and the
-[Claude Code CLI](https://docs.claude.com/en/docs/claude-code), installed
-and logged in.
+Prerequisites: [Node.js](https://nodejs.org) 18+ (it runs the MCP server) and at
+least one coding agent CLI, installed and logged in:
+[Claude Code](https://docs.claude.com/en/docs/claude-code),
+[Codex](https://github.com/openai/codex), [OpenCode](https://opencode.ai) or
+[Gemini CLI](https://github.com/google-gemini/gemini-cli).
 
 1. Clone the GodotLiveMCP repo.
 2. Open the launcher: open `launcher/project.godot` in Godot and press Play,
    or run `godot --path launcher` from the repo root.
-3. The launcher checks for Node, npm and Claude Code. Click
+3. The launcher checks for Git, Node, npm and which agent CLIs you have (at least
+   one is needed). Click
    **Install / rebuild MCP server** to build the MCP server (it's shared by all
    your projects). The project buttons appear once it's installed.
 4. Click **Create new Godot project…** to name a new project and choose where
@@ -26,6 +29,10 @@ and logged in.
    buttons. Open it and the AI Assistant panel sets up the server and token
    by itself. You don't need the manual steps below. (If the project was
    already open in Godot while you added it, reopen it.)
+6. Optional, Linux and macOS: the launcher's **terminal panel** section downloads
+   GodotXterm once; **Add terminal** on a project then gives its AI Assistant tab
+   a **CLI** mode (the agent's full interactive CLI inside the editor). See the main
+   README for details.
 
 ### Command line
 

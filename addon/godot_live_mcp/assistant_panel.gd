@@ -356,6 +356,7 @@ func _ready() -> void:
 	_build_session_ui()
 	_restore_conversation()
 	_update_agent_button()
+	visibility_changed.connect(_on_panel_visibility_changed)
 
 	_refresh_status()
 	# Deferred so the editor finishes loading first; a no-op unless the
@@ -1149,6 +1150,14 @@ func _bottom_split() -> SplitContainer:
 	while n and not (n is SplitContainer):
 		n = n.get_parent()
 	return n as SplitContainer
+
+## The editor resets the bottom dock's height when you switch to another tab,
+## so in External mode the panel gives the normal height back while it is
+## hidden (Output, Debugger, ...) and collapses again when you return to it.
+func _on_panel_visibility_changed() -> void:
+	if _mode != "external":
+		return
+	_compact_panel(is_visible_in_tree())
 
 func _compact_panel(on: bool) -> void:
 	var split := _bottom_split()

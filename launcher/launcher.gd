@@ -13,6 +13,14 @@ extends Control
 
 const CONFIG_PATH := "user://launcher.cfg"
 const REPO_URL := "https://github.com/Rufussed/GodotLiveMCP.git"
+# The coding agent CLIs the AI Assistant panel can drive. At least one is needed.
+const AGENT_CLIS := [
+	{"cmd": "claude", "name": "Claude Code", "url": "https://docs.claude.com/en/docs/claude-code"},
+	{"cmd": "codex", "name": "Codex", "url": "https://github.com/openai/codex"},
+	{"cmd": "opencode", "name": "OpenCode", "url": "https://opencode.ai"},
+	{"cmd": "gemini", "name": "Gemini CLI", "url": "https://github.com/google-gemini/gemini-cli"},
+]
+const XTERM_API := "https://api.github.com/repos/lihop/godot-xterm/releases/latest"
 
 var _repo_root: String
 var _managed := false  # true when _repo_root is our own clone, not a checkout
@@ -40,6 +48,14 @@ var _dest_dialog: FileDialog
 var _projects: PackedStringArray = []
 var _pending_force_path := ""
 
+# Optional GodotXterm (the in-editor CLI view): downloaded once into a per-user
+# cache, then linked into the projects that want it.
+var _xterm_busy := false
+var _xterm_dl: HTTPRequest  # the zip download in progress, for the progress readout
+var _xterm_section: Control
+var _xterm_button: Button
+var _xterm_state: Label
+
 # The one command allowed to run at a time.
 var _proc: Dictionary = {}
 var _proc_partial := {"stdio": "", "stderr": ""}
@@ -59,6 +75,10 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_poll_proc()
+	if _xterm_dl and is_instance_valid(_xterm_dl):
+		var total := _xterm_dl.get_body_size()
+		var got := _xterm_dl.get_downloaded_bytes()
+		_xterm_state.text = "Downloading… %d%%" % int(100.0 * got / total) if total > 0 else "Downloading… %.1f MB" % (got / 1048576.0)
 
 # ---- UI ----
 
@@ -120,6 +140,8 @@ func _build_ui() -> void:
 	_add_button.text = "Add existing Godot project…"
 	_add_button.pressed.connect(func(): _folder_dialog.popup_centered_ratio(0.7))
 	buttons.add_child(_add_button)
+
+	_build_xterm_section(step2)
 
 	var step3 := VBoxContainer.new()
 	step3.add_theme_constant_override("separation", 10)
@@ -225,24 +247,48 @@ func _build_new_dialog() -> void:
 var _has_npm := false
 var _server_built := false
 
-## Re-checks prerequisites (spawns node/npm/claude, so only on demand).
+## Re-checks prerequisites (spawns git/node/npm and the agent CLIs, so only on demand).
 func _refresh() -> void:
 	var git := _version_of("git")
 	var node := _version_of("node")
 	var npm := _version_of("npm")
-	var claude := _version_of("claude")
+	var agents := {}
+	for cli in AGENT_CLIS:
+		agents[cli.cmd] = _version_of(cli.cmd)
 	_has_npm = not npm.is_empty()
 	_server_built = FileAccess.file_exists(_server_dir.path_join("build/index.js"))
 	var lines := [
 		_check_line("Git", git, "install from https://git-scm.com"),
 		_check_line("Node.js", node, "install from https://nodejs.org"),
 		_check_line("npm", npm, "comes with Node.js"),
-		_check_line("Claude Code CLI", claude, "see https://docs.claude.com/en/docs/claude-code"),
 	]
+	lines.append_array(_agent_status_lines(agents))
 	lines.append("[color=#9e9ea8]GodotLiveMCP files: %s (%s)[/color]" % [
 		_repo_root.replace("[", "[lb]"), "downloaded by this launcher" if _managed else "this checkout"])
 	_status_label.text = "\n".join(lines)
 	_update_controls()
+
+## One line per agent CLI found; if none is found, a warning with where to get
+## each. `versions` maps a command to its version string ("" = not installed).
+func _agent_status_lines(versions: Dictionary) -> Array:
+	var lines := []
+	var missing := []
+	for cli in AGENT_CLIS:
+		var v := String(versions.get(cli.cmd, ""))
+		if v.is_empty():
+			missing.append(cli)
+		else:
+			lines.append(_check_line(cli.name, v, ""))
+	if lines.is_empty():
+		lines.append("[color=#e06c6c]✘ No coding agent CLI found[/color] — install at least one:")
+		for cli in missing:
+			lines.append("   [color=#9e9ea8]%s: %s[/color]" % [cli.name, cli.url])
+	elif not missing.is_empty():
+		var names := []
+		for cli in missing:
+			names.append(cli.name)
+		lines.append("[color=#9e9ea8]Also supported, not found: %s[/color]" % ", ".join(names))
+	return lines
 
 func _update_controls() -> void:
 	var have_repo := FileAccess.file_exists(_server_dir.path_join("package.json"))
@@ -262,6 +308,7 @@ func _update_controls() -> void:
 		b.disabled = _busy()
 	_refresh_button.disabled = _busy()
 	_step2.visible = _server_built
+	_update_xterm_controls()
 	_step3.visible = _server_built and not _projects.is_empty()
 	if not _projects.is_empty():
 		var last := _projects[0]
@@ -329,6 +376,27 @@ func _make_project_row(path: String) -> Control:
 	path_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	header.add_child(path_label)
 	card.add_child(row)
+
+	if state != "missing_project" and _xterm_supported():
+		var xs := _xterm_link_state(path)
+		var xl := Label.new()
+		xl.text = {"linked": "terminal ✔", "copy": "terminal (own copy)", "none": "no terminal"}[xs]
+		xl.tooltip_text = "The in-editor CLI view (GodotXterm) for this project's AI Assistant panel."
+		xl.modulate = Color(0.5, 0.85, 0.5) if xs != "none" else Color(1, 1, 1, 0.5)
+		row.add_child(xl)
+		if xs == "linked":
+			var rm := Button.new()
+			rm.text = "Remove terminal"
+			rm.disabled = _busy()
+			rm.pressed.connect(_xterm_unlink.bind(path))
+			row.add_child(rm)
+		elif xs == "none":
+			var add := Button.new()
+			add.text = "Add terminal"
+			add.disabled = _busy() or not _xterm_cached()
+			add.tooltip_text = "" if _xterm_cached() else "Download GodotXterm first (above)."
+			add.pressed.connect(_xterm_link.bind(path))
+			row.add_child(add)
 
 	if state != "missing_project":
 		var open := Button.new()
@@ -514,6 +582,204 @@ func _forget_project(path: String) -> void:
 		_save_projects()
 	_update_controls()
 
+# ---- Optional: GodotXterm, the in-editor CLI view ----
+
+func _xterm_supported() -> bool:
+	return OS.get_name() in ["Linux", "macOS"]
+
+## Where the downloaded GodotXterm lives (GODOTLIVEMCP_EXTRAS overrides the
+## per-user data folder, mainly for testing).
+func _xterm_root() -> String:
+	var base := OS.get_environment("GODOTLIVEMCP_EXTRAS")
+	if base.is_empty():
+		base = OS.get_data_dir().path_join("GodotLiveMCP-extras")
+	return base.path_join("godot-xterm")
+
+func _xterm_addon_dir() -> String:
+	return _xterm_root().path_join("addons/godot_xterm")
+
+func _xterm_cached() -> bool:
+	return FileAccess.file_exists(_xterm_addon_dir().path_join("plugin.cfg"))
+
+func _xterm_version() -> String:
+	return FileAccess.get_file_as_string(_xterm_root().path_join("VERSION")).strip_edges()
+
+func _build_xterm_section(parent: Control) -> void:
+	if not _xterm_supported():
+		return
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	parent.add_child(box)
+	_xterm_section = box
+	var head := Label.new()
+	head.text = "Optional — terminal panel"
+	head.add_theme_font_size_override("font_size", 14)
+	box.add_child(head)
+	var blurb := Label.new()
+	blurb.text = ("Adds a CLI view to the AI Assistant tab: Claude Code, Codex, OpenCode or Gemini running inside the editor.\n" +
+		"Uses the GodotXterm addon by lihop (MIT licence, about 11 MB). Download it once here, then add it to the projects you want.")
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	blurb.modulate = Color(1, 1, 1, 0.7)
+	box.add_child(blurb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	_xterm_button = Button.new()
+	_xterm_button.pressed.connect(_on_xterm_download_pressed)
+	row.add_child(_xterm_button)
+	_xterm_state = Label.new()
+	row.add_child(_xterm_state)
+
+func _update_xterm_controls() -> void:
+	if _xterm_section == null:
+		return
+	var cached := _xterm_cached()
+	_xterm_button.text = "Update GodotXterm" if cached else "Download GodotXterm"
+	_xterm_button.disabled = _busy()
+	if _xterm_busy:
+		return  # _process shows the progress
+	if cached:
+		var v := _xterm_version()
+		_xterm_state.text = "✔ downloaded%s" % ((" (%s)" % v) if not v.is_empty() else "")
+		_xterm_state.modulate = Color(0.5, 0.85, 0.5)
+	else:
+		_xterm_state.text = "Not downloaded yet"
+		_xterm_state.modulate = Color(1, 1, 1, 0.6)
+
+func _on_xterm_download_pressed() -> void:
+	if _busy():
+		return
+	_xterm_busy = true
+	_update_controls()
+	_xterm_state.text = "Looking up the latest release…"
+	_xterm_state.modulate = Color(1, 1, 1, 0.6)
+	_log_line("Looking up the latest GodotXterm release…")
+	var http := HTTPRequest.new()
+	add_child(http)
+	http.request_completed.connect(_on_xterm_release.bind(http))
+	if http.request(XTERM_API, ["User-Agent: GodotLiveMCP-launcher", "Accept: application/vnd.github+json"]) != OK:
+		http.queue_free()
+		_xterm_fail("Couldn't start the request (no network?).")
+
+func _on_xterm_release(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray, http: HTTPRequest) -> void:
+	http.queue_free()
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		_xterm_fail("GitHub didn't answer the release lookup (result %d, HTTP %d)." % [result, code])
+		return
+	var info = JSON.parse_string(body.get_string_from_utf8())
+	var url := ""
+	var tag := ""
+	if info is Dictionary:
+		tag = String(info.get("tag_name", ""))
+		for asset in info.get("assets", []):
+			var n := String(asset.get("name", ""))
+			if n.begins_with("godot-xterm") and n.ends_with(".zip"):
+				url = String(asset.get("browser_download_url", ""))
+				break
+	if url.is_empty():
+		_xterm_fail("Couldn't find the GodotXterm download in the latest release.")
+		return
+	_log_line("Downloading GodotXterm %s…" % tag.replace("[", "[lb]"))
+	var dl := HTTPRequest.new()
+	dl.download_file = ProjectSettings.globalize_path("user://godot-xterm-download.zip")
+	dl.use_threads = true
+	add_child(dl)
+	_xterm_dl = dl
+	dl.request_completed.connect(_on_xterm_zip.bind(dl, tag))
+	if dl.request(url, ["User-Agent: GodotLiveMCP-launcher"]) != OK:
+		_xterm_dl = null
+		dl.queue_free()
+		_xterm_fail("Couldn't start the download.")
+
+func _on_xterm_zip(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray, dl: HTTPRequest, tag: String) -> void:
+	var zip_path := dl.download_file
+	_xterm_dl = null
+	dl.queue_free()
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		_xterm_fail("The download failed (result %d, HTTP %d)." % [result, code])
+		return
+	var n := _extract_xterm(zip_path, tag)
+	DirAccess.remove_absolute(zip_path)
+	if n <= 0:
+		_xterm_fail("The download didn't contain the GodotXterm addon.")
+		return
+	_xterm_busy = false
+	_log_line("[color=#7ec07e]GodotXterm %s ready (%d files).[/color] Add it to a project below." % [tag.replace("[", "[lb]"), n])
+	_update_controls()
+
+## Unpacks addons/godot_xterm/** from the release zip into the cache (replacing
+## what was there). Returns the number of files written.
+func _extract_xterm(zip_path: String, tag: String) -> int:
+	var reader := ZIPReader.new()
+	if reader.open(zip_path) != OK:
+		return 0
+	var root := _xterm_root()
+	_remove_dir(root)
+	var count := 0
+	for name in reader.get_files():
+		if not name.begins_with("addons/godot_xterm/") or name.ends_with("/") or name.contains(".."):
+			continue
+		var dest := root.path_join(name)
+		DirAccess.make_dir_recursive_absolute(dest.get_base_dir())
+		var f := FileAccess.open(dest, FileAccess.WRITE)
+		if f == null:
+			continue
+		f.store_buffer(reader.read_file(name))
+		f.close()
+		count += 1
+	reader.close()
+	if count > 0:
+		var v := FileAccess.open(root.path_join("VERSION"), FileAccess.WRITE)
+		if v:
+			v.store_string(tag + "\n")
+	return count
+
+## Deletes a folder tree — only ever our own godot-xterm cache folder.
+func _remove_dir(path: String) -> void:
+	if not path.ends_with("godot-xterm") or not DirAccess.dir_exists_absolute(path):
+		return
+	var da := DirAccess.open(path)
+	for d in da.get_directories():
+		_remove_dir_inner(path.path_join(d))
+	for f in da.get_files():
+		da.remove(f)
+
+func _remove_dir_inner(path: String) -> void:
+	var da := DirAccess.open(path)
+	for d in da.get_directories():
+		_remove_dir_inner(path.path_join(d))
+	for f in da.get_files():
+		da.remove(f)
+	DirAccess.remove_absolute(path)
+
+func _xterm_fail(message: String) -> void:
+	_xterm_busy = false
+	_xterm_dl = null
+	_log_line("[color=#e06c6c]%s[/color]" % message.replace("[", "[lb]"))
+	_update_controls()
+
+## "linked" (to our cached download), "copy" (a real folder: GodotXterm already
+## installed in the project, e.g. from the AssetLib) or "none".
+func _xterm_link_state(path: String) -> String:
+	var da := DirAccess.open(path.path_join("addons"))
+	if da == null:
+		return "none"
+	if da.is_link("godot_xterm"):
+		return "linked"
+	return "copy" if da.dir_exists("godot_xterm") else "none"
+
+func _xterm_link(path: String) -> void:
+	_run_async("npm", ["run", "link-project", "--prefix", _server_dir, "--", path, "--xterm", _xterm_addon_dir()], func(code: int):
+		if code == 0:
+			_log_line("Restart the editor if this project is open: the AI Assistant tab then has a [b]CLI[/b] mode.")
+		_update_controls()
+	)
+
+func _xterm_unlink(path: String) -> void:
+	_run_async("npm", ["run", "link-project", "--prefix", _server_dir, "--", path, "--unlink-xterm"], func(_code: int):
+		_update_controls()
+	)
+
 # ---- Project state ----
 
 ## "linked" (points at this repo's addon), "copy" (a real folder — an older
@@ -546,7 +812,7 @@ func _save_projects() -> void:
 
 # ---- Running commands ----
 
-## npm/claude are .cmd shims on Windows, so they need cmd.exe. Elsewhere a
+## npm and the agent CLIs are .cmd shims on Windows, so they need cmd.exe. Elsewhere a
 ## login shell is used so tools installed via version managers (nvm, mise,
 ## ...) are on PATH even when Godot was started from a desktop launcher.
 func _wrap(cmd: String, args: Array) -> Array:
@@ -569,10 +835,15 @@ func _version_of(cmd: String) -> String:
 	var output: Array = []
 	if OS.execute(w[0], w[1], output, true) != 0 or output.is_empty():
 		return ""
-	return String(output[0]).strip_edges().split("\n")[0]
+	# The last non-empty line: version managers (mise, ...) can print notices before it.
+	var found := ""
+	for line in String(output[0]).split("\n"):
+		if not line.strip_edges().is_empty():
+			found = line.strip_edges()
+	return found
 
 func _busy() -> bool:
-	return not _proc.is_empty()
+	return not _proc.is_empty() or _xterm_busy
 
 func _run_async(cmd: String, args: Array, on_done: Callable) -> void:
 	if _busy():
