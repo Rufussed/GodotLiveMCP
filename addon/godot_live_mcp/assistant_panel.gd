@@ -119,12 +119,12 @@ var _session_active: bool = false
 #
 # The header logo is a little robot (Material Design robot faces, outlines taken
 # from the Nerd Font) that shows what the in-panel agent is doing: orange and
-# blinking when idle, yellow and puzzled while it works, green and happy for a
+# blinking when idle, yellow while it works (puzzled, blank, X-eyed), green and happy for a
 # moment when a reply is done, red and angry on an error or when stopped.
 # It only knows about the chat view; a CLI or External session isn't visible to it.
 const _ROBOT_STATES := {
 	"idle": {"color": "#d97757", "frames": ["plain", "happy"], "times": [2.6, 0.25]},
-	"thinking": {"color": "#f2c94c", "frames": ["confused", "plain"], "times": [0.5, 0.5]},
+	"thinking": {"color": "#f2c94c", "frames": ["confused", "plain", "dead", "plain"], "times": [0.5, 0.4, 0.4, 0.4]},
 	"done": {"color": "#7ec07e", "frames": ["excited"], "times": [1.0], "hold": 5.0},
 	"angry": {"color": "#e06c75", "frames": ["angry"], "times": [1.0], "hold": 3.0},
 }
@@ -241,6 +241,21 @@ func _ready() -> void:
 	var button_row := HBoxContainer.new()
 	button_row.add_theme_constant_override("separation", 6)
 	add_child(button_row)
+	# Three groups: logo and title on the left, the agent and the Chat | CLI |
+	# External toggle centred, refresh and settings on the right. The two outer
+	# groups share the spare width equally, which is what centres the middle.
+	var left_group := HBoxContainer.new()
+	left_group.add_theme_constant_override("separation", 6)
+	left_group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button_row.add_child(left_group)
+	var center_group := HBoxContainer.new()
+	center_group.add_theme_constant_override("separation", 6)
+	button_row.add_child(center_group)
+	var right_group := HBoxContainer.new()
+	right_group.add_theme_constant_override("separation", 6)
+	right_group.alignment = BoxContainer.ALIGNMENT_END
+	right_group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button_row.add_child(right_group)
 
 	# The logo: a little robot (Material Design "robot-dead", outline taken from
 	# the Nerd Font), tinted orange. It is a white SVG so it can be tinted.
@@ -254,13 +269,13 @@ func _ready() -> void:
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	button_row.add_child(icon)
+	left_group.add_child(icon)
 	_setup_robot()
 
 	var title := Label.new()
 	title.text = "Godot LIVE MCP"
 	title.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
-	button_row.add_child(title)
+	left_group.add_child(title)
 
 	# Godot control itself (mcp__godot-live-mcp__*) is always granted, not a
 	# toggle — it's the entire point of this panel. The three optional,
@@ -273,6 +288,11 @@ func _ready() -> void:
 	_agent_button = MenuButton.new()
 	_agent_button.flat = false
 	_agent_button.text = "Agent"
+	# A small static robot, tinted like the Chat | CLI | External icons. Drawn at 2x
+	# and capped at 16 px wide so it stays crisp and matches them.
+	_agent_button.icon = _svg_icon("robot_plain.svg", 2.0)
+	_agent_button.add_theme_constant_override("icon_max_width", 16)
+	_tint_icon_button(_agent_button)
 	_agent_button.get_popup().about_to_popup.connect(_rebuild_agent_menu)
 	_agent_button.get_popup().id_pressed.connect(_on_agent_menu_id)
 	_agent_model_menu = PopupMenu.new()
@@ -283,12 +303,12 @@ func _ready() -> void:
 	_agent_effort_menu.name = "EffortMenu"
 	_agent_button.get_popup().add_child(_agent_effort_menu)
 	_agent_effort_menu.id_pressed.connect(func(id: int): _choose_effort(String(_agent_effort_menu.get_item_metadata(id))))
-	button_row.add_child(_agent_button)
+	center_group.add_child(_agent_button)
 	_compact_button_padding(_agent_button)
 	_agent_label = Label.new()
 	_agent_label.add_theme_color_override("font_color", Color("#7ec07e"))
 	_agent_label.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
-	button_row.add_child(_agent_label)
+	center_group.add_child(_agent_label)
 
 	# Three modes for the chosen agent, one word each, as a single toggle:
 	# Chat (the chat box), CLI (its CLI inside the editor, with the optional
@@ -296,7 +316,7 @@ func _ready() -> void:
 	# the panel then shrinks to just this header).
 	var seg := HBoxContainer.new()
 	seg.add_theme_constant_override("separation", 6)
-	button_row.add_child(seg)
+	center_group.add_child(seg)
 	var group := ButtonGroup.new()
 	_chat_button = Button.new()
 	_chat_button.text = "Chat"
@@ -332,15 +352,11 @@ func _ready() -> void:
 	_compact_button_padding(_external_button)
 	_style_mode_button(_external_button)
 
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button_row.add_child(spacer)
-
 	_new_session_button = Button.new()
 	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
 	_new_session_button.flat = true
 	_new_session_button.pressed.connect(_on_new_session_pressed)
-	button_row.add_child(_new_session_button)
+	right_group.add_child(_new_session_button)
 	_update_refresh_tooltip("chat")
 
 	_settings_button = Button.new()
@@ -349,7 +365,7 @@ func _ready() -> void:
 	_settings_button.tooltip_text = "Settings"
 	_settings_button.flat = true
 	_settings_button.pressed.connect(_on_settings_pressed)
-	button_row.add_child(_settings_button)
+	right_group.add_child(_settings_button)
 
 	_build_settings_popup()
 
