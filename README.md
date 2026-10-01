@@ -98,7 +98,7 @@ The steps below do the same from a terminal.
    was open while you linked it, reopen it). The bridge generates its auth
    token automatically.
 4. Open the **AI Assistant** tab in the bottom panel and type a message (or
-   click **Open Claude** or **Open Codex** for a full interactive CLI in a terminal). The panel
+   use the **Open external CLI with:** buttons — Claude, Codex, OpenCode, Gemini — for a full interactive CLI in a terminal). The panel
    finds the server through the link and passes it to Claude along with
    this project's token, so there's no MCP config file to edit and no token
    to copy. When the plugin loads, the panel also registers the server for
@@ -145,7 +145,7 @@ Then start `codex` inside the Godot project folder. The server finds that
 project's token itself (from `project.godot`'s name and the token file the
 bridge saved), so no token is needed in the registration unless you use a
 global one (add `--env GODOT_LIVE_MCP_TOKEN=<token>`); a wrong configured
-token also falls back to the project's. The panel's **Open Codex** button passes the server, token and
+token also falls back to the project's. The panel's **Codex** button passes the server, token and
 the settings popup's preferences (as `developer_instructions`) for you.
 
 **Other MCP clients / manual setup:** you can instead copy
@@ -206,11 +206,14 @@ testing, or run Godot under X11 for unattended play.
 ## AI Assistant panel
 
 - **Permissions** toggles (on by default, remembered per project).
-- **Open Claude** / **Open Codex**: a terminal session with this project's
-  server, token, model/effort and preferences.
+- **Open external CLI with:** Claude / Codex / OpenCode / Gemini: a terminal session with this
+  project's server and token (Claude, Codex and OpenCode also get the model/effort and
+  preferences; Gemini uses its own; Gemini's server entry is written
+  to the project's `.gemini/settings.json`, which holds the local bridge token). Each button is enabled when its CLI is
+  found on PATH.
 - **New session** (refresh icon): the next message starts a fresh session
   and server.
-- **Settings** (tools icon): **Coding agent** (Claude or Codex for the
+- **Settings** (tools icon): **Coding agent** (Claude, Codex or OpenCode for the
   panel chat) with its **Model** and **Effort** drop-downs beside each other
   (they switch with the agent; "Default" shows the CLI's own setting), plus
   sync editor changes to the running game, whether the AI
@@ -228,7 +231,7 @@ testing, or run Godot under X11 for unattended play.
   current choice (the CLI default is labelled), or take a value directly
   (`/model <name>`, `/effort <level>`; per agent, saved per
   project; `default` resets; otherwise each CLI's own settings apply) and
-  points others at Open Claude / Open Codex.
+  points others at the external-CLI buttons.
 - Codex in the panel runs `codex exec --json` per message and resumes the
   same thread; File Control / Web Access map to its sandbox, approvals are
   off, and the Godot tools are pre-approved.

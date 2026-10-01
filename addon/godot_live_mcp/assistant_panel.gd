@@ -38,8 +38,8 @@ const _TERMINALS := [
 ## Silicon -> /opt/homebrew/bin, Claude's native installer -> ~/.local/bin).
 const _MAC_PATH_PREFIX := 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; '
 
-var _launch_button: Button
-var _codex_button: Button
+var _cli_buttons: Dictionary = {}  # cli id -> its "Open ..." button
+var _installed: Dictionary = {}    # cli id -> found on PATH (see _detect_clis)
 var _new_session_button: Button
 var _settings_button: Button
 var _settings_popup: PopupPanel
@@ -49,10 +49,21 @@ var _save_check: CheckBox
 var _assistant_option: OptionButton
 var _model_option: OptionButton
 var _effort_option: OptionButton
-# Codex in the panel runs one `codex exec --json` process per message and
-# resumes the same thread for the next one; this is that thread's id.
-var _codex_thread_id := ""
+# Codex and OpenCode in the panel run one process per message and resume the
+# same thread for the next one; this is that thread's id and whose it is.
+# (Claude's resumable session id is _claude_session_id, below.)
+var _thread_id := ""
+var _thread_agent := ""
 var _session_kind := "claude"  # which CLI the running _pipe belongs to
+# Claude's conversation id + display name, kept in project metadata so the
+# conversation survives model/effort changes and editor restarts (the next
+# process is started with --resume) until New session clears it.
+var _claude_session_id := ""
+var _session_name := ""
+var _got_init := false       # the running process has reported its session
+var _resuming := false       # the running process was started with --resume
+const _TRANSCRIPT_PATH := "user://godot_live_mcp_transcript.bb"
+const _TRANSCRIPT_KEEP_BYTES := 200000
 # Token totals for the current conversation, shown after each turn.
 var _tokens_in := 0
 var _tokens_out := 0
@@ -75,6 +86,10 @@ var _pipe: Dictionary = {}       # result of OS.execute_with_pipe while a sessio
 var _read_buffer: String = ""    # accumulates partial reads until a full "\n"-terminated line exists
 var _session_active: bool = false
 
+## Shrinks a button's vertical padding to roughly match Godot's own compact
+## editor controls (default buttons render at 38px/33px min) by zeroing
+## content_margin_top/bottom on each stylebox state, rather than relying on
+## custom_minimum_size, which can only raise a button's minimum height.
 func _compact_button_padding(b: Button) -> void:
 	for state in [&"normal", &"hover", &"disabled", &"focus", &"pressed", &"hover_pressed"]:
 		var style := b.get_theme_stylebox(state)
@@ -84,25 +99,10 @@ func _compact_button_padding(b: Button) -> void:
 		compact.content_margin_top = 0
 		compact.content_margin_bottom = 0
 		b.add_theme_stylebox_override(state, compact)
-	# Re-stash the now-compacted "pressed" style so _set_toggle_disabled
-	# applies the shrunk version, not the original taller one from before
-	# this function ran — otherwise a toggle disabled while on would jump
-	# back to the old height instead of staying compact.
-	if b.has_meta("green_style"):
-		b.set_meta("green_style", b.get_theme_stylebox("pressed"))
-	# Same problem the other way: _set_toggle_disabled's re-enable path
-	# used to call remove_theme_stylebox_override("disabled"), which falls
-	# back to Godot's ORIGINAL uncompacted default (6px margin), not this
-	# function's compacted one — and Button.get_minimum_size() factors in
-	# the disabled stylebox's size even while the button is enabled, so
-	# that alone was enough to make the whole button look tall again.
-	# Confirmed live: this is exactly what my own toggle-disable test hit.
-	# Stash the compacted grey version too so re-enabling can restore it
-	# instead of discarding the override outright.
-	b.set_meta("default_disabled_style", b.get_theme_stylebox("disabled"))
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 8)
+	_detect_clis()
 
 	var button_row := HBoxContainer.new()
 	button_row.add_theme_constant_override("separation", 6)
@@ -125,65 +125,57 @@ func _ready() -> void:
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button_row.add_child(icon)
 
-	var permissions_label := Label.new()
-	permissions_label.text = "Permissions:"
-	button_row.add_child(permissions_label)
+	var title := Label.new()
+	title.text = "Godot LIVE MCP"
+	title.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
+	button_row.add_child(title)
 
 	# Godot control itself (mcp__godot-live-mcp__*) is always granted, not a
-	# toggle — it's the entire point of this panel, and it's the thing this
-	# project has spent its effort hardening for safety (see the
-	# _apply_properties fix and this tool set's own validation). These three
-	# are the genuinely optional, broader grants, each mapped to a real
-	# --allowedTools group — confirmed live before wiring up: --allowedTools
-	# is ADDITIVE (a real risk if left too broad by default — a disallowed
-	# Bash command was confirmed to still run unless explicitly excluded via
-	# --permission-prompts none), and --permission-prompts none was confirmed
-	# to cleanly deny anything not explicitly granted here, rather than
-	# hanging (there is no prompt-answering UI in this panel) or silently
-	# allowing it. Same toggle state is used for both the in-editor session
-	# and the external-terminal launch below, so "granted" means the same
-	# thing regardless of which one you use.
-	_file_control_toggle = _make_permission_toggle("File Control", button_row)
-	_terminal_toggle = _make_permission_toggle("Terminal Commands", button_row)
-	_web_toggle = _make_permission_toggle("Web Access", button_row)
-
-	button_row.add_child(VSeparator.new())
-
-	_launch_button = Button.new()
-	_launch_button.text = "Open Claude"
-	_launch_button.pressed.connect(_on_launch_pressed)
-	button_row.add_child(_launch_button)
-	_compact_button_padding(_launch_button)
-
-	_codex_button = Button.new()
-	_codex_button.text = "Open Codex"
-	_codex_button.pressed.connect(_on_launch_codex_pressed)
-	button_row.add_child(_codex_button)
-	_compact_button_padding(_codex_button)
+	# toggle — it's the entire point of this panel. The three optional,
+	# broader grants live in the settings popup (see _make_permission_check).
 
 	var editor_theme := EditorInterface.get_editor_theme()
-	_new_session_button = Button.new()
-	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
-	_new_session_button.tooltip_text = "New session: end the current conversation; your next message starts a fresh one (and picks up a rebuilt MCP server)."
-	_new_session_button.flat = true
-	_new_session_button.pressed.connect(_on_new_session_pressed)
-	button_row.add_child(_new_session_button)
-
 	_settings_button = Button.new()
-	_settings_button.icon = editor_theme.get_icon("Tools", "EditorIcons")
+	_settings_button.icon = _svg_icon("cog.svg")
+	# The cog is white; tint it to the editor theme's text colour so it reads on light themes too.
+	for state in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+		_settings_button.add_theme_color_override(state, editor_theme.get_color("font_color", "Editor"))
 	_settings_button.tooltip_text = "Settings"
 	_settings_button.flat = true
 	_settings_button.pressed.connect(_on_settings_pressed)
 	button_row.add_child(_settings_button)
+
+	_new_session_button = Button.new()
+	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
+	_new_session_button.tooltip_text = "New session: end the current session; your next message starts a fresh one (and picks up a rebuilt MCP server)."
+	_new_session_button.flat = true
+	_new_session_button.pressed.connect(_on_new_session_pressed)
+	button_row.add_child(_new_session_button)
+
+	button_row.add_child(VSeparator.new())
+
+	var open_label := Label.new()
+	open_label.text = "Open external CLI with:"
+	button_row.add_child(open_label)
+
+	for cli in _CLIS:
+		var btn := Button.new()
+		btn.text = cli.button
+		btn.pressed.connect(_on_open_cli_pressed.bind(cli.id))
+		button_row.add_child(btn)
+		_compact_button_padding(btn)
+		_cli_buttons[cli.id] = btn
+
 	_build_settings_popup()
 
 	# Distribute the interactive buttons across the row's full width —
 	# icon/label/separator stay their natural size, only the buttons
-	# (toggles + terminal launcher) expand and share the leftover space.
-	for b in [_file_control_toggle, _terminal_toggle, _web_toggle, _launch_button, _codex_button]:
+	# (terminal launchers) expand and share the leftover space.
+	for b in _cli_buttons.values():
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	_build_session_ui()
+	_restore_conversation()
 
 	_refresh_status()
 	# Deferred so the editor finishes loading first; a no-op unless the
@@ -209,23 +201,35 @@ func _keep_panel_open_on_play() -> void:
 func _process(_delta: float) -> void:
 	_poll_session()
 
+## Which of the known CLIs are on PATH (`which`, or `command -v` on macOS).
+## Only those are offered; if none are, everything stays visible so the
+## install tooltips explain what to get.
+func _detect_clis() -> void:
+	_installed.clear()
+	for cli in _CLIS:
+		_installed[cli.id] = _has_command(cli.bin)
+
+func _any_installed() -> bool:
+	return _installed.values().has(true)
+
 func _refresh_status() -> void:
+	_detect_clis()
 	var term := _find_terminal()
-	for pair in [[_launch_button, "claude", "Claude Code", "https://docs.claude.com/en/docs/claude-code"],
-			[_codex_button, "codex", "Codex", "https://github.com/openai/codex"]]:
-		var button: Button = pair[0]
+	for cli in _CLIS:
+		var button: Button = _cli_buttons[cli.id]
 		button.disabled = true
-		if not _has_command(pair[1]):
-			button.tooltip_text = "%s CLI (`%s`) not found on PATH. Install it first: %s — then reopen this panel." % [pair[2], pair[1], pair[3]]
+		button.visible = _installed[cli.id] or not _any_installed()
+		if not _installed[cli.id]:
+			button.tooltip_text = "%s CLI (`%s`) not found on PATH. Install it first: %s — then reopen this panel." % [cli.name, cli.bin, cli.url]
 		elif term.is_empty() and OS.get_name() not in ["Windows", "macOS"]:
 			button.tooltip_text = (
 				"%s found, but no supported terminal emulator was detected on PATH (tried " +
 				"$TERMINAL, alacritty, kitty, foot, ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
-			) % pair[2]
+			) % cli.name
 		else:
 			button.disabled = false
 			button.tooltip_text = "Opens a %s session in %s, in this project's directory." % [
-				pair[2], "Terminal" if OS.get_name() == "macOS" else "a console" if term.is_empty() else term.bin]
+				cli.name, "Terminal" if OS.get_name() == "macOS" else "a console" if term.is_empty() else term.bin]
 
 func _build_allowed_tools() -> Array:
 	var allowed := ["mcp__godot-live-mcp__*"]
@@ -236,6 +240,57 @@ func _build_allowed_tools() -> Array:
 	if _web_toggle.button_pressed:
 		allowed.append_array(["WebFetch", "WebSearch"])
 	return allowed
+
+## Terminal CLIs the header can open. Detection is just `which <bin>`; the
+## only per-tool work is handing it this project's MCP server + token, which
+## every CLI configures differently (see the _launch_* functions). To add
+## one: an entry here, a _launch_<id> function, and a case in
+## _on_open_cli_pressed.
+const _CLIS := [
+	{"id": "claude", "bin": "claude", "name": "Claude Code", "button": "Claude", "url": "https://docs.claude.com/en/docs/claude-code"},
+	{"id": "codex", "bin": "codex", "name": "Codex", "button": "Codex", "url": "https://github.com/openai/codex"},
+	{"id": "opencode", "bin": "opencode", "name": "OpenCode", "button": "OpenCode", "url": "https://opencode.ai"},
+	{"id": "gemini", "bin": "gemini", "name": "Gemini CLI", "button": "Gemini", "url": "https://github.com/google-gemini/gemini-cli"},
+]
+
+## Agents whose in-panel chat runs one process per message (see _thread_id).
+const _TURN_AGENTS := ["codex", "opencode"]
+
+func _cli_name(id: String) -> String:
+	for cli in _CLIS:
+		if cli.id == id:
+			return cli.button
+	return id.capitalize()
+
+## The agent the panel is talking to: always the one chosen in settings.
+func _active_agent() -> String:
+	return _preferred_assistant()
+
+## Each turn-based agent keeps its own resumable thread id (project
+## metadata "thread_<agent>"), so switching agents and back resumes.
+func _set_thread(agent: String, id: String) -> void:
+	_thread_agent = agent
+	_thread_id = id
+	if agent != "":
+		_set_meta("thread_" + agent, id)
+
+## Loads the chosen agent's saved thread (empty for Claude, which has its own
+## _claude_session_id, or when it has none yet).
+func _load_thread() -> void:
+	var agent := _preferred_assistant()
+	_thread_agent = agent if agent in _TURN_AGENTS else ""
+	_thread_id = String(_meta("thread_" + agent)) if _thread_agent != "" else ""
+
+## True if the chosen agent has a saved session the next message would resume.
+func _has_resumable() -> bool:
+	return not _claude_session_id.is_empty() if _preferred_assistant() == "claude" else not _thread_id.is_empty()
+
+func _on_open_cli_pressed(id: String) -> void:
+	match id:
+		"claude": _on_launch_pressed()
+		"codex": _on_launch_codex_pressed()
+		"opencode": _on_launch_opencode_pressed()
+		"gemini": _on_launch_gemini_pressed()
 
 func _on_launch_pressed() -> void:
 	# --mcp-config is variadic, so it goes last.
@@ -262,19 +317,92 @@ func _on_launch_codex_pressed() -> void:
 	args += ["-c", 'mcp_servers.godot-live-mcp.default_tools_approval_mode="approve"']
 	_launch_in_terminal("codex", args)
 
-func _launch_in_terminal(cli: String, cli_args: Array) -> void:
+## OpenCode reads AGENTS.md too, and takes its config as inline JSON in
+## OPENCODE_CONFIG_CONTENT (merged over its own; confirmed live): this
+## project's server + token, the panel's preferences as an instructions file,
+## and — for in-panel chat only, where no approval prompt can be shown — the
+## permission checkboxes as allow/deny (a denied tool is removed; confirmed).
+## Returns "" if the server or token can't be found (OpenCode then uses its
+## own godot-live-mcp registration, if any).
+func _opencode_config(with_permissions: bool) -> String:
+	var cfg := {}
+	var entry := _resolve_server_entry()
+	var token := _read_bridge_token()
+	if entry.is_empty() or token.is_empty():
+		_append_transcript("[color=yellow]Couldn't find this project's server/token — OpenCode will use its own godot-live-mcp registration, if any.[/color]")
+	else:
+		cfg["mcp"] = {"godot-live-mcp": {
+			"type": "local", "command": ["node", entry], "environment": _server_env(token), "enabled": true}}
+	var instructions_path := ProjectSettings.globalize_path("user://godot_live_mcp_opencode_instructions.md")
+	var f := FileAccess.open(instructions_path, FileAccess.WRITE)
+	if f:
+		f.store_string(_behavior_text() + "\n")
+		f.close()
+		cfg["instructions"] = [instructions_path]
+	if with_permissions:
+		cfg["permission"] = {
+			"edit": "allow" if _file_control_toggle.button_pressed else "deny",
+			"bash": "allow" if _terminal_toggle.button_pressed else "deny",
+			"webfetch": "allow" if _web_toggle.button_pressed else "deny",
+		}
+	return JSON.stringify(cfg)
+
+func _on_launch_opencode_pressed() -> void:
+	_launch_in_terminal("opencode", _model_args("opencode"), {"OPENCODE_CONFIG_CONTENT": _opencode_config(false)})
+
+## Gemini CLI has no inline MCP config (its system-settings override must be
+## root-owned), so the server + token go into the project's own
+## .gemini/settings.json, merged into whatever is already there. That file
+## holds the bridge token (localhost-only) — gitignore it if the project is
+## shared. --skip-trust trusts this folder for the session; otherwise Gemini
+## disables project MCP servers in untrusted folders. Model and permission
+## settings from this panel aren't mapped for it.
+func _on_launch_gemini_pressed() -> void:
+	var entry := _resolve_server_entry()
+	var token := _read_bridge_token()
+	if not entry.is_empty() and not token.is_empty():
+		var path := ProjectSettings.globalize_path("res://.gemini/settings.json")
+		var cfg = JSON.parse_string(FileAccess.get_file_as_string(path)) if FileAccess.file_exists(path) else {}
+		if not (cfg is Dictionary):
+			_append_transcript("[color=yellow]%s isn't valid JSON — left alone; Gemini will use its own godot-live-mcp registration, if any.[/color]" % path.xml_escape())
+		else:
+			if not (cfg.get("mcpServers") is Dictionary):
+				cfg["mcpServers"] = {}
+			cfg["mcpServers"]["godot-live-mcp"] = {
+				"command": "node", "args": [entry], "env": _server_env(token), "trust": true}
+			DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+			var f := FileAccess.open(path, FileAccess.WRITE)
+			if f:
+				f.store_string(JSON.stringify(cfg, "  ") + "\n")
+	else:
+		_append_transcript("[color=yellow]Couldn't find this project's server/token — Gemini will use its own godot-live-mcp registration, if any.[/color]")
+	_launch_in_terminal("gemini", ["--skip-trust"])
+
+## `env` is extra environment variables for the CLI (set inline in the
+## launch command, since a new terminal window doesn't inherit ours).
+func _launch_in_terminal(cli: String, cli_args: Array, env: Dictionary = {}) -> void:
 	var project_dir := ProjectSettings.globalize_path("res://")
+
+	var env_prefix := ""
+	if not env.is_empty():
+		env_prefix = "env"
+		for k in env:
+			env_prefix += " " + _shell_quote("%s=%s" % [k, env[k]])
+		env_prefix += " "
 
 	if OS.get_name() == "Windows":
 		# OS.create_process's open_console is a real native console window
-		# on Windows; no terminal-emulator detection needed there.
+		# on Windows; no terminal-emulator detection needed there. The child
+		# inherits our environment, so set it here.
+		for k in env:
+			OS.set_environment(k, String(env[k]))
 		OS.create_process(cli, cli_args, true)
 		return
 
 	if OS.get_name() == "macOS":
 		# Terminal.app runs the command in the user's own interactive
 		# shell, so PATH is already right there.
-		var mac_cmd := "cd %s && %s" % [_shell_quote(project_dir), cli]
+		var mac_cmd := "cd %s && %s%s" % [_shell_quote(project_dir), env_prefix, cli]
 		for arg in cli_args:
 			mac_cmd += " " + _shell_quote(arg)
 		var script := mac_cmd.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -288,13 +416,16 @@ func _launch_in_terminal(cli: String, cli_args: Array) -> void:
 		_refresh_status()  # re-check in case something changed since panel opened
 		return
 
-	var shell_cmd := "cd %s && %s" % [_shell_quote(project_dir), cli]
+	var shell_cmd := "cd %s && %s%s" % [_shell_quote(project_dir), env_prefix, cli]
 	for arg in cli_args:
 		shell_cmd += " " + _shell_quote(arg)
 
 	match term.style:
 		"xdg":
-			OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", cli] + cli_args)
+			if env.is_empty():
+				OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", cli] + cli_args)
+			else:
+				OS.create_process(term.bin, ["--dir=%s" % project_dir, "--", "bash", "-lc", shell_cmd])
 		"direct":
 			# No native workdir flag — same shell `cd` fallback as flag_e/
 			# dashdash below, just without a leading terminal-specific flag.
@@ -445,71 +576,25 @@ func _ensure_local_registration() -> void:
 func _shell_quote(s: String) -> String:
 	return "'" + s.replace("'", "'\\''") + "'"
 
-func _make_permission_toggle(label: String, parent: Control) -> Button:
-	var b := Button.new()
+## One of the optional broader grants, each mapped to a real --allowedTools
+## group — confirmed live: --allowedTools is ADDITIVE (a disallowed Bash
+## command still runs unless excluded via --permission-prompts none), and
+## --permission-prompts none cleanly denies anything not granted here rather
+## than hanging (the panel has no prompt UI). The same state drives the
+## in-editor session and the external-terminal launch. On by default; the
+## choice is remembered per project and applies from the next message (the
+## process restarts and resumes the conversation).
+func _make_permission_check(label: String, tip: String, parent: Control) -> CheckBox:
+	var b := CheckBox.new()
 	b.text = label
-	b.toggle_mode = true
-	# On by default; turning one off is remembered per project.
+	b.tooltip_text = tip
 	var key := "permission_" + label.to_snake_case()
 	b.button_pressed = EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", key, true)
 	b.toggled.connect(func(on: bool):
-		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", key, on))
-	# Toggle-mode buttons render with the "pressed" stylebox whenever
-	# button_pressed is true, automatically — no signal handler needed, this
-	# just needs to be a visibly different style from the default "normal"/
-	# grey one that shows when off.
-	var green := StyleBoxFlat.new()
-	green.bg_color = Color(0.22, 0.6, 0.28)
-	green.corner_radius_top_left = 4
-	green.corner_radius_top_right = 4
-	green.corner_radius_bottom_left = 4
-	green.corner_radius_bottom_right = 4
-	green.content_margin_left = 8
-	green.content_margin_right = 8
-	green.content_margin_top = 0
-	green.content_margin_bottom = 0
-	b.add_theme_stylebox_override("pressed", green)
-	b.add_theme_stylebox_override("hover_pressed", green)
-	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
-	b.add_theme_color_override("font_hover_pressed_color", Color(1, 1, 1))
-	# Stashed so _set_toggle_disabled (below) can reapply it as the
-	# "disabled" stylebox too — Godot's disabled state otherwise overrides
-	# pressed/hover_pressed outright, so a toggle switched on then disabled
-	# (which is exactly what happens once a session starts) fell back to
-	# the plain grey "disabled" look and the on/off state became invisible.
-	# Confirmed live: this was the actual bug, not a timing issue.
-	b.set_meta("green_style", green)
+		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", key, on)
+		_apply_on_next_message("%s permission %s" % [label, "granted" if on else "revoked"]))
 	parent.add_child(b)
-	_compact_button_padding(b)
 	return b
-
-## Shrinks a button's vertical padding to roughly match Godot's own compact
-## editor controls (confirmed live: default buttons render at 38px/33px
-## min, close to 70% of that is the target here) — reduces content_margin_
-## top/bottom on whichever stylebox states are actually in play (normal/
-## hover/disabled from the inherited editor theme, plus pressed/
-## hover_pressed if already overridden, e.g. by _make_permission_toggle's
-## green) rather than relying on custom_minimum_size, which can only raise
-## a button's minimum height, never shrink it below what its stylebox
-## padding already demands.
-## Disabling a toggle-mode Button normally forces Godot's plain "disabled"
-## stylebox regardless of button_pressed, hiding whether it was on or off.
-## Reapplies the same green style as "disabled" too when the toggle is on,
-## and clears that override when re-enabling (so a later disable while off
-## falls back to the normal grey look, not a stale green one).
-func _set_toggle_disabled(toggle: Button, disabled: bool) -> void:
-	toggle.disabled = disabled
-	if disabled and toggle.button_pressed:
-		toggle.add_theme_stylebox_override("disabled", toggle.get_meta("green_style"))
-		toggle.add_theme_color_override("font_disabled_color", Color(1, 1, 1))
-	else:
-		# Reapply the compacted grey default, not remove_theme_stylebox_
-		# override — removing it falls back to Godot's ORIGINAL uncompacted
-		# style, and Button.get_minimum_size() factors the disabled
-		# stylebox's size in even while enabled, so that alone makes the
-		# whole button look tall again. Confirmed live.
-		toggle.add_theme_stylebox_override("disabled", toggle.get_meta("default_disabled_style"))
-		toggle.remove_theme_color_override("font_disabled_color")
 
 # ---- In-editor session (Phase 1 flagship) ----
 
@@ -559,7 +644,7 @@ func _build_session_ui() -> void:
 
 	_stop_button = Button.new()
 	_stop_button.icon = _svg_icon("stop_hand.svg")
-	_stop_button.tooltip_text = "Stop the current reply (the conversation is kept)"
+	_stop_button.tooltip_text = "Stop the current reply (the session is kept)"
 	_stop_button.custom_minimum_size.x = 36 * EditorInterface.get_editor_scale()
 	_style_button(_stop_button, Color(0.75, 0.2, 0.2))
 	_stop_button.pressed.connect(_on_stop_pressed)
@@ -592,12 +677,12 @@ func _style_button(b: Button, color: Color) -> void:
 
 ## Stops the reply in progress without ending the conversation: Claude gets
 ## the stream-json "interrupt" control request (confirmed: the session and
-## its context carry on); a Codex turn is its own process, so it's ended and
+## its context carry on); a Codex or OpenCode turn is its own process, so it's ended and
 ## the next message resumes the same thread.
 func _on_stop_pressed() -> void:
 	if not _session_active:
 		return
-	if _session_kind == "codex":
+	if _session_kind != "claude":
 		if _pipe.has("pid") and OS.is_process_running(_pipe.pid):
 			OS.kill(_pipe.pid)
 		_stop_session("Stopped.")
@@ -621,54 +706,75 @@ func shutdown() -> void:
 ## (/model, /clear, ...) don't exist here. /model is handled by the panel;
 ## anything else points at the full terminal session.
 func _handle_slash_command(text: String) -> void:
-	var agent := "codex" if (_preferred_assistant() == "codex" or not _codex_thread_id.is_empty()) else "claude"
+	var agent := _active_agent()
 	var parts := text.split(" ", false, 1)
 	if parts[0] == "/effort":
 		_effort_command(agent, parts[1].strip_edges() if parts.size() > 1 else "")
 		return
+	if parts[0] == "/compact":
+		_compact_command(agent, parts[1].strip_edges() if parts.size() > 1 else "")
+		return
 	if parts[0] != "/model":
-		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model and /effort; New session (refresh icon) replaces /clear.[/i]" % [
-			parts[0].xml_escape(), "Codex" if agent == "codex" else "Claude"])
+		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model, /effort and /compact; New session (refresh icon) replaces /clear.[/i]" % [
+			parts[0].xml_escape(), _cli_name(agent)])
 		return
 	if parts.size() == 1:
 		_show_choice_menu(agent, "model")
 		return
 	_set_model(agent, parts[1].strip_edges())
 
+## /compact [instructions]: summarize the Claude conversation to free context.
+## Sent to the running process as a normal user message (confirmed to work in
+## stream-json mode); resumes the stored session first if none is running.
+func _compact_command(agent: String, instructions: String) -> void:
+	if agent != "claude":
+		_append_transcript("[i]/compact isn't available for %s.[/i]" % _cli_name(agent))
+		return
+	if not _session_active and _claude_session_id.is_empty():
+		_append_transcript("[i]Nothing to compact yet — no session.[/i]")
+		return
+	if not _session_active and not _start_session():
+		return
+	_append_transcript("[i]Compacting the session…[/i]")
+	_pipe.stdio.store_string(JSON.stringify({
+		"type": "user",
+		"message": {"role": "user", "content": [{"type": "text", "text": ("/compact " + instructions).strip_edges()}]},
+	}) + "\n")
+
 func _set_model(agent: String, model: String) -> void:
 	EditorInterface.get_editor_settings().set_project_metadata(
 		"godot_live_mcp", "model_" + agent, "" if model == "default" else model)
-	if agent == "codex":
-		_append_transcript("[i]Codex model set to %s — used from your next message.[/i]" % model.xml_escape())
+	if agent != "claude":
+		_append_transcript("[i]%s model set to %s — used from your next message.[/i]" % [_cli_name(agent), model.xml_escape()])
 	else:
-		# Claude's panel session is one long process; the model is fixed at
-		# launch, so start a fresh session with it.
-		if _session_active:
-			_stop_session("")
-		_append_transcript("[i]Claude model set to %s — your next message starts a new session with it.[/i]" % model.xml_escape())
+		# The model is fixed at launch; restarting resumes the same conversation.
+		_apply_on_next_message("Claude model set to %s" % model.xml_escape())
 
 ## /effort [level]: reasoning effort per agent, saved per project, like /model.
 ## Codex: model_reasoning_effort (e.g. minimal, low, medium, high); Claude:
-## --effort (e.g. low, medium, high). Empty = the CLI's own setting.
+## --effort (e.g. low, medium, high); OpenCode: --variant (provider-specific,
+## e.g. minimal, high, max). Empty = the CLI's own setting.
 func _effort_command(agent: String, level: String) -> void:
 	if level == "":
 		_show_choice_menu(agent, "effort")
 		return
 	EditorInterface.get_editor_settings().set_project_metadata(
 		"godot_live_mcp", "effort_" + agent, "" if level == "default" else level)
-	if agent == "codex":
-		_append_transcript("[i]Codex effort set to %s — used from your next message.[/i]" % level.xml_escape())
+	if agent != "claude":
+		_append_transcript("[i]%s effort set to %s — used from your next message.[/i]" % [_cli_name(agent), level.xml_escape()])
 	else:
-		if _session_active:
-			_stop_session("")
-		_append_transcript("[i]Claude effort set to %s — your next message starts a new session with it.[/i]" % level.xml_escape())
+		_apply_on_next_message("Claude effort set to %s" % level.xml_escape())
 
 # ---- /model and /effort pickers ----
 
 ## The CLI's own default (what it uses when the panel doesn't override it):
-## Codex from ~/.codex/config.toml, Claude from ~/.claude/settings.json.
+## Codex from ~/.codex/config.toml, Claude from ~/.claude/settings.json,
+## OpenCode's model from ~/.config/opencode/opencode.json.
 func _cli_default(agent: String, what: String) -> String:
-	var home := OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
+	var home := _home_dir()
+	if agent == "opencode":
+		var cfg = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".config/opencode/opencode.json")))
+		return String(cfg.get("model", "")) if cfg is Dictionary and what == "model" else ""
 	if agent == "codex":
 		var toml := FileAccess.get_file_as_string(home.path_join(".codex/config.toml"))
 		var key := "model" if what == "model" else "model_reasoning_effort"
@@ -680,13 +786,14 @@ func _cli_default(agent: String, what: String) -> String:
 	return ""
 
 ## Choices for the picker: Codex's listed models (and the chosen model's
-## effort levels) from its model cache; Claude's model aliases and levels.
+## effort levels) from its live catalog; Claude's models (see _claude_models)
+## and effort levels.
 func _choices(agent: String, what: String) -> Array:
 	if agent == "claude":
-		return _CLAUDE_MODELS.keys() if what == "model" else ["low", "medium", "high", "xhigh", "max"]
-	var home := OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
-	var cache = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".codex/models_cache.json")))
-	var models: Array = cache.get("models", []) if cache is Dictionary else []
+		return _claude_models().keys() if what == "model" else ["low", "medium", "high", "xhigh", "max"]
+	if agent == "opencode":
+		return _opencode_models() if what == "model" else ["minimal", "low", "medium", "high", "max"]
+	var models := _codex_models()
 	if what == "model":
 		var out := []
 		for m in models:
@@ -699,22 +806,92 @@ func _choices(agent: String, what: String) -> Array:
 			return m.get("supported_reasoning_levels", []).map(func(l): return String(l.get("effort", "")))
 	return ["low", "medium", "high"]
 
-# Claude models by exact ID, so the version shown is the version used (the
-# opus/sonnet/haiku aliases move to newer models on their own; they still
-# work typed in, and as a CLI default). Update this list when new models
-# ship.
+# Pinned Claude models by exact ID, so the version shown is the version used.
+# The `claude` CLI has no way to list models, so this is the one static part;
+# _claude_models() puts the always-latest aliases and the account's own
+# extra models (from Claude Code's cache) around it.
 const _CLAUDE_MODELS := {
 	"claude-fable-5-1": "Fable 5.1",
 	"claude-opus-5-5": "Opus 5.5",
-	"claude-sonnet-5": "Sonnet 5",
+	"claude-sonnet-5-5": "Sonnet 5.5",
 	"claude-haiku-4-5-20251001": "Haiku 4.5",
 }
+const _CLAUDE_ALIASES := {
+	"fable": "Fable (latest)", "opus": "Opus (latest)",
+	"sonnet": "Sonnet (latest)", "haiku": "Haiku (latest)",
+}
 
-## Display text for a model/effort value: Claude model IDs get their name
-## and version, e.g. "Opus 5.5 (claude-opus-5-5)".
+func _home_dir() -> String:
+	return OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
+
+## value -> label: aliases (always the newest model, nothing to maintain),
+## then models Claude Code itself reports for this account
+## (~/.claude.json additionalModelOptionsCache), then the pinned list.
+func _claude_models() -> Dictionary:
+	var out := {}
+	for k in _CLAUDE_ALIASES:
+		out[k] = _CLAUDE_ALIASES[k]
+	var cfg = JSON.parse_string(FileAccess.get_file_as_string(_home_dir().path_join(".claude.json")))
+	if cfg is Dictionary and cfg.get("additionalModelOptionsCache") is Array:
+		for m in cfg["additionalModelOptionsCache"]:
+			if m is Dictionary and String(m.get("value", "")) != "":
+				var v := String(m["value"])
+				out[v] = String(m.get("description", m.get("label", v))).split(" · ")[0]
+	for k in _CLAUDE_MODELS:
+		if not out.has(k):
+			out[k] = _CLAUDE_MODELS[k]
+	return out
+
+var _opencode_models_cache: Array = []
+var _opencode_models_at := -1000000
+
+## OpenCode's "provider/model" ids from `opencode models` (about a second for
+## the full catalog, so kept for five minutes).
+func _opencode_models() -> Array:
+	if Time.get_ticks_msec() - _opencode_models_at < 300000 and not _opencode_models_cache.is_empty():
+		return _opencode_models_cache
+	var models := []
+	if _installed.get("opencode", false):
+		var sh := _login_shell("opencode models")
+		var output := []
+		if OS.execute(sh[0], sh[1], output, false) == 0 and not output.is_empty():
+			for line in String(output[0]).split("\n", false):
+				if line.strip_edges().contains("/"):
+					models.append(line.strip_edges())
+	_opencode_models_cache = models
+	_opencode_models_at = Time.get_ticks_msec()
+	return models
+
+var _codex_models_cache: Array = []
+var _codex_models_at := -100000
+
+## Codex's model catalog: asks `codex debug models` (fast, local, and newer
+## than ~/.codex/models_cache.json, which only refreshes when Codex runs),
+## falling back to that file.
+func _codex_models() -> Array:
+	if Time.get_ticks_msec() - _codex_models_at < 60000 and not _codex_models_cache.is_empty():
+		return _codex_models_cache
+	var models: Array = []
+	if _has_command("codex"):
+		var sh := _login_shell("codex debug models")
+		var output := []
+		if OS.execute(sh[0], sh[1], output, false) == 0 and not output.is_empty():
+			var data = JSON.parse_string(String(output[0]))
+			if data is Dictionary and data.get("models") is Array:
+				models = data["models"]
+	if models.is_empty():
+		var cache = JSON.parse_string(FileAccess.get_file_as_string(_home_dir().path_join(".codex/models_cache.json")))
+		models = cache.get("models", []) if cache is Dictionary else []
+	_codex_models_cache = models
+	_codex_models_at = Time.get_ticks_msec()
+	return models
+
+## Display text for a model/effort value, e.g. "Opus 5.5 (claude-opus-5-5)".
 func _choice_label(agent: String, value: String) -> String:
-	if agent == "claude" and _CLAUDE_MODELS.has(value):
-		return "%s (%s)" % [_CLAUDE_MODELS[value], value]
+	if agent == "claude":
+		var models := _claude_models()
+		if models.has(value):
+			return value if models[value] == value else ("%s (%s)" % [models[value], value] if not _CLAUDE_ALIASES.has(value) else models[value])
 	return value
 
 func _current_setting(agent: String, what: String) -> String:
@@ -751,27 +928,38 @@ func _model_args(agent: String) -> Array:
 	var effort := String(es.get_project_metadata("godot_live_mcp", "effort_" + agent, ""))
 	var args := []
 	if model != "":
-		args += ["-m", model] if agent == "codex" else ["--model", model]
+		args += ["-m", model] if agent in _TURN_AGENTS else ["--model", model]
 	if effort != "":
-		args += ["-c", "model_reasoning_effort=%s" % JSON.stringify(effort)] if agent == "codex" else ["--effort", effort]
+		match agent:
+			"codex": args += ["-c", "model_reasoning_effort=%s" % JSON.stringify(effort)]
+			"opencode": args += ["--variant", effort]
+			_: args += ["--effort", effort]
 	return args
 
+## The in-panel chat agents that are installed (all, if none is, so the
+## settings still show something).
+func _chat_agents() -> Array:
+	var found := []
+	for id in ["claude", "codex", "opencode"]:
+		if _installed.get(id, false):
+			found.append(id)
+	return found if not found.is_empty() else ["claude", "codex", "opencode"]
+
+## The chosen chat agent, or the first installed one if the choice isn't
+## installed on this machine.
 func _preferred_assistant() -> String:
-	return String(EditorInterface.get_editor_settings().get_project_metadata(
+	var chosen := String(EditorInterface.get_editor_settings().get_project_metadata(
 		"godot_live_mcp", _ASSISTANT_SETTING, "claude"))
+	var agents := _chat_agents()
+	return chosen if agents.has(chosen) else agents[0]
 
 func _on_new_session_pressed() -> void:
 	_tokens_in = 0
 	_tokens_out = 0
-	if not _codex_thread_id.is_empty() and not _session_active:
-		_codex_thread_id = ""
-		_append_transcript("[i]Session ended — your next message starts a new one.[/i]")
-		return
-	_codex_thread_id = ""
 	if _session_active:
-		_stop_session("Session ended — your next message starts a new one.")
-	else:
-		_append_transcript("[i]No session running — your next message starts a new one.[/i]")
+		_stop_session("")
+	_clear_conversation()
+	_append_transcript("[i]Session cleared — your next message starts a new one.[/i]")
 
 # ---- Settings popup ----
 
@@ -814,18 +1002,26 @@ func _build_settings_popup() -> void:
 	var assistant_row := HBoxContainer.new()
 	box.add_child(assistant_row)
 	var assistant_label := Label.new()
-	assistant_label.text = "Coding agent:"
+	assistant_label.text = "In Editor Coding agent:"
 	assistant_row.add_child(assistant_label)
 	_assistant_option = OptionButton.new()
-	_assistant_option.add_item("Claude")
-	_assistant_option.add_item("Codex")
-	_assistant_option.selected = 1 if _preferred_assistant() == "codex" else 0
+	for agent in _chat_agents():
+		_assistant_option.add_item(_cli_name(agent))
+		_assistant_option.set_item_metadata(_assistant_option.item_count - 1, agent)
+		if agent == _preferred_assistant():
+			_assistant_option.select(_assistant_option.item_count - 1)
 	_assistant_option.item_selected.connect(func(i: int):
 		EditorInterface.get_editor_settings().set_project_metadata(
-			"godot_live_mcp", _ASSISTANT_SETTING, "codex" if i == 1 else "claude")
+			"godot_live_mcp", _ASSISTANT_SETTING, String(_assistant_option.get_item_metadata(i)))
+		# The choice is authoritative: end whatever process is running; the
+		# next message goes to the chosen agent, resuming its own saved
+		# session if it has one (the others keep theirs for switching back).
+		if _session_active:
+			_stop_session("")
+		_load_thread()
 		_refresh_model_effort_options()
-		if _session_active or not _codex_thread_id.is_empty():
-			_append_transcript("[i]Assistant changed — it applies from the next session (New session button).[/i]"))
+		_append_transcript("%s [i]— your next message goes to it%s.[/i]" % [
+			_agent_line(), " (resuming its saved session)" if _has_resumable() else " (new session)"]))
 	assistant_row.add_child(_assistant_option)
 
 	# Model and effort for the chosen agent, in two columns.
@@ -847,6 +1043,21 @@ func _build_settings_popup() -> void:
 		_effort_command(_panel_agent(), String(_effort_option.get_item_metadata(i))))
 	grid.add_child(_effort_option)
 
+	var bold: Font = EditorInterface.get_editor_theme().get_font("bold", "EditorFonts")
+	var perm_label := Label.new()
+	perm_label.text = "Permissions"
+	perm_label.add_theme_font_override("font", bold)
+	box.add_child(perm_label)
+	_file_control_toggle = _make_permission_check("File Control", "Let the AI read and edit files in the project folder.", box)
+	_terminal_toggle = _make_permission_check("Terminal Commands", "Let the AI run shell commands.", box)
+	_web_toggle = _make_permission_check("Web Access", "Let the AI fetch web pages and search the web.", box)
+
+	box.add_child(HSeparator.new())
+	var prefs_label := Label.new()
+	prefs_label.text = "Preferences"
+	prefs_label.add_theme_font_override("font", bold)
+	box.add_child(prefs_label)
+
 	_sync_check = CheckBox.new()
 	_sync_check.text = "Sync editor changes to the running game"
 	_sync_check.tooltip_text = (
@@ -862,7 +1073,7 @@ func _build_settings_popup() -> void:
 	_tests_check.tooltip_text = (
 		"On: the AI plays the scene and checks its work before reporting back.\n" +
 		"Off: the AI makes the change and tells you what to try; you test it.\n" +
-		"Applies from the next session (use the New session button)."
+		"Applies from your next message (the session is kept)."
 	)
 	_tests_check.button_pressed = EditorInterface.get_editor_settings().get_project_metadata(
 		"godot_live_mcp", _TESTS_SETTING, false)
@@ -874,14 +1085,13 @@ func _build_settings_popup() -> void:
 	_save_check.tooltip_text = (
 		"On: the AI saves the scene after each step.\n" +
 		_mac_keys("Off: changes stay unsaved (*) for you to save with Ctrl+S, like your own edits.\n") +
-		"Applies from the next session (use the New session button)."
+		"Applies from your next message (the session is kept)."
 	)
 	_save_check.button_pressed = EditorInterface.get_editor_settings().get_project_metadata(
 		"godot_live_mcp", _SAVE_SETTING, true)
 	_save_check.toggled.connect(func(on: bool):
 		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _SAVE_SETTING, on)
-		if _session_active:
-			_append_transcript("[i]Saving preference changed — it applies from the next session (New session button).[/i]"))
+		_apply_on_next_message("Saving preference changed"))
 	box.add_child(_save_check)
 
 	var data_check := CheckBox.new()
@@ -891,18 +1101,17 @@ func _build_settings_popup() -> void:
 		"so recurring problems can later be reviewed as candidates for new GodotLiveMCP tools,\n" +
 		"and the AI mentions when a batch is ready to review.\n" +
 		"Off: nothing is written to disk and nothing is offered for review.\n" +
-		"Applies from the next session (use the New session button)."
+		"Applies from your next message (the session is kept)."
 	)
 	data_check.button_pressed = _tool_data_enabled()
 	data_check.toggled.connect(func(on: bool):
 		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _TOOL_DATA_SETTING, on)
 		_ensure_local_registration()
-		if _session_active:
-			_append_transcript("[i]Usage-data preference changed — it applies from the next session (New session button).[/i]"))
+		_apply_on_next_message("Usage-data preference changed"))
 	box.add_child(data_check)
 
 func _panel_agent() -> String:
-	return "codex" if _preferred_assistant() == "codex" else "claude"
+	return _preferred_assistant()
 
 ## Fills the Model/Effort drop-downs for the current agent: "Default
 ## (currently X)" first, then the choices, selecting the active override.
@@ -936,8 +1145,7 @@ func _on_settings_pressed() -> void:
 
 func _on_tests_toggled(on: bool) -> void:
 	EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _TESTS_SETTING, on)
-	if _session_active:
-		_append_transcript("[i]Testing preference changed — it applies from the next session (New session button).[/i]")
+	_apply_on_next_message("Testing preference changed")
 
 ## Extra claude arguments from the settings popup (testing and saving preferences,
 ## as appended system-prompt text the user doesn't see in the transcript).
@@ -988,7 +1196,7 @@ func _on_sync_toggled(on: bool) -> void:
 		if menu.is_item_checked(i) != on:
 			menu.id_pressed.emit(menu.get_item_id(i))
 
-func _start_session() -> bool:
+func _start_session(first_message: String = "") -> bool:
 	if not _has_command("claude"):
 		_append_transcript("[color=red]Claude Code CLI not found on PATH — install it first: https://docs.claude.com/en/docs/claude-code[/color]")
 		return false
@@ -1017,6 +1225,14 @@ func _start_session() -> bool:
 	)
 	for arg in _model_args("claude") + _behavior_args():
 		claude_cmd += " " + _shell_quote(arg)
+	_resuming = not _claude_session_id.is_empty()
+	if _resuming:
+		claude_cmd += " --resume " + _shell_quote(_claude_session_id)
+	else:
+		_session_name = first_message.replace("\n", " ").strip_edges().left(40).strip_edges()
+		if _session_name.is_empty():
+			_session_name = "Godot session " + Time.get_datetime_string_from_system().replace("T", " ")
+		claude_cmd += " --name " + _shell_quote(_session_name)
 	# Last on the line: --mcp-config is variadic, so anything after it would
 	# be swallowed as another config.
 	for arg in _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)):
@@ -1033,15 +1249,14 @@ func _start_session() -> bool:
 	_tokens_in = 0
 	_tokens_out = 0
 	_read_buffer = ""
+	_got_init = false
 	_session_active = true
-	# Toggles only take effect at launch (no live "change permissions"
-	# protocol), so lock them once a session is running.
-	_set_toggle_disabled(_file_control_toggle, true)
-	_set_toggle_disabled(_terminal_toggle, true)
-	_set_toggle_disabled(_web_toggle, true)
-	_append_transcript("[i]Session started (pid %d). Granted: %s.[/i]" % [
-		_pipe.pid, ", ".join(granted_labels) if not granted_labels.is_empty() else "Godot control only"
-	])
+	# A resumed process stays quiet: the restore notice (editor restart) or
+	# the "conversation continues" note (model/effort change) already said so.
+	if not _resuming:
+		_append_transcript("[i]Session started: “%s” (pid %d). Granted: %s.[/i]" % [
+			_session_name.xml_escape(), _pipe.pid,
+			", ".join(granted_labels) if not granted_labels.is_empty() else "Godot control only"])
 	return true
 
 func _stop_session(status_text: String) -> void:
@@ -1052,9 +1267,6 @@ func _stop_session(status_text: String) -> void:
 	_pipe = {}
 	_read_buffer = ""
 	_session_active = false
-	_set_toggle_disabled(_file_control_toggle, false)
-	_set_toggle_disabled(_terminal_toggle, false)
-	_set_toggle_disabled(_web_toggle, false)
 	if not status_text.is_empty():
 		_append_transcript("[i]%s[/i]" % status_text)
 
@@ -1083,16 +1295,19 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 		_input_field.text = ""
 		_handle_slash_command(text)
 		return
-	if _preferred_assistant() == "codex" or not _codex_thread_id.is_empty():
+	var agent := _active_agent()
+	if _session_active and _session_kind != agent:
+		_stop_session("")  # a leftover process from another agent
+	if agent in _TURN_AGENTS:
 		if _session_active:
-			_append_transcript("[i]Codex is still working on the last message — wait for it to finish.[/i]")
+			_append_transcript("[i]%s is still working on the last message — wait for it to finish.[/i]" % _cli_name(agent))
 			return
-		if _start_codex_turn(text):
+		if _start_turn(agent, text):
 			_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
 			_input_field.text = ""
 		return
 	if not _session_active:
-		if not _start_session():
+		if not _start_session(text):
 			return
 	_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
 	var payload := {
@@ -1118,10 +1333,14 @@ func _poll_session() -> void:
 	var chunk: PackedByteArray = _pipe.stdio.get_buffer(65536)
 	if chunk.size() == 0:
 		if not running:
-			if _session_kind == "codex":
+			if _session_kind != "claude":
 				if not _read_buffer.strip_edges().is_empty():
 					_handle_stream_event(_read_buffer)
-				_stop_session("")  # one process per Codex turn; the thread lives on
+				_stop_session("")  # one process per turn; the thread lives on
+			elif _resuming and not _got_init:
+				_claude_session_id = ""
+				_set_meta("claude_session_id", "")
+				_stop_session("Couldn't resume the previous session (its history is gone?) — your next message starts a new one.")
 			else:
 				_stop_session("Session process exited.")
 		return
@@ -1147,9 +1366,26 @@ func _handle_stream_event(line: String) -> void:
 	if _session_kind == "codex":
 		_handle_codex_event(evt)
 		return
+	if _session_kind == "opencode":
+		_handle_opencode_event(evt)
+		return
 	var event_type := String(evt.get("type", ""))
 
-	if event_type == "assistant":
+	if event_type == "system":
+		var subtype := String(evt.get("subtype", ""))
+		if subtype == "init":
+			_got_init = true
+			_claude_session_id = String(evt.get("session_id", _claude_session_id))
+			_set_meta("claude_session_id", _claude_session_id)
+			_set_meta("claude_session_name", _session_name)
+		elif subtype == "session_title_changed":
+			_session_name = String(evt.get("title", _session_name))
+			_set_meta("claude_session_name", _session_name)
+		elif subtype == "compact_boundary":
+			var meta: Dictionary = evt.get("compact_metadata", {})
+			_append_transcript("[color=#7ec07e]— session compacted: %s → %s tokens —[/color]" % [
+				_short_count(int(meta.get("pre_tokens", 0))), _short_count(int(meta.get("post_tokens", 0)))])
+	elif event_type == "assistant":
 		var content: Array = evt.get("message", {}).get("content", [])
 		for block in content:
 			var block_type := String(block.get("type", ""))
@@ -1158,6 +1394,8 @@ func _handle_stream_event(line: String) -> void:
 			elif block_type == "tool_use":
 				_append_transcript("[i]  → %s[/i]" % String(block.get("name", "")).xml_escape())
 	elif event_type == "result":
+		if int(evt.get("num_turns", 1)) == 0:
+			return  # the reply to /compact: no model turn to report
 		var usage: Dictionary = evt.get("usage", {})
 		# Fresh input = uncached input + cache writes; cache reads are separate.
 		var turn_in := int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
@@ -1168,13 +1406,19 @@ func _handle_stream_event(line: String) -> void:
 ## workspace-write (else read-only), Web Access -> network inside it.
 ## Approvals are "never" since the panel can't show a prompt: anything
 ## outside the sandbox just fails, like Claude's denied tools here.
+func _start_turn(agent: String, text: String) -> bool:
+	if _thread_id.is_empty():
+		_session_name = text.replace("\n", " ").strip_edges().left(40).strip_edges()
+		_set_meta("claude_session_name", _session_name)
+	return _start_codex_turn(text) if agent == "codex" else _start_opencode_turn(text)
+
 func _start_codex_turn(text: String) -> bool:
 	if not _has_command("codex"):
 		_append_transcript("[color=red]Codex CLI not found on PATH — install it first: https://github.com/openai/codex[/color]")
 		return false
 	var args := ["exec"]
-	if not _codex_thread_id.is_empty():
-		args += ["resume", _codex_thread_id]
+	if not _thread_id.is_empty():
+		args += ["resume", _thread_id]
 	args += _model_args("codex")
 	args += ["--json", "--skip-git-repo-check",
 		"-c", 'sandbox_mode="%s"' % ("workspace-write" if _file_control_toggle.button_pressed else "read-only"),
@@ -1207,7 +1451,7 @@ func _start_codex_turn(text: String) -> bool:
 	_session_kind = "codex"
 	_read_buffer = ""
 	_session_active = true
-	if _codex_thread_id.is_empty():
+	if _thread_id.is_empty():
 		_tokens_in = 0
 		_tokens_out = 0
 		_append_transcript("[i]Codex session started. Sandbox: %s%s.[/i]" % [
@@ -1220,7 +1464,7 @@ func _handle_codex_event(evt: Dictionary) -> void:
 	var event_type := String(evt.get("type", ""))
 	match event_type:
 		"thread.started":
-			_codex_thread_id = String(evt.get("thread_id", ""))
+			_set_thread("codex", String(evt.get("thread_id", "")))
 		"item.started", "item.completed":
 			var item: Dictionary = evt.get("item", {})
 			var item_type := String(item.get("type", ""))
@@ -1249,6 +1493,82 @@ func _handle_codex_event(evt: Dictionary) -> void:
 		"error":
 			pass  # reconnect chatter; a real failure also arrives as turn.failed
 
+## Starts `opencode run --format json` for one message (resuming the thread
+## after the first). One process per message, like Codex.
+func _start_opencode_turn(text: String) -> bool:
+	if not _installed.get("opencode", false):
+		_append_transcript("[color=red]OpenCode CLI not found on PATH — install it first: https://opencode.ai[/color]")
+		return false
+	var args := ["run", "--format", "json"]
+	if not _thread_id.is_empty():
+		args += ["-s", _thread_id]
+	else:
+		args += ["--title", _session_name]
+	args += _model_args("opencode")
+	args.append(text)
+	var cmd := "exec env " + _shell_quote("OPENCODE_CONFIG_CONTENT=" + _opencode_config(true)) + " opencode"
+	for a in args:
+		cmd += " " + _shell_quote(a)
+	var shell_cmd := "cd %s && %s < /dev/null" % [_shell_quote(ProjectSettings.globalize_path("res://")), cmd]
+	var sh := _login_shell(shell_cmd)
+	_pipe = OS.execute_with_pipe(sh[0], sh[1], false)
+	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
+		_append_transcript("[color=red]Failed to start OpenCode.[/color]")
+		_pipe = {}
+		return false
+	_session_kind = "opencode"
+	_read_buffer = ""
+	_session_active = true
+	_oc_in = 0
+	_oc_cached = 0
+	_oc_out = 0
+	_oc_cost = 0.0
+	if _thread_id.is_empty():
+		_tokens_in = 0
+		_tokens_out = 0
+		_append_transcript("[i]OpenCode session started: “%s”. Edit %s, shell %s, web %s.[/i]" % [
+			_session_name.xml_escape(),
+			"on" if _file_control_toggle.button_pressed else "off",
+			"on" if _terminal_toggle.button_pressed else "off",
+			"on" if _web_toggle.button_pressed else "off"])
+	return true
+
+# This turn's token/cost sums across OpenCode's steps (a turn with tool calls
+# has several), reported once when the final step finishes.
+var _oc_in := 0
+var _oc_cached := 0
+var _oc_out := 0
+var _oc_cost := 0.0
+
+## One JSON event from `opencode run --format json`: step_start, text,
+## tool_use (arrives completed), step_finish (reason "stop" ends the turn),
+## and error.
+func _handle_opencode_event(evt: Dictionary) -> void:
+	var sid := String(evt.get("sessionID", ""))
+	if sid != "" and sid != _thread_id:
+		_set_thread("opencode", sid)
+	var part: Dictionary = evt.get("part", {}) if evt.get("part") is Dictionary else {}
+	match String(evt.get("type", "")):
+		"text":
+			_append_transcript("[b]OpenCode:[/b] %s" % String(part.get("text", "")).xml_escape())
+		"tool_use":
+			var tool_name := String(part.get("tool", "")).trim_prefix("godot-live-mcp_")
+			var status := String(part.get("state", {}).get("status", "")) if part.get("state") is Dictionary else ""
+			_append_transcript("[i]  → %s%s[/i]" % [tool_name.xml_escape(), " (failed)" if status == "error" else ""])
+		"step_finish":
+			var tokens: Dictionary = part.get("tokens", {}) if part.get("tokens") is Dictionary else {}
+			var cache: Dictionary = tokens.get("cache", {}) if tokens.get("cache") is Dictionary else {}
+			_oc_in += int(tokens.get("input", 0)) + int(cache.get("write", 0))
+			_oc_cached += int(cache.get("read", 0))
+			_oc_out += int(tokens.get("output", 0))
+			_oc_cost += float(part.get("cost", 0.0))
+			if String(part.get("reason", "")) == "stop":
+				_turn_complete(_oc_in, _oc_cached, _oc_out, _oc_cost)
+		"error":
+			var err = evt.get("error", {})
+			var msg := String(err.get("data", {}).get("message", err.get("name", "unknown error"))) if err is Dictionary and err.get("data") is Dictionary else str(err)
+			_append_transcript("[color=red]OpenCode failed: %s[/color]" % msg.xml_escape())
+
 ## "— edits complete —" plus this turn's fresh tokens in/out (cached reads
 ## noted separately) and the conversation's running fresh totals.
 func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> void:
@@ -1270,3 +1590,74 @@ func _short_count(n: int) -> String:
 
 func _append_transcript(bbcode_line: String) -> void:
 	_transcript.append_text(bbcode_line + "\n")
+	var f := FileAccess.open(_TRANSCRIPT_PATH, FileAccess.READ_WRITE if FileAccess.file_exists(_TRANSCRIPT_PATH) else FileAccess.WRITE)
+	if f:
+		f.seek_end()
+		f.store_string(bbcode_line + "\n")
+
+func _meta(key: String, default = ""):
+	return EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", key, default)
+
+func _set_meta(key: String, value) -> void:
+	EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", key, value)
+
+## Reloads the saved transcript (its tail, if long) and the stored session
+## id, so reopening the editor shows the same conversation and the next
+## message continues it.
+func _restore_conversation() -> void:
+	_claude_session_id = String(_meta("claude_session_id"))
+	_session_name = String(_meta("claude_session_name"))
+	_load_thread()
+	_show_header()
+	if not FileAccess.file_exists(_TRANSCRIPT_PATH):
+		return
+	var text := FileAccess.get_file_as_string(_TRANSCRIPT_PATH)
+	if text.length() > _TRANSCRIPT_KEEP_BYTES:
+		var cut := text.find("\n", text.length() - _TRANSCRIPT_KEEP_BYTES)
+		text = text.substr(cut + 1) if cut != -1 else ""
+		var f := FileAccess.open(_TRANSCRIPT_PATH, FileAccess.WRITE)
+		if f:
+			f.store_string(text)
+	_transcript.append_text(text)
+	if _has_resumable():
+		# Display only: logging it would pile up a copy per editor restart.
+		_transcript.append_text("[color=orange][i]— previous session restored: “%s”. Your next message resumes it. —[/i][/color]\n" % _session_name.xml_escape())
+
+## First line of the session box: which in-editor agent and model are in
+## use. Display only (not saved with the transcript), so it always reflects
+## the current settings when the editor opens or the session is cleared, and
+## scrolls away as the conversation grows.
+func _show_header() -> void:
+	_transcript.append_text(_agent_line() + "\n")
+
+## "In Editor Coding Agent: <name> · <model>" in bold green, as BBCode.
+func _agent_line() -> String:
+	var agent := _preferred_assistant()
+	var model := _current_setting(agent, "model")
+	return "[b][color=#7ec07e]In Editor Coding Agent: %s · %s[/color][/b]" % [
+		_cli_name(agent).xml_escape(),
+		_choice_label(agent, model).xml_escape() if model != "" else "default model"]
+
+## Forget the stored conversation (id, name and saved transcript).
+func _clear_conversation() -> void:
+	_claude_session_id = ""
+	_session_name = ""
+	for agent in _TURN_AGENTS:
+		_set_meta("thread_" + agent, "")
+	_thread_id = ""
+	_set_meta("claude_session_id", "")
+	_set_meta("claude_session_name", "")
+	_transcript.clear()
+	_show_header()
+	var f := FileAccess.open(_TRANSCRIPT_PATH, FileAccess.WRITE)
+	if f:
+		f.close()
+
+## Settings that are launch flags: end the running process; the next message
+## starts a new one with them, resuming the same conversation.
+func _apply_on_next_message(what: String) -> void:
+	var running := _session_active and _session_kind == "claude"
+	if running:
+		_stop_session("")
+	if running or not _claude_session_id.is_empty():
+		_append_transcript("[i]%s — applies from your next message; the session continues.[/i]" % what)
