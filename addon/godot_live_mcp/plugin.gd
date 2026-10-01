@@ -17,6 +17,7 @@ func _enter_tree() -> void:
 	_assistant_panel.name = "AIAssistantPanel"
 	var tab_button := add_control_to_bottom_panel(_assistant_panel, "AI Assistant")
 	_move_tab_first(tab_button)
+	_bridge.activity.connect(_assistant_panel.on_bridge_activity)
 
 ## New bottom panels go last; the chat is the one used most, so make it the
 ## first tab. Newer Godot wraps the panel in a dock inside a TabContainer

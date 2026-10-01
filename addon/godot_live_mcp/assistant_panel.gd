@@ -38,7 +38,39 @@ const _TERMINALS := [
 ## Silicon -> /opt/homebrew/bin, Claude's native installer -> ~/.local/bin).
 const _MAC_PATH_PREFIX := 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; '
 
-var _cli_buttons: Dictionary = {}  # cli id -> its "Open ..." button
+var _external_button: Button       # header: open the chosen agent in a separate terminal window
+var _term_emulator_found := true   # a terminal emulator exists for External (set by _refresh_status)
+var _agent_button: MenuButton      # header: agent + model (+ effort) menu
+var _agent_model_menu: PopupMenu
+var _agent_effort_menu: PopupMenu
+var _chat_button: Button           # header mode: Chat
+var _agent_label: Label            # header: the current agent / model, after the Agent button
+var _logo: TextureRect             # header robot: a status light (see _set_robot)
+var _robot_textures := {}          # face name -> texture
+var _robot_state := "idle"
+var _robot_frame := 0
+var _robot_timer: Timer            # steps the current state's frames
+var _robot_hold_timer: Timer       # returns "done" / "angry" to idle after a while
+# What is keeping the robot "busy": the chat's reply, the embedded CLI's own
+# "esc to interrupt" hint, or calls arriving at the editor bridge (any client).
+var _busy := {"chat": false, "cli": false, "bridge": false}
+var _bridge_quiet_timer: Timer
+var _cli_poll_timer: Timer
+var _cli_busy_re: RegEx
+var _mode := "chat"                # "chat" | "cli" | "external"
+var _split_saved := false          # External mode shrinks the bottom panel; remembers its height
+var _split_saved_offset := 0
+var _chat_view: Control            # the transcript + input (the default view)
+var _term_view: VBoxContainer      # the embedded terminal view (GodotXterm), if available
+var _term_holder: Control          # where the Terminal control lives (or is popped out of)
+var _term: Control                 # GodotXterm Terminal node
+var _pty: Node                     # GodotXterm PTY node
+var _term_button: Button           # header toggle: chat view <-> terminal view
+var _term_size_spin: SpinBox
+var _term_scheme_option: OptionButton
+var _term_running := false
+var _term_agent := ""
+var _term_signature_started := ""   # the settings the running CLI was launched with
 var _installed: Dictionary = {}    # cli id -> found on PATH (see _detect_clis)
 var _new_session_button: Button
 var _settings_button: Button
@@ -46,9 +78,6 @@ var _settings_popup: PopupPanel
 var _sync_check: CheckBox
 var _tests_check: CheckBox
 var _save_check: CheckBox
-var _assistant_option: OptionButton
-var _model_option: OptionButton
-var _effort_option: OptionButton
 # Codex and OpenCode in the panel run one process per message and resume the
 # same thread for the next one; this is that thread's id and whose it is.
 # (Claude's resumable session id is _claude_session_id, below.)
@@ -86,6 +115,111 @@ var _pipe: Dictionary = {}       # result of OS.execute_with_pipe while a sessio
 var _read_buffer: String = ""    # accumulates partial reads until a full "\n"-terminated line exists
 var _session_active: bool = false
 
+# ---- The robot: a status light ----
+#
+# The header logo is a little robot (Material Design robot faces, outlines taken
+# from the Nerd Font) that shows what the in-panel agent is doing: orange and
+# blinking when idle, yellow and puzzled while it works, green and happy for a
+# moment when a reply is done, red and angry on an error or when stopped.
+# It only knows about the chat view; a CLI or External session isn't visible to it.
+const _ROBOT_STATES := {
+	"idle": {"color": "#d97757", "frames": ["plain", "happy"], "times": [2.6, 0.25]},
+	"thinking": {"color": "#f2c94c", "frames": ["confused", "plain"], "times": [0.5, 0.5]},
+	"done": {"color": "#7ec07e", "frames": ["excited"], "times": [1.0], "hold": 5.0},
+	"angry": {"color": "#e06c75", "frames": ["angry"], "times": [1.0], "hold": 3.0},
+}
+
+func _setup_robot() -> void:
+	for face in ["plain", "happy", "confused", "excited", "angry", "dead"]:
+		_robot_textures[face] = _svg_icon("robot_%s.svg" % face, 2.0)  # 2x so the faces stay crisp
+	_robot_timer = Timer.new()
+	_robot_timer.one_shot = true
+	_robot_timer.timeout.connect(_robot_tick)
+	add_child(_robot_timer)
+	_robot_hold_timer = Timer.new()
+	_robot_hold_timer.one_shot = true
+	_robot_hold_timer.timeout.connect(func(): _set_robot("thinking" if _any_busy() else "idle"))
+	add_child(_robot_hold_timer)
+	_bridge_quiet_timer = Timer.new()
+	_bridge_quiet_timer.one_shot = true
+	_bridge_quiet_timer.timeout.connect(func(): _set_busy("bridge", false))
+	add_child(_bridge_quiet_timer)
+	# CLIs print a hint while they work: "esc to interrupt" (Claude Code, Codex),
+	# "esc interrupt" (OpenCode), "esc to cancel" (Gemini). Spaces can go missing
+	# in the terminal's text, hence the \s*.
+	_cli_busy_re = RegEx.create_from_string("(?i)esc\\s*(?:to\\s*)?(?:interrupt|cancel)")
+	_cli_poll_timer = Timer.new()
+	_cli_poll_timer.wait_time = 0.5
+	_cli_poll_timer.timeout.connect(_poll_cli_state)
+	add_child(_cli_poll_timer)
+	_cli_poll_timer.start()
+	_set_robot("idle")
+
+func _any_busy() -> bool:
+	return _busy.values().has(true)
+
+## Marks a source busy or not; the robot goes yellow when the first source
+## becomes busy and flashes green when the last one stops.
+func _set_busy(source: String, on: bool) -> void:
+	if _busy[source] == on:
+		return
+	var was := _any_busy()
+	_busy[source] = on
+	var now := _any_busy()
+	if now and not was:
+		_set_robot("thinking")
+	elif was and not now:
+		_set_robot("done")
+
+## Like _set_busy(source, false) but without the green flash (a stopped or
+## abandoned reply isn't "done").
+func _clear_busy(source: String) -> void:
+	_busy[source] = false
+	if not _any_busy() and _robot_state == "thinking":
+		_set_robot("idle")
+
+## Called (through plugin.gd) for every request the editor bridge answers.
+func on_bridge_activity(ok: bool) -> void:
+	if _bridge_quiet_timer == null:
+		return
+	_bridge_quiet_timer.start(3.0)
+	_set_busy("bridge", true)
+	if not ok:
+		_set_robot("angry", 1.2)  # a short flash; failed calls are normal
+
+## Reads the embedded CLI's visible screen (not its scrollback) for the hint
+## it prints while it works.
+func _poll_cli_state() -> void:
+	if not _term_running or _term == null:
+		_set_busy("cli", false)
+		return
+	var rows := maxi(int(_term.call("get_rows")), 1)
+	var lines: PackedStringArray = String(_term.call("copy_all")).split("\n")
+	var screen := "\n".join(lines.slice(maxi(0, lines.size() - rows)))
+	_set_busy("cli", _cli_busy_re.search(screen) != null)
+
+func _set_robot(state: String, hold_override: float = -1.0) -> void:
+	if _logo == null or not _ROBOT_STATES.has(state):
+		return
+	_robot_state = state
+	_robot_frame = -1
+	_robot_hold_timer.stop()
+	_logo.modulate = Color(_ROBOT_STATES[state].color)
+	_robot_tick()
+	var hold := hold_override if hold_override >= 0.0 else float(_ROBOT_STATES[state].get("hold", 0.0))
+	if hold > 0.0:
+		_robot_hold_timer.start(hold)
+
+func _robot_tick() -> void:
+	var def: Dictionary = _ROBOT_STATES[_robot_state]
+	var frames: Array = def.frames
+	_robot_frame = (_robot_frame + 1) % frames.size()
+	_logo.texture = _robot_textures.get(frames[_robot_frame])
+	if frames.size() > 1:
+		_robot_timer.start(float(def.times[_robot_frame]))
+	else:
+		_robot_timer.stop()
+
 ## Shrinks a button's vertical padding to roughly match Godot's own compact
 ## editor controls (default buttons render at 38px/33px min) by zeroing
 ## content_margin_top/bottom on each stylebox state, rather than relying on
@@ -108,22 +242,20 @@ func _ready() -> void:
 	button_row.add_theme_constant_override("separation", 6)
 	add_child(button_row)
 
-	# "Clawd" — Claude Code's own mascot, from the official VS Code
-	# extension's bundled assets (resources/clawd.svg), copied in rather
-	# than referenced from the extension install so this doesn't depend on
-	# VS Code being installed. Native aspect ratio 47:38.
+	# The logo: a little robot (Material Design "robot-dead", outline taken from
+	# the Nerd Font), tinted orange. It is a white SVG so it can be tinted.
 	var icon := TextureRect.new()
-	icon.texture = load("res://addons/godot_live_mcp/icons/claude.svg")
-	icon.custom_minimum_size = Vector2(25, 20)
+	icon.custom_minimum_size = Vector2(26, 26)
+	_logo = icon
 	# TextureRect defaults to expand_mode EXPAND_KEEP_SIZE, which ignores
 	# custom_minimum_size for shrinking and reports the texture's native
-	# pixel size (47x38) as its own minimum regardless — confirmed live:
-	# this alone was forcing the whole button row to stay 38px tall even
-	# after every button's own minimum was correctly compacted to 21px.
+	# pixel size as its own minimum regardless — confirmed live: that alone
+	# kept the whole button row taller than its compacted buttons.
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button_row.add_child(icon)
+	_setup_robot()
 
 	var title := Label.new()
 	title.text = "Godot LIVE MCP"
@@ -135,47 +267,95 @@ func _ready() -> void:
 	# broader grants live in the settings popup (see _make_permission_check).
 
 	var editor_theme := EditorInterface.get_editor_theme()
+
+	# The coding agent comes first: one menu for agent, model and effort, and
+	# the current choice printed after it. It drives Chat, CLI and External.
+	_agent_button = MenuButton.new()
+	_agent_button.flat = false
+	_agent_button.text = "Agent"
+	_agent_button.get_popup().about_to_popup.connect(_rebuild_agent_menu)
+	_agent_button.get_popup().id_pressed.connect(_on_agent_menu_id)
+	_agent_model_menu = PopupMenu.new()
+	_agent_model_menu.name = "ModelMenu"
+	_agent_button.get_popup().add_child(_agent_model_menu)
+	_agent_model_menu.id_pressed.connect(func(id: int): _choose_model(String(_agent_model_menu.get_item_metadata(id))))
+	_agent_effort_menu = PopupMenu.new()
+	_agent_effort_menu.name = "EffortMenu"
+	_agent_button.get_popup().add_child(_agent_effort_menu)
+	_agent_effort_menu.id_pressed.connect(func(id: int): _choose_effort(String(_agent_effort_menu.get_item_metadata(id))))
+	button_row.add_child(_agent_button)
+	_compact_button_padding(_agent_button)
+	_agent_label = Label.new()
+	_agent_label.add_theme_color_override("font_color", Color("#7ec07e"))
+	_agent_label.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
+	button_row.add_child(_agent_label)
+
+	# Three modes for the chosen agent, one word each, as a single toggle:
+	# Chat (the chat box), CLI (its CLI inside the editor, with the optional
+	# GodotXterm addon) and External (its CLI in a separate terminal window —
+	# the panel then shrinks to just this header).
+	var seg := HBoxContainer.new()
+	seg.add_theme_constant_override("separation", 6)
+	button_row.add_child(seg)
+	var group := ButtonGroup.new()
+	_chat_button = Button.new()
+	_chat_button.text = "Chat"
+	_chat_button.icon = _svg_icon("chat.svg")
+	_tint_icon_button(_chat_button)
+	_chat_button.toggle_mode = true
+	_chat_button.button_group = group
+	_chat_button.button_pressed = true
+	_chat_button.toggled.connect(_on_mode_toggled.bind("chat"))
+	seg.add_child(_chat_button)
+	_compact_button_padding(_chat_button)
+	_style_mode_button(_chat_button)
+	if _xterm_available():
+		_term_button = Button.new()
+		_term_button.text = "CLI"
+		_term_button.icon = _svg_icon("cli.svg")
+		_tint_icon_button(_term_button)
+		_term_button.toggle_mode = true
+		_term_button.button_group = group
+		_term_button.tooltip_text = "The chosen agent's full interactive CLI, running right here in the editor (GodotXterm)."
+		_term_button.toggled.connect(_on_mode_toggled.bind("cli"))
+		seg.add_child(_term_button)
+		_compact_button_padding(_term_button)
+		_style_mode_button(_term_button)
+	_external_button = Button.new()
+	_external_button.text = "External"
+	_external_button.icon = _svg_icon("external.svg")
+	_tint_icon_button(_external_button)
+	_external_button.toggle_mode = true
+	_external_button.button_group = group
+	_external_button.toggled.connect(_on_mode_toggled.bind("external"))
+	seg.add_child(_external_button)
+	_compact_button_padding(_external_button)
+	_style_mode_button(_external_button)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button_row.add_child(spacer)
+
+	_new_session_button = Button.new()
+	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
+	_new_session_button.flat = true
+	_new_session_button.pressed.connect(_on_new_session_pressed)
+	button_row.add_child(_new_session_button)
+	_update_refresh_tooltip("chat")
+
 	_settings_button = Button.new()
 	_settings_button.icon = _svg_icon("cog.svg")
-	# The cog is white; tint it to the editor theme's text colour so it reads on light themes too.
-	for state in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-		_settings_button.add_theme_color_override(state, editor_theme.get_color("font_color", "Editor"))
+	_tint_icon_button(_settings_button)
 	_settings_button.tooltip_text = "Settings"
 	_settings_button.flat = true
 	_settings_button.pressed.connect(_on_settings_pressed)
 	button_row.add_child(_settings_button)
 
-	_new_session_button = Button.new()
-	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
-	_new_session_button.tooltip_text = "New session: end the current session; your next message starts a fresh one (and picks up a rebuilt MCP server)."
-	_new_session_button.flat = true
-	_new_session_button.pressed.connect(_on_new_session_pressed)
-	button_row.add_child(_new_session_button)
-
-	button_row.add_child(VSeparator.new())
-
-	var open_label := Label.new()
-	open_label.text = "Open external CLI with:"
-	button_row.add_child(open_label)
-
-	for cli in _CLIS:
-		var btn := Button.new()
-		btn.text = cli.button
-		btn.pressed.connect(_on_open_cli_pressed.bind(cli.id))
-		button_row.add_child(btn)
-		_compact_button_padding(btn)
-		_cli_buttons[cli.id] = btn
-
 	_build_settings_popup()
-
-	# Distribute the interactive buttons across the row's full width —
-	# icon/label/separator stay their natural size, only the buttons
-	# (terminal launchers) expand and share the leftover space.
-	for b in _cli_buttons.values():
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	_build_session_ui()
 	_restore_conversation()
+	_update_agent_button()
 
 	_refresh_status()
 	# Deferred so the editor finishes loading first; a no-op unless the
@@ -214,22 +394,38 @@ func _any_installed() -> bool:
 
 func _refresh_status() -> void:
 	_detect_clis()
-	var term := _find_terminal()
-	for cli in _CLIS:
-		var button: Button = _cli_buttons[cli.id]
-		button.disabled = true
-		button.visible = _installed[cli.id] or not _any_installed()
-		if not _installed[cli.id]:
-			button.tooltip_text = "%s CLI (`%s`) not found on PATH. Install it first: %s — then reopen this panel." % [cli.name, cli.bin, cli.url]
-		elif term.is_empty() and OS.get_name() not in ["Windows", "macOS"]:
-			button.tooltip_text = (
-				"%s found, but no supported terminal emulator was detected on PATH (tried " +
-				"$TERMINAL, alacritty, kitty, foot, ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
-			) % cli.name
-		else:
-			button.disabled = false
-			button.tooltip_text = "Opens a %s session in %s, in this project's directory." % [
-				cli.name, "Terminal" if OS.get_name() == "macOS" else "a console" if term.is_empty() else term.bin]
+	_term_emulator_found = not _find_terminal().is_empty() or OS.get_name() in ["Windows", "macOS"]
+	_update_mode_buttons()
+
+## Chat only exists for some agents, and External needs the CLI plus a
+## terminal emulator; keep the three mode buttons honest about that.
+func _update_mode_buttons() -> void:
+	var agent := _preferred_assistant()
+	var name := _cli_name(agent)
+	var can_chat := agent in _CHAT_AGENTS
+	_chat_button.disabled = not can_chat
+	_chat_button.tooltip_text = "The chat view." if can_chat else "%s has no chat view yet — use CLI or External." % name
+	if not can_chat and _chat_button.button_pressed:
+		if _term_button:
+			_term_button.button_pressed = true
+		elif not _external_button.disabled:
+			_external_button.button_pressed = true
+	var cli := _cli_info(agent)
+	if not _installed.get(agent, false):
+		_external_button.disabled = true
+		_external_button.tooltip_text = "%s CLI (`%s`) not found on PATH. Install it first: %s — then reopen this panel." % [name, cli.get("bin", agent), cli.get("url", "")]
+	elif not _term_emulator_found:
+		_external_button.disabled = true
+		_external_button.tooltip_text = (
+			"%s found, but no supported terminal emulator was detected on PATH (tried " +
+			"$TERMINAL, alacritty, kitty, foot, ghostty, gnome-terminal, konsole, xfce4-terminal, xterm)."
+		) % name
+	else:
+		_external_button.disabled = false
+		_external_button.tooltip_text = "Open %s in a separate terminal window, in this project (and shrink this panel). Switch away and back to open another." % name
+
+func _on_external_pressed() -> void:
+	_on_open_cli_pressed(_preferred_assistant())
 
 func _build_allowed_tools() -> Array:
 	var allowed := ["mcp__godot-live-mcp__*"]
@@ -240,6 +436,96 @@ func _build_allowed_tools() -> Array:
 	if _web_toggle.button_pressed:
 		allowed.append_array(["WebFetch", "WebSearch"])
 	return allowed
+
+# ---- Agent / model menu (header) ----
+
+## "Claude · Sonnet 5.5" on the header button.
+func _update_agent_button() -> void:
+	if _agent_button == null or _agent_label == null:
+		return
+	var agent := _preferred_assistant()
+	var model := _current_setting(agent, "model")
+	var short := "default"
+	if model != "":
+		short = _choice_label(agent, model)
+		short = short.get_slice(" (", 0)
+		short = short.get_slice("/", short.get_slice_count("/") - 1)
+	_agent_label.text = "%s · %s" % [_cli_name(agent), short]
+	var effort := _current_setting(agent, "effort")
+	var tip := "Agent: %s\nModel: %s\nEffort: %s" % [
+		_cli_name(agent), model if model != "" else "the CLI's default", effort if effort != "" else "the CLI's default"]
+	_agent_label.tooltip_text = tip
+	_agent_button.tooltip_text = tip + "\n(click to change)"
+	_agent_label.mouse_filter = Control.MOUSE_FILTER_STOP
+
+## Rebuilt each time it opens, since the model lists are dynamic.
+func _rebuild_agent_menu() -> void:
+	var menu := _agent_button.get_popup()
+	var agent := _preferred_assistant()
+	menu.clear()
+	var agents := _all_agents()
+	for i in agents.size():
+		menu.add_radio_check_item(_cli_name(agents[i]), i)
+		menu.set_item_checked(menu.get_item_index(i), agents[i] == agent)
+		menu.set_item_metadata(menu.get_item_index(i), agents[i])
+	menu.add_separator()
+	if agent == "gemini":
+		menu.add_item("Gemini uses its own model settings", 100)
+		menu.set_item_disabled(menu.get_item_index(100), true)
+		return
+	for pair in [["model", _agent_model_menu, "Model"], ["effort", _agent_effort_menu, "Effort"]]:
+		var what: String = pair[0]
+		var sub: PopupMenu = pair[1]
+		sub.clear()
+		var override := String(_meta(what + "_" + agent, ""))
+		var default_value := _cli_default(agent, what)
+		sub.add_radio_check_item("Default (%s)" % (default_value if default_value != "" else "the CLI's own"), 0)
+		sub.set_item_metadata(0, "default")
+		sub.set_item_checked(0, override == "")
+		var choices := _choices(agent, what)
+		if override != "" and not choices.has(override):
+			choices.append(override)  # a typed-in value not in the list
+		for c in choices:
+			sub.add_radio_check_item(_choice_label(agent, c))
+			var idx := sub.item_count - 1
+			sub.set_item_metadata(idx, c)
+			sub.set_item_checked(idx, c == override)
+		menu.add_submenu_node_item("%s…" % pair[2], sub)
+
+func _on_agent_menu_id(id: int) -> void:
+	var menu := _agent_button.get_popup()
+	_choose_agent(String(menu.get_item_metadata(menu.get_item_index(id))))
+
+## The choice is authoritative: end whatever process is running; the next
+## message goes to the chosen agent, resuming its own saved session if it has
+## one (the others keep theirs for switching back).
+func _choose_agent(agent: String) -> void:
+	if agent == _preferred_assistant():
+		return
+	_set_meta(_ASSISTANT_SETTING, agent)
+	if _session_active:
+		_stop_session("")
+	_load_thread()
+	if _term_running and _term_agent != _preferred_assistant():
+		_restart_terminal()
+	_update_agent_button()
+	_update_mode_buttons()
+	_append_transcript("%s [i]— your next message goes to it%s.[/i]" % [
+		_agent_line(), " (resuming its saved session)" if _has_resumable() else " (new session)"])
+
+func _choose_model(value: String) -> void:
+	_set_model(_preferred_assistant(), value)
+
+func _choose_effort(value: String) -> void:
+	_effort_command(_preferred_assistant(), value)
+
+func _update_refresh_tooltip(mode: String) -> void:
+	_new_session_button.disabled = mode == "external"
+	_new_session_button.tooltip_text = {
+		"chat": "New session: end the current session; your next message starts a fresh one (and picks up a rebuilt MCP server).",
+		"cli": "Restart the CLI (picks up a changed model, effort, permissions and preferences).",
+		"external": "Nothing to restart here: the session is in its own terminal window.",
+	}[mode]
 
 ## Terminal CLIs the header can open. Detection is just `which <bin>`; the
 ## only per-tool work is handing it this project's MCP server + token, which
@@ -255,6 +541,15 @@ const _CLIS := [
 
 ## Agents whose in-panel chat runs one process per message (see _thread_id).
 const _TURN_AGENTS := ["codex", "opencode"]
+
+func _cli_info(id: String) -> Dictionary:
+	for cli in _CLIS:
+		if cli.id == id:
+			return cli
+	return {}
+
+## Agents with an in-panel chat view (the others are terminal-only).
+const _CHAT_AGENTS := ["claude", "codex", "opencode"]
 
 func _cli_name(id: String) -> String:
 	for cli in _CLIS:
@@ -286,20 +581,27 @@ func _has_resumable() -> bool:
 	return not _claude_session_id.is_empty() if _preferred_assistant() == "claude" else not _thread_id.is_empty()
 
 func _on_open_cli_pressed(id: String) -> void:
-	match id:
-		"claude": _on_launch_pressed()
-		"codex": _on_launch_codex_pressed()
-		"opencode": _on_launch_opencode_pressed()
-		"gemini": _on_launch_gemini_pressed()
+	var spec := _launch_spec(id)
+	_launch_in_terminal(spec.cli, spec.args, spec.env)
 
-func _on_launch_pressed() -> void:
+## What to run for a CLI's full interactive session in this project:
+## {cli, args, env}. Used by the external-terminal buttons and by the
+## embedded terminal view.
+func _launch_spec(id: String) -> Dictionary:
+	match id:
+		"claude": return _spec_claude()
+		"codex": return _spec_codex()
+		"opencode": return _spec_opencode()
+		_: return _spec_gemini()
+
+func _spec_claude() -> Dictionary:
 	# --mcp-config is variadic, so it goes last.
-	_launch_in_terminal("claude", _model_args("claude") + _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg)))
+	return {"cli": "claude", "env": {}, "args": _model_args("claude") + _behavior_args() + _mcp_config_args(func(msg): _append_transcript("[color=yellow]%s[/color]" % msg))}
 
 ## Codex reads AGENTS.md (linked to CLAUDE.md by link-project) and takes the
 ## same server + project token and the settings popup's preferences through
 ## -c config overrides (values are TOML; JSON-quoted strings are valid TOML).
-func _on_launch_codex_pressed() -> void:
+func _spec_codex() -> Dictionary:
 	var args := _model_args("codex") + ["-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
 	var entry := _resolve_server_entry()
 	var token := _read_bridge_token()
@@ -315,7 +617,7 @@ func _on_launch_codex_pressed() -> void:
 	# Godot control is always granted in this panel (like Claude's
 	# mcp__godot-live-mcp__*); without this Codex asks per MCP tool call.
 	args += ["-c", 'mcp_servers.godot-live-mcp.default_tools_approval_mode="approve"']
-	_launch_in_terminal("codex", args)
+	return {"cli": "codex", "args": args, "env": {}}
 
 ## OpenCode reads AGENTS.md too, and takes its config as inline JSON in
 ## OPENCODE_CONFIG_CONTENT (merged over its own; confirmed live): this
@@ -347,8 +649,10 @@ func _opencode_config(with_permissions: bool) -> String:
 		}
 	return JSON.stringify(cfg)
 
-func _on_launch_opencode_pressed() -> void:
-	_launch_in_terminal("opencode", _model_args("opencode"), {"OPENCODE_CONFIG_CONTENT": _opencode_config(false)})
+func _spec_opencode() -> Dictionary:
+	# The interactive UI takes -m but not `run`'s --variant, so only the model.
+	var model := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "model_opencode", ""))
+	return {"cli": "opencode", "args": ["-m", model] if model != "" else [], "env": {"OPENCODE_CONFIG_CONTENT": _opencode_config(false)}}
 
 ## Gemini CLI has no inline MCP config (its system-settings override must be
 ## root-owned), so the server + token go into the project's own
@@ -357,7 +661,7 @@ func _on_launch_opencode_pressed() -> void:
 ## shared. --skip-trust trusts this folder for the session; otherwise Gemini
 ## disables project MCP servers in untrusted folders. Model and permission
 ## settings from this panel aren't mapped for it.
-func _on_launch_gemini_pressed() -> void:
+func _spec_gemini() -> Dictionary:
 	var entry := _resolve_server_entry()
 	var token := _read_bridge_token()
 	if not entry.is_empty() and not token.is_empty():
@@ -376,7 +680,7 @@ func _on_launch_gemini_pressed() -> void:
 				f.store_string(JSON.stringify(cfg, "  ") + "\n")
 	else:
 		_append_transcript("[color=yellow]Couldn't find this project's server/token — Gemini will use its own godot-live-mcp registration, if any.[/color]")
-	_launch_in_terminal("gemini", ["--skip-trust"])
+	return {"cli": "gemini", "args": ["--skip-trust"], "env": {}}
 
 ## `env` is extra environment variables for the CLI (set inline in the
 ## launch command, since a new terminal window doesn't inherit ours).
@@ -596,6 +900,347 @@ func _make_permission_check(label: String, tip: String, parent: Control) -> Chec
 	parent.add_child(b)
 	return b
 
+# ---- Embedded terminal (GodotXterm) ----
+
+## The full interactive CLI inside the editor, via the optional GodotXterm
+## addon (github.com/lihop/godot-xterm: a Terminal control + a PTY node that
+## runs a process in a pseudo-terminal). Used only if its classes are
+## registered, and created through ClassDB so nothing fails to parse when it
+## isn't installed. Linux/macOS (the panel launches CLIs through a login shell).
+func _xterm_available() -> bool:
+	return OS.get_name() in ["Linux", "macOS"] and ClassDB.class_exists("Terminal") and ClassDB.class_exists("PTY")
+
+func _build_term_view() -> void:
+	if not _xterm_available():
+		return
+	_term_view = VBoxContainer.new()
+	_term_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_term_view.visible = false
+	add_child(_term_view)
+
+	_term_holder = Control.new()
+	_term_holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_term_holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_term_holder.custom_minimum_size = Vector2(0, 160)
+	_term_view.add_child(_term_holder)
+
+	_term = ClassDB.instantiate("Terminal")
+	_term.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_term_holder.add_child(_term)
+
+	_style_terminal()
+	_term.data_sent.connect(func(data): if _pty: _pty.write(data))
+	_term.size_changed.connect(func(size: Vector2i): if _pty: _pty.resizev(size))
+	_make_pty()
+
+## What a CLI session was launched with: the agent, its model and effort, the
+## permissions and the preferences. A running CLI only reads these at launch,
+## so when they differ from the current ones it is stale.
+func _term_signature() -> String:
+	var a := _preferred_assistant()
+	return "|".join([a, str(_meta("model_" + a, "")), str(_meta("effort_" + a, "")),
+		str(_file_control_toggle.button_pressed), str(_terminal_toggle.button_pressed), str(_web_toggle.button_pressed),
+		str(_meta(_TESTS_SETTING, false)), str(_meta(_SAVE_SETTING, true)), str(_tool_data_enabled())])
+
+## Restarts a running CLI whose launch settings are out of date — straight away
+## if it is on screen, otherwise when the CLI view is next opened.
+func _sync_terminal_to_settings() -> void:
+	if _term_running and _term_signature() != _term_signature_started and _term_view and _term_view.visible:
+		_restart_terminal()
+
+## A PTY can only be forked once (a second fork fails with EBUSY), so every
+## CLI start gets a fresh node. GodotXterm leaves the wiring to the user.
+func _make_pty() -> void:
+	if _pty:
+		_retire_pty(_pty)
+	var pty: Node = ClassDB.instantiate("PTY")
+	_pty = pty
+	_term_view.add_child(pty)
+	pty.data_received.connect(_term.write)
+	# Ignore a replaced PTY's late "exited".
+	pty.exited.connect(func(code: int, sig: int): if pty == _pty: _on_term_exited(code, sig))
+
+## The selected button of the Chat | CLI | External toggle: orange background,
+## black text and icon.
+func _style_mode_button(b: Button) -> void:
+	var orange := Color("#d97757")
+	var black := Color(0.05, 0.05, 0.05)
+	for state in [&"pressed", &"hover_pressed"]:
+		var base := b.get_theme_stylebox(state)
+		var flat: StyleBoxFlat
+		if base is StyleBoxFlat:
+			flat = base.duplicate()
+		else:
+			flat = StyleBoxFlat.new()
+			flat.set_corner_radius_all(3)
+			flat.content_margin_left = 8
+			flat.content_margin_right = 8
+		flat.bg_color = orange if state == &"pressed" else orange.lightened(0.12)
+		b.add_theme_stylebox_override(state, flat)
+	for item in ["font_pressed_color", "font_hover_pressed_color", "icon_pressed_color", "icon_hover_pressed_color"]:
+		b.add_theme_color_override(item, black)
+
+## Our icons are white; tint one to the editor theme's text colour so it
+## reads on light themes too.
+func _tint_icon_button(b: Button) -> void:
+	var c := EditorInterface.get_editor_theme().get_color("font_color", "Editor")
+	for state in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		b.add_theme_color_override(state, c)
+	b.add_theme_color_override("icon_disabled_color", Color(c.r, c.g, c.b, 0.4))
+
+## The editor's code font and text-editor colours, as GodotXterm's own editor
+## terminal does.
+func _style_terminal() -> void:
+	# A monospace font is essential: a proportional one looks letter-spaced on
+	# the terminal's fixed grid. The editor theme's "source" font is its code font.
+	var theme := EditorInterface.get_editor_theme()
+	var font: Font = theme.get_font("source", "EditorFonts") if theme.has_font("source", "EditorFonts") else null
+	if font == null:
+		var bundled := "res://addons/godot_xterm/themes/fonts/regular.tres"
+		if ResourceLoader.exists(bundled):
+			font = load(bundled)
+	if font:
+		for item in ["normal_font", "bold_font", "italics_font", "bold_italics_font"]:
+			_term.add_theme_font_override(item, font)
+	# The Terminal sizes its cells from its theme's default font size — the
+	# *_font_size overrides GodotXterm's own editor terminal sets have no effect
+	# here (checked: cell size stayed put) — so give it a small theme of its own.
+	var size := _term_font_size()
+	if size > 0:
+		var term_theme := Theme.new()
+		term_theme.default_font_size = size
+		_term.theme = term_theme
+	else:
+		_term.theme = null
+	_apply_term_scheme(String(_meta("term_scheme", _TERM_SCHEME_DEFAULT)))
+
+## The chosen font size, else the editor's code font size (0 if unknown).
+func _term_font_size() -> int:
+	var chosen := int(_meta("term_font_size", 0))
+	if chosen > 0:
+		return chosen
+	var es := EditorInterface.get_editor_settings()
+	if es.has_setting("interface/editor/code_font_size") and es.get_setting("interface/editor/code_font_size") is int:
+		return es.get_setting("interface/editor/code_font_size")
+	var theme := EditorInterface.get_editor_theme()
+	return theme.get_font_size("source_size", "EditorFonts") if theme.has_font_size("source_size", "EditorFonts") else 0
+
+const _TERM_SCHEME_DEFAULT := "Editor theme"
+# name -> [background, foreground, the 16 ANSI colours (8 normal, 8 bright)]
+const _TERM_SCHEMES := {
+	"One Dark": ["#282c34", "#abb2bf", ["#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf", "#5c6370", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#ffffff"]],
+	"Dracula": ["#282a36", "#f8f8f2", ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2", "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"]],
+	"Nord": ["#2e3440", "#d8dee9", ["#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0", "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4"]],
+	"Gruvbox Dark": ["#282828", "#ebdbb2", ["#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984", "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2"]],
+	"Monokai": ["#272822", "#f8f8f2", ["#272822", "#f92672", "#a6e22e", "#f4bf75", "#66d9ef", "#ae81ff", "#a1efe4", "#f8f8f2", "#75715e", "#f92672", "#a6e22e", "#f4bf75", "#66d9ef", "#ae81ff", "#a1efe4", "#f9f8f5"]],
+	"Solarized Dark": ["#002b36", "#839496", ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5", "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"]],
+	"Solarized Light": ["#fdf6e3", "#657b83", ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5", "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"]],
+	"Light": ["#ffffff", "#24292e", ["#24292e", "#d73a49", "#22863a", "#b08800", "#0366d6", "#6f42c1", "#1b7c83", "#6a737d", "#959da5", "#cb2431", "#28a745", "#dbab09", "#2188ff", "#8a63d2", "#3192aa", "#d1d5da"]],
+}
+
+## "Editor theme" derives the colours from the editor's text-editor theme
+## (as GodotXterm's own editor terminal does); the others are fixed palettes.
+func _apply_term_scheme(scheme: String) -> void:
+	var colors := {}
+	if _TERM_SCHEMES.has(scheme):
+		var def: Array = _TERM_SCHEMES[scheme]
+		colors["background_color"] = Color(def[0])
+		colors["foreground_color"] = Color(def[1])
+		for i in 16:
+			colors["ansi_%d_color" % i] = Color(def[2][i])
+	else:
+		var es := EditorInterface.get_editor_settings()
+		var map := {
+			"background_color": "background_color", "foreground_color": "text_color",
+			"ansi_0_color": "caret_background_color", "ansi_1_color": "brace_mismatch_color",
+			"ansi_2_color": "gdscript/node_reference_color", "ansi_3_color": "executing_line_color",
+			"ansi_4_color": "bookmark_color", "ansi_5_color": "control_flow_keyword_color",
+			"ansi_6_color": "engine_type_color", "ansi_7_color": "comment_color",
+			"ansi_8_color": "completion_background_color", "ansi_9_color": "keyword_color",
+			"ansi_10_color": "base_type_color", "ansi_11_color": "string_color",
+			"ansi_12_color": "function_color", "ansi_13_color": "gdscript/global_function_color",
+			"ansi_14_color": "gdscript/function_definition_color", "ansi_15_color": "caret_color",
+		}
+		for key in map:
+			var setting := "text_editor/theme/highlighting/%s" % map[key]
+			if es.has_setting(setting) and es.get_setting(setting) is Color:
+				colors[key] = es.get_setting(setting)
+	for key in ["background_color", "foreground_color"] + range(16).map(func(i): return "ansi_%d_color" % i):
+		if colors.has(key):
+			_term.add_theme_color_override(key, colors[key])
+		else:
+			_term.remove_theme_color_override(key)
+
+## The Terminal section of the Settings popup: font size and colour scheme.
+func _build_term_settings(parent: Control) -> void:
+	var bold: Font = EditorInterface.get_editor_theme().get_font("bold", "EditorFonts")
+	var head := Label.new()
+	head.text = "Terminal"
+	head.add_theme_font_override("font", bold)
+	parent.add_child(head)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	parent.add_child(grid)
+	var l1 := Label.new()
+	l1.text = "Font size"
+	grid.add_child(l1)
+	_term_size_spin = SpinBox.new()
+	_term_size_spin.min_value = 6
+	_term_size_spin.max_value = 40
+	_term_size_spin.step = 1
+	_term_size_spin.value_changed.connect(func(v: float):
+		_set_meta("term_font_size", int(v))
+		_style_terminal())
+	grid.add_child(_term_size_spin)
+	var l2 := Label.new()
+	l2.text = "Colour scheme"
+	grid.add_child(l2)
+	_term_scheme_option = OptionButton.new()
+	_term_scheme_option.add_item(_TERM_SCHEME_DEFAULT)
+	for name in _TERM_SCHEMES:
+		_term_scheme_option.add_item(name)
+	_term_scheme_option.item_selected.connect(func(i: int):
+		_set_meta("term_scheme", _term_scheme_option.get_item_text(i))
+		_style_terminal())
+	grid.add_child(_term_scheme_option)
+	var reset := Button.new()
+	reset.text = "Reset to editor defaults"
+	reset.pressed.connect(func():
+		_set_meta("term_font_size", 0)
+		_set_meta("term_scheme", _TERM_SCHEME_DEFAULT)
+		_style_terminal()
+		_sync_term_settings_controls())
+	parent.add_child(reset)
+
+func _sync_term_settings_controls() -> void:
+	_term_size_spin.set_value_no_signal(_term_font_size())
+	var scheme := String(_meta("term_scheme", _TERM_SCHEME_DEFAULT))
+	for i in _term_scheme_option.item_count:
+		if _term_scheme_option.get_item_text(i) == scheme:
+			_term_scheme_option.select(i)
+
+func _on_mode_toggled(on: bool, mode: String) -> void:
+	if not on:
+		return
+	_mode = mode
+	_update_refresh_tooltip(mode)
+	_chat_view.visible = mode == "chat"
+	if _term_view:
+		_term_view.visible = mode == "cli"
+	if mode == "external":
+		_on_external_pressed()
+		_compact_panel(true)
+		return
+	_compact_panel(false)
+	if mode == "cli":
+		await get_tree().process_frame  # let the layout give the terminal its size
+		if _term_running and _term_signature() != _term_signature_started:
+			_stop_terminal()  # launched with other settings than the current ones
+		if not _term_running:
+			_start_terminal()
+		_term.grab_focus()
+
+## External mode has nothing below the header, so the panel gives its height
+## back: move the editor's viewport/bottom-dock splitter, and restore it when
+## leaving (and at shutdown, so a closed editor doesn't remember the small size).
+func _bottom_split() -> SplitContainer:
+	var n := get_parent()
+	while n and not (n is SplitContainer):
+		n = n.get_parent()
+	return n as SplitContainer
+
+func _compact_panel(on: bool) -> void:
+	var split := _bottom_split()
+	if split == null:
+		return
+	if on:
+		if not _split_saved:
+			_split_saved = true
+			_split_saved_offset = split.split_offset
+		await get_tree().process_frame  # let the hidden views drop out of the minimum size
+		var dock := get_parent().get_parent() as Control
+		var wanted := int(dock.get_combined_minimum_size().y) if dock else 90
+		split.split_offset = -maxi(wanted, 60)
+	elif _split_saved:
+		split.split_offset = _split_saved_offset
+		_split_saved = false
+
+func _start_terminal() -> void:
+	var agent := _preferred_assistant()
+	var cli_name := _cli_name(agent)
+	if not _installed.get(agent, false):
+		_term.write("%s isn't installed (not found on PATH).\r\n" % cli_name)
+		return
+	var spec := _launch_spec(agent)
+	var cmd := "exec "
+	if not spec.env.is_empty():
+		cmd += "env"
+		for k in spec.env:
+			cmd += " " + _shell_quote("%s=%s" % [k, spec.env[k]])
+		cmd += " "
+	cmd += spec.cli
+	for a in spec.args:
+		cmd += " " + _shell_quote(String(a))
+	var sh := _login_shell(cmd)
+	_make_pty()
+	_term.call("clear")
+	var cols := maxi(int(_term.call("get_cols")), 20)
+	var rows := maxi(int(_term.call("get_rows")), 5)
+	var err: int = _pty.call("fork", sh[0], sh[1], ProjectSettings.globalize_path("res://"), cols, rows)
+	if err != OK:
+		_term.write("Couldn't start %s (error %d).\r\n" % [cli_name, err])
+		_set_robot("angry")
+		return
+	_pty.set_meta("forked", true)
+	_term_signature_started = _term_signature()
+	_term_running = true
+	_term_agent = agent
+
+## Stops the CLI the way closing a terminal window would (SIGHUP), so it can
+## shut down cleanly — Claude Code otherwise opens its next session with a
+## "didn't finish starting last time" warning. A process that ignores that
+## gets SIGKILL after two seconds.
+func _stop_terminal() -> void:
+	if _term_running and _pty:
+		_pty.call("kill", ClassDB.class_get_integer_constant("PTY", "IPCSIGNAL_SIGHUP"))
+		_retire_pty(_pty)
+	_term_running = false
+
+## Keeps a stopped PTY node alive just long enough to see its process exit
+## (or to SIGKILL it), then frees it.
+func _retire_pty(pty: Node) -> void:
+	if pty.has_meta("retired"):
+		return
+	pty.set_meta("retired", true)
+	if not pty.has_meta("forked"):
+		pty.queue_free()
+		return
+	var state := {"done": false}
+	# Weak reference: the node is freed once its process exits, and a lambda
+	# that captures a freed object errors when called.
+	var ref: WeakRef = weakref(pty)
+	pty.connect("exited", func(_code: int, _sig: int):
+		state.done = true
+		var p = ref.get_ref()
+		if p:
+			p.queue_free())
+	get_tree().create_timer(2.0).timeout.connect(func():
+		var p = ref.get_ref()
+		if p and not state.done:
+			p.call("kill", ClassDB.class_get_integer_constant("PTY", "IPCSIGNAL_SIGKILL"))
+			p.queue_free())
+
+func _restart_terminal() -> void:
+	_stop_terminal()
+	if _term_view and _term_view.visible:
+		_start_terminal()
+		_term.grab_focus()
+
+func _on_term_exited(_exit_code: int, _signum: int) -> void:
+	_term_running = false
+	_term.write("\r\n[process exited — press the refresh icon for a new one]\r\n")
+
 # ---- In-editor session (Phase 1 flagship) ----
 
 func _build_session_ui() -> void:
@@ -633,6 +1278,8 @@ func _build_session_ui() -> void:
 	splitter.add_child(_transcript)
 	splitter.add_child(input_row)
 	add_child(splitter)
+	_chat_view = splitter
+	_build_term_view()
 
 	_send_button = Button.new()
 	_send_button.icon = _svg_icon("send.svg")
@@ -652,12 +1299,12 @@ func _build_session_ui() -> void:
 
 ## An icon from this addon's icons/ folder, rasterized from the SVG directly
 ## (no import step, so it works the moment a project links the addon).
-func _svg_icon(file_name: String) -> Texture2D:
+func _svg_icon(file_name: String, scale_mult: float = 1.0) -> Texture2D:
 	var svg := FileAccess.get_file_as_string("res://addons/godot_live_mcp/icons/" + file_name)
 	if svg.is_empty():
 		return null
 	var img := Image.new()
-	if img.load_svg_from_string(svg, EditorInterface.get_editor_scale()) != OK:
+	if img.load_svg_from_string(svg, EditorInterface.get_editor_scale() * scale_mult) != OK:
 		return null
 	return ImageTexture.create_from_image(img)
 
@@ -686,6 +1333,7 @@ func _on_stop_pressed() -> void:
 		if _pipe.has("pid") and OS.is_process_running(_pipe.pid):
 			OS.kill(_pipe.pid)
 		_stop_session("Stopped.")
+		_set_robot("angry")
 		return
 	if _pipe.has("stdio") and _pipe.stdio:
 		_pipe.stdio.store_string(JSON.stringify({
@@ -694,6 +1342,8 @@ func _on_stop_pressed() -> void:
 			"request": {"subtype": "interrupt"},
 		}) + "\n")
 		_append_transcript("[i]Stopped.[/i]")
+		_clear_busy("chat")
+		_set_robot("angry")
 
 ## Called by plugin.gd's _exit_tree so a running `claude` subprocess doesn't
 ## leak past a plugin reload/disable — reload_plugin (used constantly while
@@ -701,6 +1351,13 @@ func _on_stop_pressed() -> void:
 func shutdown() -> void:
 	if _session_active:
 		_stop_session("")
+	if _pty:
+		_stop_terminal()
+	if _split_saved:
+		var split := _bottom_split()
+		if split:
+			split.split_offset = _split_saved_offset
+		_split_saved = false
 
 ## The panel runs the CLIs non-interactively, so their own slash commands
 ## (/model, /clear, ...) don't exist here. /model is handled by the panel;
@@ -749,6 +1406,8 @@ func _set_model(agent: String, model: String) -> void:
 	else:
 		# The model is fixed at launch; restarting resumes the same conversation.
 		_apply_on_next_message("Claude model set to %s" % model.xml_escape())
+	_update_agent_button()
+	_sync_terminal_to_settings()
 
 ## /effort [level]: reasoning effort per agent, saved per project, like /model.
 ## Codex: model_reasoning_effort (e.g. minimal, low, medium, high); Claude:
@@ -764,6 +1423,8 @@ func _effort_command(agent: String, level: String) -> void:
 		_append_transcript("[i]%s effort set to %s — used from your next message.[/i]" % [_cli_name(agent), level.xml_escape()])
 	else:
 		_apply_on_next_message("Claude effort set to %s" % level.xml_escape())
+	_update_agent_button()
+	_sync_terminal_to_settings()
 
 # ---- /model and /effort pickers ----
 
@@ -771,6 +1432,8 @@ func _effort_command(agent: String, level: String) -> void:
 ## Codex from ~/.codex/config.toml, Claude from ~/.claude/settings.json,
 ## OpenCode's model from ~/.config/opencode/opencode.json.
 func _cli_default(agent: String, what: String) -> String:
+	if agent == "gemini":
+		return ""
 	var home := _home_dir()
 	if agent == "opencode":
 		var cfg = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".config/opencode/opencode.json")))
@@ -789,6 +1452,8 @@ func _cli_default(agent: String, what: String) -> String:
 ## effort levels) from its live catalog; Claude's models (see _claude_models)
 ## and effort levels.
 func _choices(agent: String, what: String) -> Array:
+	if agent == "gemini":
+		return []
 	if agent == "claude":
 		return _claude_models().keys() if what == "model" else ["low", "medium", "high", "xhigh", "max"]
 	if agent == "opencode":
@@ -936,24 +1601,30 @@ func _model_args(agent: String) -> Array:
 			_: args += ["--effort", effort]
 	return args
 
-## The in-panel chat agents that are installed (all, if none is, so the
-## settings still show something).
-func _chat_agents() -> Array:
+## Every CLI the panel can drive that is installed (all of them, if none is,
+## so the menu still shows something).
+func _all_agents() -> Array:
 	var found := []
-	for id in ["claude", "codex", "opencode"]:
-		if _installed.get(id, false):
-			found.append(id)
-	return found if not found.is_empty() else ["claude", "codex", "opencode"]
+	for cli in _CLIS:
+		if _installed.get(cli.id, false):
+			found.append(cli.id)
+	if found.is_empty():
+		for cli in _CLIS:
+			found.append(cli.id)
+	return found
 
-## The chosen chat agent, or the first installed one if the choice isn't
+## The chosen agent, or the first installed one if the choice isn't
 ## installed on this machine.
 func _preferred_assistant() -> String:
 	var chosen := String(EditorInterface.get_editor_settings().get_project_metadata(
 		"godot_live_mcp", _ASSISTANT_SETTING, "claude"))
-	var agents := _chat_agents()
+	var agents := _all_agents()
 	return chosen if agents.has(chosen) else agents[0]
 
 func _on_new_session_pressed() -> void:
+	if _term_view and _term_view.visible:
+		_restart_terminal()  # in the terminal view this only restarts the CLI
+		return
 	_tokens_in = 0
 	_tokens_out = 0
 	if _session_active:
@@ -992,56 +1663,35 @@ const _TESTS_OFF_PROMPT := (
 	"(like a script parse check) are still fine."
 )
 
+# Always included, whatever the preferences. Learned the hard way: an agent
+# that decided the live bridge was "unavailable" without trying it appended
+# text to the open scene's .tscn and left the scene unloadable.
+const _NO_DISK_EDITS_PROMPT := (
+	"Scene safety: scenes and resources open in the Godot editor are edited ONLY " +
+	"through the godot-live-mcp tools, never by writing their .tscn/.tres files on " +
+	"disk (cat >>, sed, a patch, a script...) — the editor holds its own copy and a " +
+	"disk edit can corrupt the scene or be overwritten. If a godot-live-mcp call " +
+	"fails or times out, retry it (the bridge briefly drops while the plugin reloads) " +
+	"and, if it keeps failing, tell the user instead of falling back to editing files. " +
+	"Never decide the bridge is unavailable without making a call to check."
+)
+
 func _build_settings_popup() -> void:
 	_settings_popup = PopupPanel.new()
 	add_child(_settings_popup)
+	# Two columns: permissions and preferences, and (with GodotXterm) the terminal.
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 18)
+	_settings_popup.add_child(columns)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
-	_settings_popup.add_child(box)
-
-	var assistant_row := HBoxContainer.new()
-	box.add_child(assistant_row)
-	var assistant_label := Label.new()
-	assistant_label.text = "In Editor Coding agent:"
-	assistant_row.add_child(assistant_label)
-	_assistant_option = OptionButton.new()
-	for agent in _chat_agents():
-		_assistant_option.add_item(_cli_name(agent))
-		_assistant_option.set_item_metadata(_assistant_option.item_count - 1, agent)
-		if agent == _preferred_assistant():
-			_assistant_option.select(_assistant_option.item_count - 1)
-	_assistant_option.item_selected.connect(func(i: int):
-		EditorInterface.get_editor_settings().set_project_metadata(
-			"godot_live_mcp", _ASSISTANT_SETTING, String(_assistant_option.get_item_metadata(i)))
-		# The choice is authoritative: end whatever process is running; the
-		# next message goes to the chosen agent, resuming its own saved
-		# session if it has one (the others keep theirs for switching back).
-		if _session_active:
-			_stop_session("")
-		_load_thread()
-		_refresh_model_effort_options()
-		_append_transcript("%s [i]— your next message goes to it%s.[/i]" % [
-			_agent_line(), " (resuming its saved session)" if _has_resumable() else " (new session)"]))
-	assistant_row.add_child(_assistant_option)
-
-	# Model and effort for the chosen agent, in two columns.
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
-	box.add_child(grid)
-	for text in ["Model", "Effort"]:
-		var l := Label.new()
-		l.text = text
-		grid.add_child(l)
-	_model_option = OptionButton.new()
-	_model_option.item_selected.connect(func(i: int):
-		_set_model(_panel_agent(), String(_model_option.get_item_metadata(i)))
-		_refresh_model_effort_options())
-	grid.add_child(_model_option)
-	_effort_option = OptionButton.new()
-	_effort_option.item_selected.connect(func(i: int):
-		_effort_command(_panel_agent(), String(_effort_option.get_item_metadata(i))))
-	grid.add_child(_effort_option)
+	columns.add_child(box)
+	if _xterm_available():
+		columns.add_child(VSeparator.new())
+		var right := VBoxContainer.new()
+		right.add_theme_constant_override("separation", 6)
+		columns.add_child(right)
+		_build_term_settings(right)
 
 	var bold: Font = EditorInterface.get_editor_theme().get_font("bold", "EditorFonts")
 	var perm_label := Label.new()
@@ -1113,31 +1763,9 @@ func _build_settings_popup() -> void:
 func _panel_agent() -> String:
 	return _preferred_assistant()
 
-## Fills the Model/Effort drop-downs for the current agent: "Default
-## (currently X)" first, then the choices, selecting the active override.
-func _refresh_model_effort_options() -> void:
-	var agent := _panel_agent()
-	for pair in [[_model_option, "model"], [_effort_option, "effort"]]:
-		var opt: OptionButton = pair[0]
-		var what: String = pair[1]
-		var override := String(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", what + "_" + agent, ""))
-		var default_value := _cli_default(agent, what)
-		opt.clear()
-		opt.add_item("Default (%s)" % (default_value if default_value != "" else "CLI's own"))
-		opt.set_item_metadata(0, "default")
-		var selected := 0
-		var choices := _choices(agent, what)
-		if override != "" and not choices.has(override):
-			choices.append(override)  # a typed-in value not in the list
-		for c in choices:
-			opt.add_item(_choice_label(agent, c))
-			opt.set_item_metadata(opt.item_count - 1, c)
-			if c == override:
-				selected = opt.item_count - 1
-		opt.select(selected)
-
 func _on_settings_pressed() -> void:
-	_refresh_model_effort_options()
+	if _term_size_spin:
+		_sync_term_settings_controls()
 	_sync_check.set_pressed_no_signal(_is_sync_enabled())
 	_sync_check.disabled = _debug_menu_items().is_empty()
 	var at := _settings_button.get_screen_position() + Vector2(0, _settings_button.size.y)
@@ -1157,6 +1785,7 @@ func _behavior_text() -> String:
 	var tests: bool = es.get_project_metadata("godot_live_mcp", _TESTS_SETTING, false)
 	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, true)
 	return "\n\n".join([
+		_NO_DISK_EDITS_PROMPT,
 		_TESTS_ON_PROMPT if tests else _TESTS_OFF_PROMPT,
 		_SAVE_ON_PROMPT if saves else _mac_keys(_SAVE_OFF_PROMPT),
 	])
@@ -1242,6 +1871,7 @@ func _start_session(first_message: String = "") -> bool:
 	_pipe = OS.execute_with_pipe(sh[0], sh[1], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
 		_append_transcript("[color=red]Failed to start Claude session.[/color]")
+		_set_robot("angry")
 		_pipe = {}
 		return false
 
@@ -1260,6 +1890,7 @@ func _start_session(first_message: String = "") -> bool:
 	return true
 
 func _stop_session(status_text: String) -> void:
+	_clear_busy("chat")
 	if _pipe.has("stdio") and _pipe.stdio:
 		_pipe.stdio.close()
 	if _pipe.has("pid") and OS.is_process_running(_pipe.pid):
@@ -1296,6 +1927,9 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 		_handle_slash_command(text)
 		return
 	var agent := _active_agent()
+	if not (agent in _CHAT_AGENTS):
+		_append_transcript("[i]%s has no chat view yet — switch to Terminal or External.[/i]" % _cli_name(agent))
+		return
 	if _session_active and _session_kind != agent:
 		_stop_session("")  # a leftover process from another agent
 	if agent in _TURN_AGENTS:
@@ -1305,6 +1939,7 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 		if _start_turn(agent, text):
 			_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
 			_input_field.text = ""
+			_set_busy("chat", true)
 		return
 	if not _session_active:
 		if not _start_session(text):
@@ -1316,6 +1951,7 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 	}
 	_pipe.stdio.store_string(JSON.stringify(payload) + "\n")
 	_input_field.text = ""
+	_set_busy("chat", true)
 
 ## Polled every frame from _process(). OS.execute_with_pipe's stdio is
 ## non-blocking but NOT newline-atomic — confirmed live: get_buffer()
@@ -1341,8 +1977,10 @@ func _poll_session() -> void:
 				_claude_session_id = ""
 				_set_meta("claude_session_id", "")
 				_stop_session("Couldn't resume the previous session (its history is gone?) — your next message starts a new one.")
+				_set_robot("angry")
 			else:
 				_stop_session("Session process exited.")
+				_set_robot("angry")
 		return
 	_read_buffer += chunk.get_string_from_utf8()
 
@@ -1400,6 +2038,8 @@ func _handle_stream_event(line: String) -> void:
 		# Fresh input = uncached input + cache writes; cache reads are separate.
 		var turn_in := int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
 		_turn_complete(turn_in, int(usage.get("cache_read_input_tokens", 0)), int(usage.get("output_tokens", 0)), float(evt.get("total_cost_usd", -1.0)))
+		if bool(evt.get("is_error", false)):
+			_set_robot("angry")
 
 ## Starts `codex exec --json` for one message (resuming the thread after the
 ## first). Permission toggles map onto Codex's sandbox: File Control ->
@@ -1446,6 +2086,7 @@ func _start_codex_turn(text: String) -> bool:
 	_pipe = OS.execute_with_pipe(sh[0], sh[1], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
 		_append_transcript("[color=red]Failed to start Codex.[/color]")
+		_set_robot("angry")
 		_pipe = {}
 		return false
 	_session_kind = "codex"
@@ -1488,6 +2129,7 @@ func _handle_codex_event(evt: Dictionary) -> void:
 		"turn.failed":
 			var msg := String(evt.get("error", {}).get("message", "unknown error"))
 			_append_transcript("[color=red]Codex failed: %s[/color]" % msg.xml_escape())
+			_set_robot("angry")
 			if msg.contains("401") or msg.containsn("unauthorized"):
 				_append_transcript("[color=yellow]Codex isn't logged in — run `codex login` in a terminal.[/color]")
 		"error":
@@ -1514,6 +2156,7 @@ func _start_opencode_turn(text: String) -> bool:
 	_pipe = OS.execute_with_pipe(sh[0], sh[1], false)
 	if _pipe.is_empty() or not _pipe.has("stdio") or _pipe.stdio == null:
 		_append_transcript("[color=red]Failed to start OpenCode.[/color]")
+		_set_robot("angry")
 		_pipe = {}
 		return false
 	_session_kind = "opencode"
@@ -1568,10 +2211,12 @@ func _handle_opencode_event(evt: Dictionary) -> void:
 			var err = evt.get("error", {})
 			var msg := String(err.get("data", {}).get("message", err.get("name", "unknown error"))) if err is Dictionary and err.get("data") is Dictionary else str(err)
 			_append_transcript("[color=red]OpenCode failed: %s[/color]" % msg.xml_escape())
+			_set_robot("angry")
 
 ## "— edits complete —" plus this turn's fresh tokens in/out (cached reads
 ## noted separately) and the conversation's running fresh totals.
 func _turn_complete(turn_in: int, cached: int, turn_out: int, cost: float) -> void:
+	_set_busy("chat", false)
 	_tokens_in += turn_in
 	_tokens_out += turn_out
 	# Fresh tokens first; cached reads cost far less and mostly don't count
@@ -1656,6 +2301,7 @@ func _clear_conversation() -> void:
 ## Settings that are launch flags: end the running process; the next message
 ## starts a new one with them, resuming the same conversation.
 func _apply_on_next_message(what: String) -> void:
+	_sync_terminal_to_settings()
 	var running := _session_active and _session_kind == "claude"
 	if running:
 		_stop_session("")
