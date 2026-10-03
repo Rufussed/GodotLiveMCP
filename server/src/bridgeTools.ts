@@ -92,6 +92,10 @@ export const bridgeToolNames = new Set([
   'batch_set_properties',
   'get_editor_screenshot',
   'get_output_log',
+  'get_inspector_screenshot',
+  'dump_control_tree',
+  'interact_control',
+  'refresh_editor_scripts',
   'get_material_info',
   'add_animation_state',
   'add_animation_transition',
@@ -1160,6 +1164,94 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'get_inspector_screenshot',
+    description:
+      'Screenshot an editor dock as a PNG, cropped to it at full resolution — for looking at a custom editor UI ' +
+      '(an EditorInspectorPlugin, a dock) you are building. get_editor_screenshot only shows the 3D viewport. ' +
+      'Pair with dump_control_tree when exact alignment matters. Returned as an image content block.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: '"inspector" (default), "scene_tree", "filesystem", "bottom_panel", "editor" (the whole window), or a control\'s node path in the editor UI' },
+        max_height: { type: 'integer', description: 'Downscale so the image is at most this tall (default 1000); 0 for full resolution' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'dump_control_tree',
+    description:
+      'The live Control tree of an editor UI (default: the Inspector) as compact JSON: class, script, text, ' +
+      'tooltip, global pos [x, y] and size [w, h] in UI units (editor_scale is reported — multiply fixed pixel ' +
+      'sizes by it), visible/disabled/value/pressed, and a `path` that interact_control accepts. Use it to check ' +
+      'a custom UI numerically (do these pickers share one x?) or to find the control to operate. Hidden controls ' +
+      'are skipped unless include_hidden. With filter_script, returns only the subtrees whose control runs a script ' +
+      'whose path contains that text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        root: { type: 'string', description: '"inspector" (default), "scene_tree", "filesystem", "bottom_panel", "editor", or a node path in the editor UI' },
+        max_depth: { type: 'integer', description: 'How deep to go (default 6)' },
+        filter_script: { type: 'string', description: 'Only subtrees whose control\'s script path contains this, e.g. "building_blocks_editor.gd"' },
+        include_hidden: { type: 'boolean', description: 'Include invisible controls (default false)' },
+        max_nodes: { type: 'integer', description: 'Cap on controls returned (default 400); truncated:true when hit' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'interact_control',
+    description:
+      'Operate an editor UI control found with dump_control_tree, to test a custom UI end to end without asking ' +
+      'the user to click. Actions: press (buttons; toggles flip), set_value (SpinBox/sliders, CheckBox, ' +
+      'OptionButton by index or text, LineEdit, TextEdit, ColorPickerButton), select_menu_item (MenuButton / ' +
+      'OptionButton by id or item_text), drop_files (a FileSystem-dock drop of res:// paths onto a scripted control ' +
+      'via its _can_drop_data/_drop_data), drag_drop (from one scripted control\'s _get_drag_data to another\'s ' +
+      '_drop_data). Returns the control\'s state afterwards and `undo.added` — whether the editor\'s undo history ' +
+      'gained an action. Identify the control by `path` (+ the same `root` as the dump), or by `text` and/or `class` ' +
+      '(+ `index` if several match). Actions run through the control\'s signals/methods, not real mouse events, ' +
+      'so native-only drag-and-drop (e.g. the Tree dock) is not covered.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['press', 'set_value', 'select_menu_item', 'drop_files', 'drag_drop'] },
+        root: { type: 'string', description: 'Same root as the dump_control_tree call the path came from (default "inspector")' },
+        path: { type: 'string', description: 'Control path from dump_control_tree' },
+        text: { type: 'string', description: 'Match a visible control by its exact text instead of a path' },
+        class: { type: 'string', description: 'Match by class (alone or with text), e.g. "Button"' },
+        index: { type: 'integer', description: 'Which match, when text/class matches several' },
+        value: { description: 'set_value: number, boolean, string, option index/text, or a color string' },
+        id: { type: 'integer', description: 'select_menu_item: menu item id' },
+        item_text: { type: 'string', description: 'select_menu_item: menu item text' },
+        files: { type: 'array', items: { type: 'string' }, description: 'drop_files: res:// paths' },
+        at_position: { type: 'array', items: { type: 'number' }, description: 'drop_files: [x, y] inside the control (default its centre)' },
+        from: { type: 'string', description: 'drag_drop: path of the control to drag from' },
+        to: { type: 'string', description: 'drag_drop: path of the control to drop on' },
+        from_position: { type: 'array', items: { type: 'number' }, description: 'drag_drop: [x, y] inside the source (default centre)' },
+        to_position: { type: 'array', items: { type: 'number' }, description: 'drag_drop: [x, y] inside the target (default centre)' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'refresh_editor_scripts',
+    description:
+      'Do the reload dance after edit_script_text on @tool scripts, addon plugins and resource scripts, in one call: ' +
+      'saves the open scripts (edit_script_text leaves them unsaved, so the editor keeps running the old file on disk), ' +
+      're-parses them and returns the parse errors (a plugin enabled against a broken script silently does nothing), ' +
+      'toggles the enabled addon plugin each script belongs to, re-selects the inspected object so the Inspector ' +
+      'rebuilds, and lists typed members that read null on live nodes (a hot-reloaded script that gained a member ' +
+      'leaves it unset on existing instances — set it with set_property). Superset of reload_plugin for this purpose. ' +
+      'Without `paths`, refreshes every script open in the script editor.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paths: { type: 'array', items: { type: 'string' }, description: 'res:// script paths to refresh (default: all open scripts)' },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'get_editor_screenshot',
     description:
       'Capture the live editor\'s 3D viewport as a PNG image — the only way to get visual state, since ' +
@@ -1553,6 +1645,25 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         type: params.type ?? '',
         name_pattern: params.name_pattern ?? '',
         properties: params.properties ?? {},
+      }));
+    case 'get_inspector_screenshot':
+      return imageResult(await client.call('get_inspector_screenshot', {
+        target: params.target ?? 'inspector',
+        max_height: params.max_height ?? 1000,
+      }));
+    case 'dump_control_tree':
+      return textResult(await client.call('dump_control_tree', {
+        root: params.root ?? 'inspector',
+        max_depth: params.max_depth ?? 6,
+        filter_script: params.filter_script ?? '',
+        include_hidden: params.include_hidden ?? false,
+        max_nodes: params.max_nodes ?? 400,
+      }));
+    case 'interact_control':
+      return textResult(await client.call('interact_control', { ...params }));
+    case 'refresh_editor_scripts':
+      return textResult(await client.call('refresh_editor_scripts', {
+        ...(params.paths !== undefined ? { paths: params.paths } : {}),
       }));
     case 'get_output_log':
       return textResult(await client.call('get_output_log', {

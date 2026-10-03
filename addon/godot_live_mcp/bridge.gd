@@ -2099,6 +2099,478 @@ func _cmd_get_editor_screenshot(params: Dictionary):
 		"height": img.get_height(),
 	}
 
+# ---- Editor UI tools: see and operate custom editor UI (Inspector plugins,
+# docks) — an agent can write the GDScript but can't see or use the result.
+
+## The editor UI subtree a UI tool works on: "inspector" (default),
+## "scene_tree", "filesystem", "bottom_panel", "editor" (everything), or a
+## node path (absolute from the tree root, or relative to the editor's base
+## control).
+func _ui_root(name: String) -> Node:
+	var base := EditorInterface.get_base_control()
+	match name:
+		"", "inspector":
+			return EditorInterface.get_inspector()
+		"filesystem":
+			return EditorInterface.get_file_system_dock()
+		"editor":
+			return base
+		"scene_tree":
+			var docks := base.find_children("*", "SceneTreeDock", true, false)
+			return docks[0] if not docks.is_empty() else null
+		"bottom_panel":
+			var panels := base.find_children("*", "EditorBottomPanel", true, false)
+			return panels[0] if not panels.is_empty() else null
+	if name.begins_with("/"):
+		return base.get_tree().root.get_node_or_null(NodePath(name))
+	return base.get_node_or_null(NodePath(name))
+
+## Captures the editor window and crops it to a dock, so a custom UI can be
+## looked at. The window image is in physical pixels while control rects are
+## in UI units, hence the ratio.
+func _cmd_get_inspector_screenshot(params: Dictionary):
+	var target := String(params.get("target", "inspector"))
+	var ui := _ui_root(target)
+	if not (ui is Control):
+		return _fail("unknown or unavailable target '%s' (use inspector, scene_tree, filesystem, bottom_panel, editor, or a control's node path)" % target)
+	var control := ui as Control
+	if not control.is_visible_in_tree():
+		return _fail("'%s' isn't visible right now (its dock or tab is hidden)" % target)
+	var viewport := control.get_viewport()
+	var img := viewport.get_texture().get_image()
+	if img == null or img.is_empty():
+		return _fail("could not capture the editor window (is the editor running without a renderer?)")
+	var ratio := float(img.get_width()) / viewport.get_visible_rect().size.x
+	var rect := control.get_global_rect()
+	var crop := Rect2i(Vector2i(rect.position * ratio), Vector2i(rect.size * ratio)).intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	if crop.size.x <= 0 or crop.size.y <= 0:
+		return _fail("'%s' has no visible area on screen" % target)
+	img = img.get_region(crop)
+	var max_height := int(params.get("max_height", 1000))
+	if max_height > 0 and img.get_height() > max_height:
+		img.resize(int(img.get_width() * float(max_height) / img.get_height()), max_height)
+	return {
+		"format": "png",
+		"base64": Marshalls.raw_to_base64(img.save_png_to_buffer()),
+		"width": img.get_width(),
+		"height": img.get_height(),
+	}
+
+# A control's path under the UI root: its node name, or Class[i] (i-th
+# sibling of that class) for the auto-generated "@Class@123" names that
+# change between builds of the same UI.
+func _ctl_segment(control: Node) -> String:
+	var name := String(control.name)
+	if not name.begins_with("@"):
+		return name
+	var index := 0
+	for sibling in control.get_parent().get_children():
+		if sibling == control:
+			break
+		if sibling.get_class() == control.get_class():
+			index += 1
+	return "%s[%d]" % [control.get_class(), index]
+
+func _ctl_resolve(root: Node, path: String) -> Node:
+	var current := root
+	if path == "" or path == ".":
+		return current
+	for seg in path.split("/"):
+		var next: Node = null
+		for child in current.get_children():
+			if String(child.name) == seg:
+				next = child
+				break
+		if next == null and seg.ends_with("]") and seg.contains("["):
+			var cls := seg.substr(0, seg.rfind("["))
+			var want := int(seg.substr(seg.rfind("[") + 1, seg.length() - seg.rfind("[") - 2))
+			var seen := 0
+			for child in current.get_children():
+				if child.get_class() == cls:
+					if seen == want:
+						next = child
+						break
+					seen += 1
+		if next == null:
+			return null
+		current = next
+	return current
+
+func _ctl_script_path(control: Node) -> String:
+	var script: Script = control.get_script()
+	return script.resource_path if script else ""
+
+func _ctl_state(c: Control) -> Dictionary:
+	var info := {
+		"class": c.get_class(),
+		"pos": [snappedf(c.global_position.x, 0.1), snappedf(c.global_position.y, 0.1)],
+		"size": [snappedf(c.size.x, 0.1), snappedf(c.size.y, 0.1)],
+		"visible": c.is_visible_in_tree(),
+	}
+	var script := _ctl_script_path(c)
+	if script != "":
+		info["script"] = script
+	if "text" in c and String(c.get("text")) != "":
+		info["text"] = String(c.get("text"))
+	if c.tooltip_text != "":
+		info["tooltip"] = c.tooltip_text
+	if "disabled" in c and c.get("disabled"):
+		info["disabled"] = true
+	if c is Range:
+		info["value"] = (c as Range).value
+	if c is OptionButton:
+		info["selected"] = (c as OptionButton).selected
+	elif c is BaseButton and (c as BaseButton).toggle_mode:
+		info["pressed"] = (c as BaseButton).button_pressed
+	return info
+
+var _dump_budget := 0
+
+func _ctl_dump(c: Control, path: String, depth: int, max_depth: int, include_hidden: bool) -> Dictionary:
+	_dump_budget -= 1
+	var info := _ctl_state(c)
+	info["path"] = path
+	var kids := []
+	for child in c.get_children():
+		if child is Control:
+			kids.append(child)
+	info["child_count"] = kids.size()
+	if depth < max_depth:
+		var out := []
+		for child in kids:
+			if (child as Control).visible or include_hidden:
+				if _dump_budget <= 0:
+					break
+				var segment := _ctl_segment(child)
+				out.append(_ctl_dump(child, segment if path == "" or path == "." else path + "/" + segment, depth + 1, max_depth, include_hidden))
+		if not out.is_empty():
+			info["children"] = out
+	return info
+
+## The live Control tree under an editor UI root as compact JSON: class,
+## script, text, global position and size, visibility, and a path that
+## interact_control resolves. Lets a custom UI's layout be checked
+## numerically (are these pickers at the same x?) instead of by eye.
+func _cmd_dump_control_tree(params: Dictionary):
+	var root_name := String(params.get("root", "inspector"))
+	var ui := _ui_root(root_name)
+	if not (ui is Control):
+		return _fail("unknown or unavailable root '%s'" % root_name)
+	var max_depth := int(params.get("max_depth", 6))
+	var include_hidden := bool(params.get("include_hidden", false))
+	var filter := String(params.get("filter_script", ""))
+	_dump_budget = int(params.get("max_nodes", 400))
+	var result := {"root": root_name, "editor_scale": EditorInterface.get_editor_scale()}
+	if filter == "":
+		result["tree"] = _ctl_dump(ui as Control, ".", 0, max_depth, include_hidden)
+	else:
+		# The outermost controls running a matching script, each dumped as
+		# its own subtree.
+		var matches := []
+		var stack := [[ui, "."]]
+		while not stack.is_empty():
+			var item: Array = stack.pop_back()
+			var node: Node = item[0]
+			if node is Control and _ctl_script_path(node).contains(filter):
+				matches.append(_ctl_dump(node as Control, item[1], 0, max_depth, include_hidden))
+				continue
+			var children := node.get_children()
+			children.reverse()
+			for child in children:
+				if child is Control:
+					stack.append([child, _ctl_segment(child) if item[1] == "." else item[1] + "/" + _ctl_segment(child)])
+		result["matches"] = matches
+	result["truncated"] = _dump_budget <= 0
+	return result
+
+# Editor undo history versions (global + the edited scene's), to tell whether
+# an action added an undo step.
+func _undo_snapshot() -> Dictionary:
+	var manager := EditorInterface.get_editor_undo_redo()
+	var ids := [EditorUndoRedoManager.GLOBAL_HISTORY]
+	var root := EditorInterface.get_edited_scene_root()
+	if root:
+		ids.append(manager.get_object_history_id(root))
+	var snap := {}
+	for id in ids:
+		var history := manager.get_history_undo_redo(id)
+		snap[id] = [history.get_version(), history.get_current_action_name()]
+	return snap
+
+func _undo_delta(before: Dictionary, after: Dictionary) -> Dictionary:
+	var versions := 0
+	var last := ""
+	for id in after:
+		var was: Array = before.get(id, [0, ""])
+		if after[id][0] != was[0]:
+			versions += int(after[id][0]) - int(was[0])
+			last = String(after[id][1])
+	return {"added": versions > 0, "versions": versions, "last_action": last}
+
+func _menu_of(c: Control) -> PopupMenu:
+	if c is MenuButton:
+		return (c as MenuButton).get_popup()
+	if c is OptionButton:
+		return (c as OptionButton).get_popup()
+	return null
+
+## Finds the control an action targets: `path` under `root`, or the
+## `index`-th visible control matching `text` and/or `class`.
+func _ctl_find(params: Dictionary, key_path := "path", key_text := "text", key_class := "class") -> Variant:
+	var root_name := String(params.get("root", "inspector"))
+	var ui := _ui_root(root_name)
+	if ui == null:
+		return "unknown or unavailable root '%s'" % root_name
+	if params.has(key_path):
+		var found := _ctl_resolve(ui, String(params[key_path]))
+		if not (found is Control):
+			return "no control at path '%s' under '%s' (dump_control_tree lists valid paths; auto-numbered paths shift if the UI was rebuilt)" % [params[key_path], root_name]
+		return found
+	if not (params.has(key_text) or params.has(key_class)):
+		return "give a path, or text and/or class to match"
+	var want_text := String(params.get(key_text, ""))
+	var want_class := String(params.get(key_class, ""))
+	var matches := []
+	for c in ui.find_children("*", want_class, true, false):
+		if c is Control and (c as Control).is_visible_in_tree() \
+				and (want_text == "" or ("text" in c and String(c.get("text")) == want_text)):
+			matches.append(c)
+	var index := int(params.get("index", 0))
+	if matches.is_empty():
+		return "no visible control matches text='%s' class='%s' under '%s'" % [want_text, want_class, root_name]
+	if matches.size() > 1 and not params.has("index"):
+		return "%d controls match; pass index (0-%d) or use a path from dump_control_tree" % [matches.size(), matches.size() - 1]
+	if index < 0 or index >= matches.size():
+		return "index %d out of range (%d matches)" % [index, matches.size()]
+	return matches[index]
+
+func _vec2_param(value: Variant, fallback: Vector2) -> Vector2:
+	if value is Array and value.size() == 2:
+		return Vector2(float(value[0]), float(value[1]))
+	return fallback
+
+## Operates a control found with dump_control_tree: press, set_value,
+## select_menu_item (MenuButton / OptionButton), drop_files (a FileSystem-dock drop), or drag_drop
+## (from one control's _get_drag_data to another's _drop_data). Reports the
+## control's state afterwards and whether the editor's undo history gained
+## an action, so a custom UI can be tested end to end — undo included —
+## without asking the user to click.
+func _cmd_interact_control(params: Dictionary):
+	var action := String(params.get("action", ""))
+	if not action in ["press", "set_value", "select_menu_item", "drop_files", "drag_drop"]:
+		return _fail("action must be press, set_value, select_menu_item, drop_files or drag_drop")
+	var found = _ctl_find(params, "from" if action == "drag_drop" else "path")
+	if found is String:
+		return _fail(found)
+	var control := found as Control
+	var undo_before := _undo_snapshot()
+	var note := ""
+	match action:
+		"press":
+			if not (control is BaseButton) or control is MenuButton or control is OptionButton:
+				return _fail("%s can't be pressed (use select_menu_item for menus)" % control.get_class())
+			var button := control as BaseButton
+			if button.disabled:
+				return _fail("the button is disabled")
+			if button.toggle_mode:
+				button.button_pressed = not button.button_pressed
+			button.pressed.emit()
+		"set_value":
+			if not params.has("value"):
+				return _fail("set_value needs a value")
+			var value = params.value
+			if control is Range:
+				(control as Range).value = float(value)
+			elif control is OptionButton:
+				var option := control as OptionButton
+				var idx := -1
+				if value is String:
+					for i in option.item_count:
+						if option.get_item_text(i) == value:
+							idx = i
+				else:
+					idx = int(value)
+				if idx < 0 or idx >= option.item_count:
+					return _fail("no option '%s' (options: %s)" % [value, ", ".join(range(option.item_count).map(func(i): return option.get_item_text(i)))])
+				option.select(idx)
+				option.item_selected.emit(idx)
+			elif control is BaseButton and (control as BaseButton).toggle_mode:
+				(control as BaseButton).button_pressed = bool(value)
+			elif control is LineEdit:
+				var line := control as LineEdit
+				line.text = String(value)
+				line.text_changed.emit(line.text)
+				line.text_submitted.emit(line.text)
+			elif control is TextEdit:
+				var edit := control as TextEdit
+				edit.text = String(value)
+				edit.text_changed.emit()
+			elif control is ColorPickerButton:
+				var picker := control as ColorPickerButton
+				picker.color = Color.from_string(String(value), picker.color)
+				picker.color_changed.emit(picker.color)
+			else:
+				return _fail("don't know how to set a value on %s (supported: Range, OptionButton, toggle buttons, LineEdit, TextEdit, ColorPickerButton)" % control.get_class())
+		"select_menu_item":
+			var menu := _menu_of(control)
+			if menu == null:
+				return _fail("%s has no menu (use a MenuButton or OptionButton)" % control.get_class())
+			var index := -1
+			if params.has("id"):
+				index = menu.get_item_index(int(params.id))
+			elif params.has("item_text"):
+				for i in menu.item_count:
+					if menu.get_item_text(i) == String(params.item_text):
+						index = i
+						break
+			else:
+				return _fail("select_menu_item needs id or item_text")
+			if index < 0:
+				return _fail("no such menu item (items: %s)" % ", ".join(range(menu.item_count).map(func(i): return "%s (id %d)" % [menu.get_item_text(i), menu.get_item_id(i)])))
+			if menu.is_item_disabled(index) or menu.is_item_separator(index):
+				return _fail("that menu item is disabled or a separator")
+			if control is OptionButton:
+				(control as OptionButton).select(index)
+				(control as OptionButton).item_selected.emit(index)
+			else:
+				menu.id_pressed.emit(menu.get_item_id(index))
+				menu.index_pressed.emit(index)
+		"drop_files":
+			var files = params.get("files", [])
+			if not (files is Array) or files.is_empty():
+				return _fail("drop_files needs a non-empty files array of res:// paths")
+			var data := {"type": "files", "files": files}
+			var at := _vec2_param(params.get("at_position"), control.size / 2.0)
+			var refusal := _drop_on(control, at, data)
+			if refusal != "":
+				return _fail(refusal)
+		"drag_drop":
+			var target = _ctl_find(params, "to", "to_text", "to_class")
+			if target is String:
+				return _fail(target)
+			if not control.has_method("_get_drag_data"):
+				return _fail("%s has no _get_drag_data (only scripted controls can be dragged this way)" % control.get_class())
+			var data = control.call("_get_drag_data", _vec2_param(params.get("from_position"), control.size / 2.0))
+			# _get_drag_data normally calls set_drag_preview, which leaves a
+			# preview control in the window when no real drag is running.
+			control.get_viewport().gui_cancel_drag()
+			if data == null:
+				return _fail("nothing to drag: _get_drag_data returned null")
+			var refusal := _drop_on(target as Control, _vec2_param(params.get("to_position"), (target as Control).size / 2.0), data)
+			if refusal != "":
+				return _fail(refusal)
+	# Let the UI react (inspectors rebuild on the next frames).
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var result := {"ok": true, "action": action, "undo": _undo_delta(undo_before, _undo_snapshot())}
+	if is_instance_valid(control):
+		result["control"] = _ctl_state(control)
+	else:
+		result["control"] = "freed — the UI rebuilt itself; dump_control_tree to see the new state"
+	return result
+
+## Drops `data` on `control` the way the editor would: _can_drop_data first,
+## then _drop_data. Returns "" on success, else why not.
+func _drop_on(control: Control, at: Vector2, data: Variant) -> String:
+	if not (control.has_method("_can_drop_data") and control.has_method("_drop_data")):
+		return "%s has no _can_drop_data/_drop_data (only scripted controls can receive drops this way)" % control.get_class()
+	if not control.call("_can_drop_data", at, data):
+		return "the control refused the drop (_can_drop_data returned false)"
+	control.call("_drop_data", at, data)
+	return ""
+
+## The reload dance after edit_script_text on @tool scripts, addons and
+## resource scripts, in one call: save open scripts, re-parse (returning
+## parse errors — a plugin enabled against a broken script silently does
+## nothing), toggle the owning addon plugins, re-select the inspected
+## object so the Inspector rebuilds, and report typed members that read
+## null on existing instances (a hot-reloaded script that gained a member
+## leaves it unset on live nodes).
+func _cmd_refresh_editor_scripts(params: Dictionary):
+	var script_editor := EditorInterface.get_script_editor()
+	var paths: Array = []
+	if params.has("paths") and params.paths is Array:
+		for p in params.paths:
+			paths.append(String(p))
+	else:
+		for s in script_editor.get_open_scripts():
+			if s.resource_path.begins_with("res://"):
+				paths.append(s.resource_path)
+	script_editor.save_all_scripts()
+	var seq_before: int = _output_capture.last_seq() if _output_capture else 0
+	var scripts := []
+	var reloaded: Array[Script] = []
+	for path in paths:
+		var script := load(path) as Script
+		if script == null:
+			scripts.append({"path": path, "ok": false, "error": "not found or not a script"})
+			continue
+		var err := script.reload(true)
+		scripts.append({"path": path, "ok": err == OK, "reload": error_string(err)})
+		reloaded.append(script)
+	var result := {"saved": true, "scripts": scripts}
+	if _output_capture:
+		var logged: Dictionary = _output_capture.read(seq_before, true, 20)
+		var errors := []
+		for e in logged.entries:
+			errors.append("%s%s" % [e.text, " (%s)" % e.where if e.has("where") else ""])
+		result["errors"] = errors
+
+	# Owning addon plugins: res://addons/<name>/plugin.cfg, if enabled.
+	var plugins := {}
+	var toggle_self := false
+	for path in paths:
+		if String(path).begins_with("res://addons/"):
+			var cfg := "res://addons/%s/plugin.cfg" % String(path).split("/")[3]
+			if FileAccess.file_exists(cfg) and EditorInterface.is_plugin_enabled(cfg):
+				plugins[cfg] = true
+	var toggled := []
+	for cfg in plugins:
+		if cfg.contains("/%s/" % PLUGIN_ADDON_NAME):
+			toggle_self = true  # toggling this bridge drops the connection; done last
+			continue
+		EditorInterface.set_plugin_enabled(cfg, false)
+		await get_tree().process_frame
+		EditorInterface.set_plugin_enabled(cfg, true)
+		toggled.append(cfg)
+	result["plugins_toggled"] = toggled
+
+	# Rebuild the Inspector for whatever it shows.
+	var edited := EditorInterface.get_inspector().get_edited_object()
+	if edited is Node:
+		var selection := EditorInterface.get_selection()
+		var was_selected := selection.get_selected_nodes().has(edited)
+		selection.clear()
+		await get_tree().process_frame
+		if was_selected:
+			selection.add_node(edited)
+		EditorInterface.edit_node(edited)
+		result["reselected"] = _rel_path(edited)
+	elif edited != null:
+		EditorInterface.inspect_object(edited)
+		result["reselected"] = String(edited.get_class())
+
+	# Typed members that read null on live nodes running a reloaded script.
+	var unset := []
+	var root := _get_scene_root()
+	if root != null and not reloaded.is_empty():
+		for n in [root] + root.find_children("*", "", true, false):
+			var script: Script = n.get_script()
+			if script == null or not reloaded.has(script):
+				continue
+			for prop in script.get_script_property_list():
+				if prop.usage & PROPERTY_USAGE_SCRIPT_VARIABLE == 0:
+					continue
+				if prop.type != TYPE_NIL and prop.type != TYPE_OBJECT and n.get(prop.name) == null:
+					unset.append("%s.%s" % [_rel_path(n), prop.name])
+	result["null_members"] = unset
+	if not unset.is_empty():
+		result["null_members_note"] = "these typed members read null on live nodes (the script gained them after the nodes were created); set them with set_property, or restart the editor"
+	if toggle_self:
+		call_deferred("_do_reload_plugin")
+		result["note"] = "this addon's own scripts changed: reloading it now — the connection will drop; reconnect after a moment"
+	return result
+
 const _SHAPE_2D_TYPES := [
 	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D", "SegmentShape2D",
 	"SeparationRayShape2D", "ConvexPolygonShape2D", "ConcavePolygonShape2D",
