@@ -228,6 +228,8 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 		# Awaited so a command can wait a frame for the editor (a no-op for
 		# the ones that don't suspend).
 		var watch := command in _RAW_EDIT_COMMANDS
+		_fp_total_us = 0
+		_fp_worst = {"us": 0}
 		var before := _scene_fingerprint() if watch else {}
 		var root_before: Node = _get_scene_root() if watch else null
 		var response = await call("_cmd_" + command, params)
@@ -252,6 +254,19 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 			result["scene_changed_note"] = _mac_keys(_RAW_EDIT_NOTE)
 			if not ok:
 				error = "%s (%s)" % [error, _mac_keys(_RAW_EDIT_NOTE)]
+		if watch and _fp_total_us >= _slow_scene_check_us():
+			# Also logged in the editor: a call that runs past the server's
+			# timeout never delivers this response, but get_output_log can
+			# still show the warning.
+			var slow := "the before/after scene check took %d ms (slowest: %s %s, %d ms)" % [
+				_fp_total_us / 1000, _fp_worst.get("label", "?"), _fp_worst.get("class", ""), int(_fp_worst.us) / 1000]
+			push_warning("GodotLiveMCP: %s" % slow)
+			if ok:
+				if typeof(result) != TYPE_DICTIONARY:
+					result = {"value": result}
+				result["scene_check_note"] = slow
+			else:
+				error = "%s (%s)" % [error, slow]
 
 	activity.emit(ok)
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
@@ -279,11 +294,27 @@ func _scene_fingerprint() -> Dictionary:
 	if root == null:
 		return parts
 	var seen := {}
+	var start := Time.get_ticks_usec()
 	for n in [root] + root.find_children("*", "", true, false):
 		var label := str(root.get_path_to(n))
+		var node_start := Time.get_ticks_usec()
 		parts["%s|class" % label] = n.get_class()
 		_fingerprint_object(n, label, parts, seen)
+		var node_us := Time.get_ticks_usec() - node_start
+		if node_us > int(_fp_worst.us):
+			_fp_worst = {"us": node_us, "label": label, "class": n.get_class()}
+	_fp_total_us += Time.get_ticks_usec() - start
 	return parts
+
+# Cost of the scene checks around the current run_script/eval_expression,
+# summed over the before/after (and re-sample) passes, plus the one node
+# whose own properties and sub-resources took longest. Reported when slow.
+var _fp_total_us := 0
+var _fp_worst := {"us": 0}
+
+func _slow_scene_check_us() -> int:
+	var ms := OS.get_environment("GODOT_LIVE_MCP_SLOW_MS")
+	return (int(ms) if ms != "" else 250) * 1000
 
 ## Whether the scene changed since `before` was taken, ignoring values that
 ## change by themselves. Tool scripts animate properties on their own (the
@@ -1349,6 +1380,28 @@ func _cmd_edit_script_text(params: Dictionary):
 	var text := String(params.get("text", ""))
 	if not path.begins_with("res://"):
 		return _fail("path must be a res:// path: %s" % path)
+	if params.has("old_text") or params.has("new_text"):
+		# Partial edit: replace exactly one occurrence in the current text
+		# (the open tab's, including unsaved edits), then carry on as a
+		# full replacement with the result.
+		if params.has("text"):
+			return _fail("give either text, or old_text and new_text — not both")
+		if not (params.has("old_text") and params.has("new_text")):
+			return _fail("old_text and new_text go together")
+		var old_text := String(params.old_text)
+		if old_text.is_empty():
+			return _fail("old_text is empty")
+		var current = _cmd_get_script_text({"path": path})
+		if current.has("__error__"):
+			return current
+		var found := String(current.text).count(old_text)
+		if found == 0:
+			return _fail("old_text not found in %s — it must match the current text exactly, whitespace included" % path)
+		if found > 1:
+			return _fail("old_text appears %d times in %s — include more surrounding lines so it matches once" % [found, path])
+		text = String(current.text).replace(old_text, String(params.new_text))
+	elif not params.has("text"):
+		return _fail("give text (the whole file), or old_text and new_text (a partial edit)")
 	var created := false
 	if not FileAccess.file_exists(path):
 		DirAccess.make_dir_recursive_absolute(path.get_base_dir())

@@ -19,6 +19,10 @@ way a person working in Godot would:
   own script/shader editor as one undoable change, so there's no reload
   prompt and the user can Ctrl+Z it. `get_script_text` also sees unsaved
   edits that the file on disk doesn't have yet.
+  For a small change, pass `old_text` + `new_text` instead of the whole
+  file: it replaces one exact match (and fails if there's none or several,
+  so include enough surrounding lines), which costs far fewer tokens than
+  resending the file and needs no `get_script_text` first.
 
 Edits stay in memory (the tabs show as unsaved) until saved — see below.
 Pressing Play (`play_scene`) saves everything first, like it does for a
