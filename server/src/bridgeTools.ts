@@ -495,8 +495,11 @@ export const bridgeToolDefinitions = [
   {
     name: 'edit_script_text',
     description:
-      'Set the full text of a GDScript (.gd) or shader (.gdshader) file the way a person would: ' +
-      'opens it in Godot\'s script/shader editor and replaces the text there as one undoable edit. ' +
+      'Edit a GDScript (.gd) or shader (.gdshader) file the way a person would: ' +
+      'opens it in Godot\'s script/shader editor and changes the text there as one undoable edit. ' +
+      'Give either `text` (the whole new file) or `old_text` + `new_text` (replace one exact match in the ' +
+      'current text, unsaved edits included — much cheaper for a small change; fails if old_text is missing ' +
+      'or matches more than once). ' +
       'The tab is left unsaved — it reaches disk on Ctrl+S or when the scene is played — so there ' +
       'is no "reload from disk?" prompt. Use this instead of writing .gd/.gdshader files directly ' +
       'while the editor is open. A path that doesn\'t exist yet is created on disk (like the ' +
@@ -505,9 +508,11 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: {
         path: { type: 'string', description: 'res:// path to the .gd or .gdshader file' },
-        text: { type: 'string', description: 'the complete new file contents' },
+        text: { type: 'string', description: 'the complete new file contents (omit when using old_text/new_text)' },
+        old_text: { type: 'string', description: 'exact text to replace; must appear exactly once in the current file' },
+        new_text: { type: 'string', description: 'what to replace old_text with (may be empty to delete it)' },
       },
-      required: ['path', 'text'],
+      required: ['path'],
     },
   },
   {
@@ -1350,7 +1355,9 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'edit_script_text':
       return textResult(await client.call('edit_script_text', {
         path: params.path,
-        text: params.text,
+        ...(params.text !== undefined ? { text: params.text } : {}),
+        ...(params.old_text !== undefined ? { old_text: params.old_text } : {}),
+        ...(params.new_text !== undefined ? { new_text: params.new_text } : {}),
       }));
     case 'get_script_text':
       return textResult(await client.call('get_script_text', { path: params.path }));
