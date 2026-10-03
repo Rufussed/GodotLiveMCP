@@ -13,7 +13,8 @@ Two parts:
   signals, groups, physics/collision, 3D materials and shaders, animation
   (including state machines), navigation baking, audio buses, tilemaps,
   particles, theme/UI, editor screenshots, the Output/Debugger panels'
-  errors (`get_output_log`, in memory only), and its own Play/Stop/reload/
+  errors (`get_output_log`, in memory only), tools to see and operate the
+  editor's own UI (screenshots, control-tree dumps, clicks, drops), and its own Play/Stop/reload/
   restart control. Property changes and node add/remove/rename/reparent/
   duplicate route through Godot's own `EditorUndoRedoManager`, so
   bridge-driven edits get the same save-prompt and Ctrl+Z behavior as
@@ -217,6 +218,34 @@ Values can be written as constructor calls, e.g. `"Color(0.2, 0.4, 0.9)"`.
 frames, so a game (embedded in the Game tab or not) pauses while the editor
 is hidden and catches up when shown. Keep the editor on screen while
 testing, or run Godot under X11 for unattended play.
+
+## Making Godot your own: building and testing editor UI
+
+The editor is itself a Godot scene, so an agent can write custom editor
+tooling in GDScript — an `EditorInspectorPlugin` with a bespoke Inspector
+UI for one of your classes, a dock, a tool script — and, with these four
+tools, **see the result and use it**, which is what it lacks when it can
+only write code:
+
+| Tool | What it does |
+| --- | --- |
+| `get_inspector_screenshot` | PNG of the Inspector (or `scene_tree`, `filesystem`, `bottom_panel`, the whole `editor`, or any control by node path), cropped to the dock |
+| `dump_control_tree` | The live Control tree of an editor UI as compact JSON: class, script, text, global position and size, visibility, and a path. Check layout numerically ("do these pickers share one x?"); `filter_script` returns only the subtrees running your script |
+| `interact_control` | `press`, `set_value`, `select_menu_item`, `drop_files` (a FileSystem-dock drop) and `drag_drop` on a control found by path or by text/class. Returns the control's state afterwards and whether the **undo history gained an action**, so a UI and its Ctrl+Z behaviour can be tested end to end |
+| `refresh_editor_scripts` | The reload dance after editing `@tool` scripts, in one call: saves open scripts, re-parses them and returns **parse errors with file and line**, toggles the addon plugin each belongs to, re-selects the inspected object so the Inspector rebuilds, and lists typed members that read `null` on live nodes |
+
+A typical loop: write the plugin with `edit_script_text`, call
+`refresh_editor_scripts`, look at it with `get_inspector_screenshot`, check
+alignment with `dump_control_tree`, drive it with `interact_control` (drop a
+scene on the empty slot, confirm a row appeared and one undo step was
+added), edit, repeat.
+
+Limits: `interact_control` calls the control's signals and methods (it is
+not a real mouse), so drag-and-drop works on scripted controls
+(`_get_drag_data` / `_can_drop_data` / `_drop_data`) but not on native-only
+ones such as the Tree docks. Docks that are hidden or scrolled off-screen
+can't be screenshotted (the error says so). Custom Inspector controls
+should use `EditorInterface.get_editor_scale()` for pixel sizes.
 
 ## AI Assistant panel
 

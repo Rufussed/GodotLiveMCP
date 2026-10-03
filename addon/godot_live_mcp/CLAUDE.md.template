@@ -173,6 +173,26 @@ instead of manually looping `game_eval_expression` calls).
   can vanish mid-session with no crash trace). `play_scene`/`stop_scene`
   reuse the editor's own Play/Stop mechanism instead.
 
+- **Building editor UI** (an `EditorInspectorPlugin`, a dock, a `@tool`
+  script): you can see and use it. Write it with `edit_script_text`, then
+  `refresh_editor_scripts` (saves, re-parses and returns parse errors with
+  file:line, toggles the addon plugin, rebuilds the Inspector, reports
+  typed members that read `null` on live nodes). Look with
+  `get_inspector_screenshot`; check layout numerically with
+  `dump_control_tree` (use `filter_script` to find your controls); test
+  behaviour with `interact_control` (`press`, `set_value`,
+  `select_menu_item`, `drop_files`, `drag_drop`), which also reports
+  whether an undo step was added — verify that, and that the data really
+  changed, rather than asking the user to click. Gotchas: name helpers
+  anything but `_set` in editor scripts (it clashes with `Object._set`
+  and the parse error is unhelpful); a plugin enabled while a script
+  failed to parse stays inert until `refresh_editor_scripts` succeeds;
+  multiply fixed pixel sizes by `EditorInterface.get_editor_scale()`;
+  refresh a custom Inspector control from `EditorUndoRedoManager`'s
+  `version_changed` and guard its own edits so it doesn't rebuild
+  mid-edit; `EditorResourcePicker` shows large `PackedScene` thumbnails
+  (a Button + MenuButton picker keeps rows short).
+
 - After `play_scene`, or whenever something seems wrong, call
   `get_output_log` instead of asking the user to copy errors across. It
   returns the Output panel's recent lines (game `print()` output
