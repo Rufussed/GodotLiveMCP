@@ -223,7 +223,7 @@ testing, or run Godot under X11 for unattended play.
 
 The editor is itself a Godot scene, so an agent can write custom editor
 tooling in GDScript — an `EditorInspectorPlugin` with a bespoke Inspector
-UI for one of your classes, a dock, a tool script — and, with these four
+UI for one of your classes, a dock, a tool script — and, with these
 tools, **see the result and use it**, which is what it lacks when it can
 only write code:
 
@@ -232,6 +232,8 @@ only write code:
 | `get_inspector_screenshot` | PNG of the Inspector (or `scene_tree`, `filesystem`, `bottom_panel`, the whole `editor`, or any control by node path), cropped to the dock |
 | `dump_control_tree` | The live Control tree of an editor UI as compact JSON: class, script, text, global position and size, visibility, and a path. Check layout numerically ("do these pickers share one x?"); `filter_script` returns only the subtrees running your script |
 | `interact_control` | `press`, `set_value`, `select_menu_item`, `drop_files` (a FileSystem-dock drop) and `drag_drop` on a control found by path or by text/class. Returns the control's state afterwards and whether the **undo history gained an action**, so a UI and its Ctrl+Z behaviour can be tested end to end |
+| `highlight_editor_control` | **Point at the editor UI** while explaining: a pulsing green outline (and optional caption) over an Inspector property (`property` + `node_path`), a node's row in the Scene dock (`node_path`), or any control by path / text / class — several at once with `targets`. Switches tabs and the bottom panel so the target is visible, follows the control as the layout changes, and **releases on any Inspector property edit** (the user doing the thing), a scene switch, a timeout (default 120 s) or `clear_editor_highlights`. A teaching tool: "this is the Speed Scale property" becomes a box around it |
+| `clear_editor_highlights` | Removes every outline drawn by `highlight_editor_control` |
 | `refresh_editor_scripts` | The reload dance after editing `@tool` scripts, in one call: saves open scripts, re-parses them and returns **parse errors with file and line**, toggles the addon plugin each belongs to, re-selects the inspected object so the Inspector rebuilds, and lists typed members that read `null` on live nodes |
 
 A typical loop: write the plugin with `edit_script_text`, call

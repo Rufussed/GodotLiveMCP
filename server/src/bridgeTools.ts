@@ -95,6 +95,8 @@ export const bridgeToolNames = new Set([
   'get_inspector_screenshot',
   'dump_control_tree',
   'interact_control',
+  'highlight_editor_control',
+  'clear_editor_highlights',
   'refresh_editor_scripts',
   'get_material_info',
   'add_animation_state',
@@ -1200,6 +1202,42 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'highlight_editor_control',
+    description:
+      'Point at part of the Godot editor UI: draws a pulsing green outline (and optional caption) over it, to show the ' +
+      'user where something is while you explain it. Prefer this over describing a location in words, or writing a ' +
+      'throwaway run_script. Targets: `property` (an Inspector property by name — opens the node first when ' +
+      '`node_path` is given, else uses what the Inspector already shows), `node_path` alone (selects the node and ' +
+      'outlines its Scene dock row), or any editor control by `path` (+ `root`, as in dump_control_tree) or by ' +
+      '`text`/`class` (+ `index`), e.g. a menu button or the Animation editor\'s Edit menu. Tabs and the bottom ' +
+      'panel are switched so the target is visible. The highlight is released by ANY Inspector property edit or undoable editor action ' +
+      '(the user changing something: a gizmo drag, a Scene dock change, undo/redo), a scene switch, the timeout, or clear_editor_highlights; calling this again ' +
+      'replaces it. Several controls at once: pass `targets` (an array of the same objects). Fails with a clear ' +
+      'message when the target can\'t be found or isn\'t visible.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        property: { type: 'string', description: 'Inspector property name, e.g. "speed_scale"' },
+        node_path: { type: 'string', description: 'Node path in the edited scene: the node to inspect (with property) or to select and outline in the Scene dock' },
+        root: { type: 'string', description: 'For path matching: "inspector" (default), "scene_tree", "filesystem", "bottom_panel", "editor", or a node path in the editor UI' },
+        path: { type: 'string', description: 'Control path from dump_control_tree' },
+        text: { type: 'string', description: 'Match a visible control by its exact text, e.g. "Edit"' },
+        class: { type: 'string', description: 'Match by class (alone or with text)' },
+        index: { type: 'integer', description: 'Which match, when text/class matches several' },
+        label: { type: 'string', description: 'Short caption shown under the outline, e.g. "Speed Scale: 1.0 = normal"' },
+        targets: { type: 'array', items: { type: 'object' }, description: 'Highlight several things at once; each item takes the same fields as above' },
+        release_on_edit: { type: 'boolean', description: 'Release when the user edits any property or makes any undoable change (default true)' },
+        timeout: { type: 'number', description: 'Seconds before it releases itself (default 120; 0 = never)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'clear_editor_highlights',
+    description: 'Remove every outline drawn by highlight_editor_control. Returns how many were cleared.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'interact_control',
     description:
       'Operate an editor UI control found with dump_control_tree, to test a custom UI end to end without asking ' +
@@ -1659,6 +1697,10 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         include_hidden: params.include_hidden ?? false,
         max_nodes: params.max_nodes ?? 400,
       }));
+    case 'highlight_editor_control':
+      return textResult(await client.call('highlight_editor_control', { ...params }));
+    case 'clear_editor_highlights':
+      return textResult(await client.call('clear_editor_highlights', {}));
     case 'interact_control':
       return textResult(await client.call('interact_control', { ...params }));
     case 'refresh_editor_scripts':
