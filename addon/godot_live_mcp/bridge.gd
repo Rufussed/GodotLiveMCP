@@ -76,6 +76,8 @@ func set_editor_plugin(plugin: EditorPlugin) -> void:
 var _debugger_plugin: EditorDebuggerPlugin = null
 
 func _exit_tree() -> void:
+	if _hl_layer != null:
+		_hl_clear()
 	if _editor_plugin and _debugger_plugin:
 		_editor_plugin.remove_debugger_plugin(_debugger_plugin)
 		_debugger_plugin = null
@@ -164,6 +166,8 @@ func _get_scene_root() -> Node:
 ## tool; inherent to single-threaded GDScript. See README's "Known
 ## limitations".
 func _process(_delta: float) -> void:
+	if not _hl_items.is_empty():
+		_hl_update()
 	if _server == null:
 		return
 	while _server.is_connection_available():
@@ -2478,6 +2482,255 @@ func _drop_on(control: Control, at: Vector2, data: Variant) -> String:
 		return "the control refused the drop (_can_drop_data returned false)"
 	control.call("_drop_data", at, data)
 	return ""
+
+# --- highlight_editor_control ------------------------------------------------
+
+var _hl_layer: Control = null
+var _hl_items: Array = []  # {panel, control (WeakRef) | tree + item_path}
+var _hl_gen := 0
+
+func _hl_clear() -> int:
+	var n := _hl_items.size()
+	_hl_gen += 1
+	if _hl_layer != null and is_instance_valid(_hl_layer):
+		_hl_layer.queue_free()
+	_hl_layer = null
+	_hl_items.clear()
+	var inspector := EditorInterface.get_inspector()
+	if inspector.property_edited.is_connected(_hl_on_edit):
+		inspector.property_edited.disconnect(_hl_on_edit)
+	var undo := EditorInterface.get_editor_undo_redo()
+	if undo.history_changed.is_connected(_hl_on_history):
+		undo.history_changed.disconnect(_hl_on_history)
+	if _editor_plugin and _editor_plugin.scene_changed.is_connected(_hl_on_scene_change):
+		_editor_plugin.scene_changed.disconnect(_hl_on_scene_change)
+	return n
+
+func _hl_on_edit(_property: String) -> void:
+	_hl_clear()
+
+func _hl_on_history() -> void:
+	_hl_clear()
+
+func _hl_on_scene_change(_root: Node) -> void:
+	_hl_clear()
+
+## Keeps each overlay on its control as the editor re-lays out or scrolls:
+## follows the control's rect, hides when it is not visible, and clips to
+## the scroll areas it sits in.
+func _hl_update() -> void:
+	for item in _hl_items:
+		var panel: Panel = item.panel
+		var rect := Rect2()
+		var shown := false
+		if item.has("control"):
+			var c = item.control.get_ref()
+			if c is Control and (c as Control).is_visible_in_tree():
+				rect = (c as Control).get_global_rect()
+				shown = true
+				var anc: Node = c.get_parent()
+				while anc != null:
+					if anc is ScrollContainer or (anc is Control and (anc as Control).clip_contents):
+						rect = rect.intersection((anc as Control).get_global_rect())
+					anc = anc.get_parent()
+		else:
+			var tree = item.tree.get_ref()
+			if tree is Tree and (tree as Tree).is_visible_in_tree():
+				var ti: TreeItem = _hl_tree_item(tree, item.item_path)
+				if ti != null:
+					var local: Rect2 = (tree as Tree).get_item_area_rect(ti, -1)
+					rect = Rect2((tree as Tree).get_global_rect().position + local.position, local.size).intersection((tree as Tree).get_global_rect())
+					shown = true
+		panel.visible = shown and rect.has_area()
+		if panel.visible:
+			panel.position = rect.position - _hl_layer.global_position
+			panel.size = rect.size
+
+func _hl_tree_item(tree: Tree, names: Array) -> TreeItem:
+	var ti := tree.get_root()
+	if ti == null or names.is_empty() or ti.get_text(0) != String(names[0]):
+		return null
+	for i in range(1, names.size()):
+		var found: TreeItem = null
+		for child in ti.get_children():
+			if child.get_text(0) == String(names[i]):
+				found = child
+				break
+		if found == null:
+			return null
+		ti = found
+	return ti
+
+## Makes a control actually visible: switches the tab containers (and bottom
+## panel) it sits in.
+func _hl_reveal(control: Control) -> void:
+	var n: Node = control
+	while n != null and n.get_parent() != null:
+		var p := n.get_parent()
+		if p is TabContainer and n is Control:
+			var idx := (p as TabContainer).get_tab_idx_from_control(n as Control)
+			if idx >= 0 and (p as TabContainer).current_tab != idx:
+				(p as TabContainer).current_tab = idx
+		elif p.get_class() == "EditorBottomPanel" and p.has_method("make_item_visible") and n is Control:
+			p.call("make_item_visible", n)
+		n = p
+	await get_tree().process_frame
+
+func _hl_make(label: String) -> Panel:
+	var panel := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.2, 0.9, 0.35, 0.12)
+	sb.border_color = Color(0.25, 0.95, 0.4, 1.0)
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.name = "Highlight"
+	if label != "":
+		var l := Label.new()
+		l.text = label
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		l.add_theme_color_override("font_color", Color.WHITE)
+		var lsb := StyleBoxFlat.new()
+		lsb.bg_color = Color(0.1, 0.5, 0.2, 0.95)
+		lsb.set_content_margin_all(4)
+		lsb.set_corner_radius_all(3)
+		l.add_theme_stylebox_override("normal", lsb)
+		l.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		l.grow_vertical = Control.GROW_DIRECTION_END
+		l.grow_horizontal = Control.GROW_DIRECTION_END
+		l.offset_top = 4
+		panel.add_child(l)
+	var tween := panel.create_tween().set_loops()
+	tween.tween_property(panel, "modulate:a", 0.45, 0.6)
+	tween.tween_property(panel, "modulate:a", 1.0, 0.6)
+	return panel
+
+## Draws a pulsing green outline (and optional caption) over editor UI to
+## point at it while explaining — a Godot-editor "look here". Targets: an
+## Inspector property by name (opens the node first), a node (selected, its
+## Scene dock row outlined), or any editor control by path / text / class.
+## Closes the gap the agent otherwise fills with a throwaway run_script
+## (logged 2026-10-05): nothing else in the tool set can draw on the editor
+## UI. Tab containers and the bottom panel are switched so the target is
+## visible, and the overlay follows the control as the layout changes.
+## Released by any Inspector property edit or undoable editor action (a gizmo drag, a Scene dock change, undo/redo), a scene switch, the timeout, or
+## clear_editor_highlights.
+func _cmd_highlight_editor_control(params: Dictionary):
+	var targets: Array = params.get("targets", [])
+	if targets.is_empty():
+		targets = [params]
+	_hl_clear()
+	var base := EditorInterface.get_base_control()
+	var layer := Control.new()
+	layer.name = "GodotLiveMCPHighlights"
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.z_index = 100
+	base.add_child(layer)
+	_hl_layer = layer
+	var report := []
+	for t in targets:
+		if typeof(t) != TYPE_DICTIONARY:
+			_hl_clear()
+			return _fail("each target must be an object")
+		var label := String(t.get("label", params.get("label", "")))
+		var control: Control = null
+		var entry := {}
+		if t.has("property"):
+			var obj: Object = EditorInterface.get_inspector().get_edited_object()
+			if t.has("node_path"):
+				obj = _resolve_node(String(t.node_path))
+				if obj == null:
+					_hl_clear()
+					return _fail("node not found: %s" % t.node_path)
+			if obj == null:
+				_hl_clear()
+				return _fail("nothing is open in the Inspector; pass node_path with property")
+			var prop := String(t.property)
+			var known := false
+			for p in obj.get_property_list():
+				if p.name == prop:
+					known = true
+			if not known:
+				_hl_clear()
+				return _fail("%s has no property '%s'" % [obj.get_class(), prop])
+			EditorInterface.inspect_object(obj, prop)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			for ep in EditorInterface.get_inspector().find_children("*", "EditorProperty", true, false):
+				if String((ep as EditorProperty).get_edited_property()) == prop and (ep as Control).is_visible_in_tree():
+					control = ep
+					break
+			if control == null:
+				_hl_clear()
+				return _fail("property '%s' exists but its row isn't visible in the Inspector (collapsed section, or hidden by the editor's property filter)" % prop)
+			entry = {"kind": "property", "property": prop, "on": obj.get_class()}
+		elif t.has("node_path") and not (t.has("path") or t.has("text") or t.has("class")):
+			var node := _resolve_node(String(t.node_path))
+			if node == null:
+				_hl_clear()
+				return _fail("node not found: %s" % t.node_path)
+			var sel := EditorInterface.get_selection()
+			sel.clear()
+			sel.add_node(node)
+			EditorInterface.edit_node(node)
+			await get_tree().process_frame
+			var dock := _ui_root("scene_tree")
+			var trees := dock.find_children("*", "Tree", true, false) if dock else []
+			var names := [(_get_scene_root() as Node).name]
+			if node != _get_scene_root():
+				for part in _rel_path(node).split("/"):
+					names.append(part)
+			if trees.is_empty() or _hl_tree_item(trees[0], names) == null:
+				_hl_clear()
+				return _fail("selected %s but couldn't find its row in the Scene dock (is the dock visible?)" % _rel_path(node))
+			var tree: Tree = trees[0]
+			tree.scroll_to_item(_hl_tree_item(tree, names))
+			await get_tree().process_frame
+			var panel := _hl_make(label)
+			layer.add_child(panel)
+			_hl_items.append({"panel": panel, "tree": weakref(tree), "item_path": names})
+			report.append({"kind": "node", "node_path": _rel_path(node)})
+			continue
+		else:
+			var found = _ctl_find(t, "path", "text", "class")
+			if found is String:
+				_hl_clear()
+				return _fail(found)
+			control = found
+			entry = {"kind": "control", "class": control.get_class()}
+			if "text" in control and String(control.get("text")) != "":
+				entry["text"] = String(control.get("text"))
+		await _hl_reveal(control)
+		if not control.is_visible_in_tree():
+			_hl_clear()
+			return _fail("the %s is not visible and couldn't be revealed (is its dock or panel closed?)" % control.get_class())
+		var panel := _hl_make(label)
+		layer.add_child(panel)
+		_hl_items.append({"panel": panel, "control": weakref(control)})
+		var r := control.get_global_rect()
+		entry["rect"] = [snappedf(r.position.x, 0.1), snappedf(r.position.y, 0.1), snappedf(r.size.x, 0.1), snappedf(r.size.y, 0.1)]
+		report.append(entry)
+	var release := ["timeout"]
+	if bool(params.get("release_on_edit", true)):
+		EditorInterface.get_inspector().property_edited.connect(_hl_on_edit)
+		EditorInterface.get_editor_undo_redo().history_changed.connect(_hl_on_history)
+		release.append("any Inspector property edit")
+		release.append("any undoable editor action (gizmo move, tree change, undo/redo)")
+	if _editor_plugin:
+		_editor_plugin.scene_changed.connect(_hl_on_scene_change)
+		release.append("scene change")
+	var timeout := float(params.get("timeout", 120.0))
+	if timeout > 0.0:
+		var gen := _hl_gen
+		get_tree().create_timer(timeout).timeout.connect(func(): if gen == _hl_gen: _hl_clear())
+	_hl_update()
+	return {"highlighted": report, "released_by": release, "timeout_s": timeout}
+
+## Removes every highlight drawn by highlight_editor_control.
+func _cmd_clear_editor_highlights(_params: Dictionary):
+	return {"cleared": _hl_clear()}
 
 ## The reload dance after edit_script_text on @tool scripts, addons and
 ## resource scripts, in one call: save open scripts, re-parse (returning
