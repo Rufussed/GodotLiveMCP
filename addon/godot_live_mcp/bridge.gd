@@ -2341,20 +2341,55 @@ func _ctl_find(params: Dictionary, key_path := "path", key_text := "text", key_c
 	# Icon-only toolbar buttons have no text, but a stable tooltip; matched
 	# as a case-insensitive substring since tooltips are long sentences.
 	var want_tip := String(params.get("tooltip", "")).to_lower()
+	var matches := _ctl_matches(ui, want_text, want_tip, want_class)
+	var index := int(params.get("index", 0))
+	if matches.is_empty():
+		var msg := "no visible control matches text='%s' tooltip='%s' class='%s' under '%s'" % [want_text, want_tip, want_class, root_name]
+		# No root given: the default (inspector) may just be the wrong place.
+		if not params.has("root"):
+			for other in ["scene_tree", "filesystem", "bottom_panel", "editor"]:
+				var other_ui := _ui_root(other)
+				if other_ui != null and not _ctl_matches(other_ui, want_text, want_tip, want_class).is_empty():
+					msg += "; it is under root '%s' — pass root: \"%s\"" % [other, other]
+					break
+		# Icon-only buttons (the Scene dock's +, Attach Script…) have no
+		# text, so a text match like "+" can never find them: list what's
+		# here by tooltip so the next call can match on that instead.
+		# With no root given, list the main docks, not just the Inspector.
+		if want_text != "":
+			var parts := []
+			for name in ([root_name] if params.has("root") else ["scene_tree", "inspector", "filesystem"]):
+				var tips := _icon_button_tips(_ui_root(name))
+				if not tips.is_empty():
+					parts.append("root '%s': %s" % [name, ", ".join(tips.slice(0, 8).map(func(t): return "'%s'" % t))])
+			if not parts.is_empty():
+				msg += ". Icon-only buttons have no text; match them by tooltip instead — " + "; ".join(parts)
+		return msg
+	if matches.size() > 1 and not params.has("index"):
+		return "%d controls match; pass index (0-%d) or use a path from dump_control_tree" % [matches.size(), matches.size() - 1]
+	if index < 0 or index >= matches.size():
+		return "index %d out of range (%d matches)" % [index, matches.size()]
+	return matches[index]
+
+## First tooltip lines of the visible text-less buttons under ui.
+func _icon_button_tips(ui: Node) -> Array:
+	var tips := []
+	if ui == null:
+		return tips
+	for c in ui.find_children("*", "BaseButton", true, false):
+		var tip := (c as Control).tooltip_text.get_slice("\n", 0).strip_edges()
+		if (c as Control).is_visible_in_tree() and tip != "" and String(c.get("text")) == "" and not tip in tips:
+			tips.append(tip)
+	return tips
+
+func _ctl_matches(ui: Node, want_text: String, want_tip: String, want_class: String) -> Array:
 	var matches := []
 	for c in ui.find_children("*", want_class, true, false):
 		if c is Control and (c as Control).is_visible_in_tree() \
 				and (want_text == "" or ("text" in c and String(c.get("text")) == want_text)) \
 				and (want_tip == "" or (c as Control).tooltip_text.to_lower().contains(want_tip)):
 			matches.append(c)
-	var index := int(params.get("index", 0))
-	if matches.is_empty():
-		return "no visible control matches text='%s' tooltip='%s' class='%s' under '%s'" % [want_text, want_tip, want_class, root_name]
-	if matches.size() > 1 and not params.has("index"):
-		return "%d controls match; pass index (0-%d) or use a path from dump_control_tree" % [matches.size(), matches.size() - 1]
-	if index < 0 or index >= matches.size():
-		return "index %d out of range (%d matches)" % [index, matches.size()]
-	return matches[index]
+	return matches
 
 func _vec2_param(value: Variant, fallback: Vector2) -> Vector2:
 	if value is Array and value.size() == 2:
