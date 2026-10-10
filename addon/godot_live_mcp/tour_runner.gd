@@ -687,6 +687,9 @@ func _check_failure(check: Dictionary, key: String) -> String:
 				_show(got.get("v")), check.op, _show(_bridge._decode_value(str(check.value)))]
 	return "the check didn't pass"
 
+func _is_shader_path(path: String) -> bool:
+	return path.ends_with(".gdshader") or path.ends_with(".gdshaderinc") or path.ends_with(".shader")
+
 func _script_error(check: Dictionary) -> String:
 	var path := _script_path_for(check)
 	if path == "":
@@ -697,7 +700,7 @@ func _script_error(check: Dictionary) -> String:
 	var src := str(got.text)
 	var h := src.hash()
 	if not _script_err_cache.has(h):
-		_script_err_cache[h] = _bridge._script_text_error(src)
+		_script_err_cache[h] = _bridge._shader_text_error(src) if _is_shader_path(path) else _bridge._script_text_error(src)
 	return str(_script_err_cache[h])
 
 ## Output since the step started: the editor's Output panel (which also
@@ -1492,7 +1495,8 @@ func _derive_show_me(check: Dictionary, key := "c") -> Array:
 				if base_class == "" and check.has("node_path"):
 					var target := _node(str(check.node_path))
 					base_class = target.get_class() if target != null else ""
-				var full := code if code.strip_edges().begins_with("extends") else "extends %s\n\n%s\n" % [base_class if base_class != "" else "Node", code]
+				# A GDScript gets "extends <class>"; a shader file must not.
+				var full := code if (_is_shader_path(path) or code.strip_edges().begins_with("extends")) else "extends %s\n\n%s\n" % [base_class if base_class != "" else "Node", code]
 				actions = [{"command": "edit_script_text", "path": path, "text": full, "save": true}]
 			if attach:
 				actions.append({"command": "attach_script", "node_path": check.node_path, "script_path": path})

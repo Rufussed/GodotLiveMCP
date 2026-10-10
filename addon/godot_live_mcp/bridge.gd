@@ -934,6 +934,28 @@ func _run_source(node: Node, source: String) -> Array:
 ## mistake with "code 43", leaving the caller to guess. The message goes to
 ## the Output panel instead, and only for a script that may run in the
 ## editor (@tool), so it's read back from the in-memory log capture.
+## A quick sanity check for shader source (Godot exposes no shader compile
+## errors to scripts): it must start with shader_type, and must not contain
+## GDScript lines. "" if it looks fine, else a plain message with the line.
+func _shader_text_error(source: String) -> String:
+	var lines := source.split("\n")
+	var seen_type := false
+	for i in lines.size():
+		var t := lines[i].strip_edges()
+		if t == "" or t.begins_with("//") or t.begins_with("/*") or t.begins_with("*"):
+			continue
+		if not seen_type:
+			if not t.begins_with("shader_type"):
+				if t.begins_with("extends") or t.begins_with("class_name") or t.begins_with("@tool"):
+					return "line %d: `%s` is GDScript. A shader file must start with `shader_type spatial;` (or canvas_item, particles, sky, fog)" % [i + 1, t.left(40)]
+				return "line %d: a shader file must start with `shader_type …;` (spatial, canvas_item, particles, sky, fog) — it starts with `%s`" % [i + 1, t.left(40)]
+			seen_type = true
+			continue
+		for gd in ["extends ", "class_name ", "func ", "var ", "print("]:
+			if t.begins_with(gd):
+				return "line %d: `%s` is GDScript, not shader code" % [i + 1, t.left(40)]
+	return ""
+
 ## The parse error (with line) for script source text, "" if it parses.
 ## Used by tours' script_ok check, on text that may be unsaved.
 func _script_text_error(source: String) -> String:
@@ -1668,6 +1690,10 @@ func _edit_result(res: Resource, path: String, text: String, code_edit: CodeEdit
 		var parse_error := _script_text_error(final)  # the text that is really there
 		if parse_error != "":
 			out["parse_error"] = parse_error
+	elif res is Shader:
+		var shader_error := _shader_text_error(final)
+		if shader_error != "":
+			out["parse_error"] = shader_error
 	if not saved:
 		out["note"] = _mac_keys("Not saved yet: Ctrl+S, play the scene, or call edit_script_text/save_scripts with save: true.")
 	elif created:
