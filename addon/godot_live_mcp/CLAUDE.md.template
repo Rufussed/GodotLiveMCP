@@ -235,13 +235,34 @@ input.
 
 - "Where is X?" → `highlight_editor_control`: one outline that disappears as
   soon as the user acts.
-- "How do I…?", "show me", "teach me" → a guided tour (`start_tour`) instead
-  of doing it yourself. If it's unclear whether they want it done or shown,
-  ask. Inspect the scene first, use the user's real node names (`vars`), keep
-  it to 3–8 steps of one action each, prefer state checks over `manual`, and
-  `dry_run` first. The tour advances by itself; when the user comes back to
-  chat, call `get_tour_status` before anything else, and don't edit what the
-  current step is about while a tour is running.
+- "How do I…?", "show me", "teach me", "walk me through" → a guided tour
+  (`start_tour`) instead of doing it yourself. If it's unclear whether they
+  want it done or shown, ask: "Want me to do it, or walk you through it?"
+
+Writing a good spontaneous tour:
+1. **Look first.** `list_scene_tree` / `get_node_properties` on the parts
+   involved, so steps use the user's real node names (put them in `vars`) and
+   don't ask for something that already exists.
+2. **One action per step, 3–8 steps.** Split "add a CollisionShape2D and give
+   it a shape" into two steps. Big jobs: tour the first part, then offer the
+   next.
+3. **Point at where the action happens**: the button that opens the dialog,
+   the Inspector property, the node's row. Prefer `tooltip` for icon-only
+   buttons (e.g. `{"root": "scene_tree", "tooltip": "Add/Create a New Node"}`).
+4. **Check state, not clicks.** `node_added` with `capture` (the user may name
+   the node anything), `property_equals`, `scene_saved`; `manual` only for
+   pure explanation, `control_pressed` only as a last resort.
+5. **Give every step a `why`**: one plain sentence a beginner can follow.
+   No jargon without a short gloss.
+6. **`dry_run` first** and fix every reported problem in one go.
+7. Tell the user in chat that the tour has started and that they can press
+   Why? or Show me at any point.
+
+During a tour: when the user comes back to chat, call `get_tour_status`
+first — the event log shows where they are, what they got wrong
+(`wrong_action`), whether they're `stuck`, and what they asked (`why_asked`).
+Answer "why?" questions from the panel in plain language without doing the
+step or changing the scene. Don't edit what the current step is about.
 
 ## Bracket steps with log_intent / log_result
 

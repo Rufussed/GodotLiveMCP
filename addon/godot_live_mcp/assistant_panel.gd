@@ -1941,6 +1941,18 @@ func _on_input_gui_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				_on_send_pressed()
 
+## Sends text as if the user typed it — used by guided tours' "Why?"
+## button. Returns "" on success, else why it couldn't be sent.
+func ask(text: String) -> String:
+	var agent := _active_agent()
+	if not (agent in _CHAT_AGENTS):
+		return "%s has no chat view in the panel" % _cli_name(agent)
+	if agent in _TURN_AGENTS and _session_active:
+		return "%s is still working on the last message" % _cli_name(agent)
+	_input_field.text = text
+	_on_send_pressed()
+	return ""
+
 ## get separate feedback for; acceptable since _start_session already
 ## posts its own "Session started" line to the transcript immediately.
 func _on_send_pressed(_submitted_text: String = "") -> void:
