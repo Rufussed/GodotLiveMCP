@@ -248,6 +248,11 @@ func _enqueue(beat: Dictionary) -> void:
 		_refresh_title()
 
 func _process(delta: float) -> void:
+	var probe_t0 := Time.get_ticks_usec()
+	_process_inner(delta)
+	_bridge._perf_add("watch_process", Time.get_ticks_usec() - probe_t0)
+
+func _process_inner(delta: float) -> void:
 	if not _overlay.is_empty():
 		_overlay.update()
 	_place_panel()

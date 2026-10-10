@@ -703,13 +703,10 @@ func _script_error(check: Dictionary) -> String:
 ## Output since the step started: the editor's Output panel (which also
 ## carries the running game's prints) after the line count at step start.
 func _editor_log_lines() -> PackedStringArray:
-	var logs := EditorInterface.get_base_control().find_children("*", "EditorLog", true, false)
-	if logs.is_empty():
+	var label: RichTextLabel = _bridge._editor_log_label()  # cached: see bridge.gd
+	if label == null:
 		return PackedStringArray()
-	var labels: Array = logs[0].find_children("*", "RichTextLabel", true, false)
-	if labels.is_empty():
-		return PackedStringArray()
-	return (labels[0] as RichTextLabel).get_parsed_text().strip_edges().split("\n")
+	return label.get_parsed_text().strip_edges().split("\n")
 
 func _game_error_rows() -> Array:
 	var got = _bridge._cmd_get_output_log({"lines": 1})
@@ -1588,6 +1585,11 @@ func _queue_check() -> void:
 		_run_check.call_deferred()
 
 func _run_check() -> void:
+	var probe_t0 := Time.get_ticks_usec()
+	await _run_check_inner()
+	_bridge._perf_add("tour_check", Time.get_ticks_usec() - probe_t0)
+
+func _run_check_inner() -> void:
 	_check_queued = false
 	# While Show me is announcing or acting, the card's notes are its own
 	# (a check would overwrite them, or advance mid-action).
@@ -1894,6 +1896,11 @@ func _on_scene_changed(_root: Node) -> void:
 	_queue_check()
 
 func _process(delta: float) -> void:
+	var probe_t0 := Time.get_ticks_usec()
+	_process_inner(delta)
+	_bridge._perf_add("tour_process", Time.get_ticks_usec() - probe_t0)
+
+func _process_inner(delta: float) -> void:
 	if not _overlay.is_empty():
 		_overlay.update()
 	_game_pump()

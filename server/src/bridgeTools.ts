@@ -99,6 +99,7 @@ export const bridgeToolNames = new Set([
   'clear_editor_highlights',
   'start_tour',
   'get_tour_status',
+  'get_perf_stats',
   'revise_tour',
   'stop_tour',
   'save_tour',
@@ -1345,6 +1346,19 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'get_perf_stats',
+    description:
+      'How much time the GodotLiveMCP addon itself spends in its periodic work, in ms: the per-frame bridge polling, running tours ' +
+      '(tour_process per frame, tour_check each ~0.5 s), Watch (watch_process), and record mode (recorder_diff per change), plus the editor\'s ' +
+      'frame rate and node count. Use it to check the addon is not slowing the editor: reset the probes, do the work you want to measure, ' +
+      'then read them. Probes show calls, avg_ms, max_ms and last_ms.',
+    inputSchema: {
+      type: 'object',
+      properties: { reset: { type: 'boolean', description: 'Clear the probes after reading (default false)' } },
+      required: [],
+    },
+  },
+  {
     name: 'get_tour_status',
     description:
       'Where the user is in the guided tour: current step, seconds on it, captured vars (as current node paths), and the ' +
@@ -1907,6 +1921,8 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'revise_tour':
       return textResult(await client.call('revise_tour', { steps: params.steps, from_step: params.from_step ?? 0,
         note: params.note ?? '', dry_run: params.dry_run ?? false }));
+    case 'get_perf_stats':
+      return textResult(await client.call('get_perf_stats', { reset: params.reset ?? false }));
     case 'get_tour_status':
       return textResult(await client.call('get_tour_status', {}));
     case 'stop_tour':

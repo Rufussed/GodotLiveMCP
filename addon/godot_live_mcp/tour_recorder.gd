@@ -192,6 +192,11 @@ func _on_saved(_path: String) -> void:
 func _on_change() -> void:
 	if not _recording:
 		return
+	var probe_t0 := Time.get_ticks_usec()
+	_diff_scene()
+	_bridge._perf_add("recorder_diff", Time.get_ticks_usec() - probe_t0)
+
+func _diff_scene() -> void:
 	if _bridge._get_scene_root() != _root:
 		return  # another scene is open: only the recorded one counts
 	var cur := _snapshot()
