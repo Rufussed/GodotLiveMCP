@@ -7,6 +7,13 @@ const AssistantPanelScript = preload("res://addons/godot_live_mcp/assistant_pane
 var _bridge: Node
 var _assistant_panel: Control
 
+const TOURS_MENU_ITEM := "Guided Tours…"
+
+## Plays saved .tour.json files, no agent needed.
+func _open_tours() -> void:
+	if _bridge:
+		_bridge.open_tour_picker()
+
 func _enter_tree() -> void:
 	_bridge = BridgeScript.new()
 	_bridge.name = "GodotLiveMCPBridge"
@@ -18,6 +25,7 @@ func _enter_tree() -> void:
 	var tab_button := add_control_to_bottom_panel(_assistant_panel, "AI Assistant")
 	_move_tab_first(tab_button)
 	_bridge.activity.connect(_assistant_panel.on_bridge_activity)
+	add_tool_menu_item(TOURS_MENU_ITEM, _open_tours)
 
 ## New bottom panels go last; the chat is the one used most, so make it the
 ## first tab. Newer Godot wraps the panel in a dock inside a TabContainer
@@ -36,6 +44,7 @@ func _move_tab_first(tab_button: Control) -> void:
 		tab_button.get_parent().move_child(tab_button, 0)
 
 func _exit_tree() -> void:
+	remove_tool_menu_item(TOURS_MENU_ITEM)
 	if _bridge:
 		_bridge.stop()
 		_bridge.queue_free()

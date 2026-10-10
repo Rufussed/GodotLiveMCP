@@ -2727,15 +2727,41 @@ func _tours() -> Node:
 ## tour. All problems are reported at once.
 func _cmd_start_tour(params: Dictionary):
 	var tour = params.get("tour", null)
-	if typeof(tour) != TYPE_DICTIONARY:
-		return _fail("tour must be an object")
-	var res: Dictionary = await _tours().start(tour, bool(params.get("dry_run", false)))
+	var path := String(params.get("path", ""))
+	var res: Dictionary
+	if path != "":
+		if bool(params.get("dry_run", false)):
+			var loaded: Dictionary = _tours().load_file(path)
+			if loaded.has("error"):
+				return _fail(loaded.error)
+			res = await _tours().start(loaded.tour, true)
+		else:
+			res = await _tours().play_file(path)
+	elif typeof(tour) == TYPE_DICTIONARY:
+		res = await _tours().start(tour, bool(params.get("dry_run", false)))
+	else:
+		return _fail("pass tour (an object) or path (a .tour.json file)")
 	if not res.ok:
 		var msg := "tour is invalid:\n- " + "\n- ".join(res.errors)
 		if not res.warnings.is_empty():
 			msg += "\nwarnings:\n- " + "\n- ".join(res.warnings)
 		return _fail(msg)
 	return res
+
+## Saves the running or last tour as a .tour.json file (default
+## res://tours/<title>.tour.json) for replay without the agent.
+func _cmd_save_tour(params: Dictionary):
+	var res: Dictionary = _tours().save(String(params.get("path", "")))
+	if res.has("error"):
+		return _fail(res.error)
+	return res
+
+func _cmd_list_tours(_params: Dictionary):
+	return {"tours": _tours().list_files()}
+
+## Project > Tools > Guided Tours… (added by plugin.gd).
+func open_tour_picker() -> void:
+	_tours().open_picker()
 
 func _cmd_get_tour_status(_params: Dictionary):
 	return _tours().status()

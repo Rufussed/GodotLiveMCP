@@ -11,6 +11,8 @@ extends Node
 
 const HighlightOverlay = preload("res://addons/godot_live_mcp/highlight_overlay.gd")
 const FORMAT := "godot-live-tour/1"
+const TOURS_DIR := "res://tours"
+const TOUR_EXT := ".tour.json"
 const POLL_SEC := 0.5
 const ALREADY_DONE_SEC := 1.5
 const STUCK_SEC := 90.0
@@ -50,6 +52,7 @@ const CHECK_FIELDS := {
 var _bridge: Node = null  # bridge.gd: target resolution and node paths
 
 var _tour := {}
+var _source_path := ""    # the file the running tour was loaded from ("" = from the agent)
 var _steps: Array = []
 var _index := -1
 var _vars := {}           # name -> WeakRef(Node); follows renames and moves
@@ -88,6 +91,7 @@ var _card_skip: Button = null
 var _card_next: Button = null
 var _card_show: Button = null
 var _card_why: Button = null
+var _card_save: Button = null
 
 func setup(bridge: Node) -> void:
 	_bridge = bridge
@@ -102,13 +106,14 @@ func is_running() -> bool:
 
 ## Validates the tour; unless dry_run, stops any running tour and starts
 ## this one. Returns {"ok", "errors", "warnings"[, "steps", "title"]}.
-func start(tour: Dictionary, dry_run: bool) -> Dictionary:
+func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	var warnings := []
 	var errors := _validate(tour, warnings)
 	if not errors.is_empty() or dry_run:
 		return {"ok": errors.is_empty(), "errors": errors, "warnings": warnings, "dry_run": dry_run}
 	stop()
 	_tour = tour
+	_source_path = source_path
 	_steps = tour.steps
 	_events = []
 	_done = false
@@ -151,6 +156,7 @@ func status() -> Dictionary:
 		"done": _done,
 		"title": String(_tour.get("title", "")),
 		"steps": _steps.size(),
+		"source": _source_path if _source_path != "" else "agent",
 		"vars": vars,
 		"events": _events,
 	}
@@ -163,6 +169,143 @@ func status() -> Dictionary:
 			if note != "":
 				out["note_" + key] = note
 	return out
+
+# ---- Tour files ------------------------------------------------------------
+#
+# A tour file is the same JSON the agent sends to start_tour. Tours are data:
+# completion checks are declarative, there are no expressions, and Show me
+# only runs the allow-listed undoable editor commands, on the user's click.
+# A tour can't bring code with it: show_me may only attach scripts that
+# already exist in the project.
+
+## {"tour": Dictionary} or {"error": String}.
+func load_file(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {"error": "no such file: %s" % path}
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {"error": "%s is not a JSON object" % path}
+	return {"tour": parsed}
+
+## Writes the running (or last) tour to path, default
+## res://tours/<title>.tour.json. Returns {"path"} or {"error"}.
+func save(path := "") -> Dictionary:
+	if _tour.is_empty():
+		return {"error": "no tour has been started in this editor session"}
+	if path == "":
+		var slug := String(_tour.get("title", "tour")).to_snake_case().validate_filename()
+		path = "%s/%s%s" % [TOURS_DIR, slug if slug != "" else "tour", TOUR_EXT]
+	if not path.begins_with("res://") or not path.ends_with(TOUR_EXT):
+		return {"error": "path must be under res:// and end in %s" % TOUR_EXT}
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return {"error": "can't write %s (%s)" % [path, error_string(FileAccess.get_open_error())]}
+	f.store_string(JSON.stringify(_tour, "\t", false))
+	f.close()
+	EditorInterface.get_resource_filesystem().scan()
+	_log("saved", {"path": path})
+	return {"path": path}
+
+## Every *.tour.json in the project (outside addons/ and .godot/).
+func list_files() -> Array:
+	var out := []
+	_scan_tours("res://", out)
+	return out
+
+func _scan_tours(dir: String, out: Array) -> void:
+	var d := DirAccess.open(dir)
+	if d == null:
+		return
+	for sub in d.get_directories():
+		if sub.begins_with(".") or (dir == "res://" and sub == "addons"):
+			continue
+		_scan_tours(dir.path_join(sub), out)
+	for file in d.get_files():
+		if file.ends_with(TOUR_EXT):
+			var path := dir.path_join(file)
+			var res := load_file(path)
+			var entry := {"path": path}
+			if res.has("error"):
+				entry["error"] = res.error
+			else:
+				entry["title"] = String(res.tour.get("title", file))
+				entry["steps"] = (res.tour.get("steps", []) as Array).size() if typeof(res.tour.get("steps")) == TYPE_ARRAY else 0
+				var req = res.tour.get("requires", {})
+				if typeof(req) == TYPE_DICTIONARY and req.has("scene_open"):
+					entry["scene"] = String(req.scene_open)
+			out.append(entry)
+
+## Plays a tour file. If it requires a scene that isn't the one open, opens
+## that scene first. Returns start()'s result, or {"ok": false, "errors"}.
+func play_file(path: String) -> Dictionary:
+	var res := load_file(path)
+	if res.has("error"):
+		return {"ok": false, "errors": [res.error], "warnings": []}
+	var tour: Dictionary = res.tour
+	var req = tour.get("requires", {})
+	if typeof(req) == TYPE_DICTIONARY and req.has("scene_open"):
+		var want := String(req.scene_open)
+		var root: Node = _bridge._get_scene_root()
+		if (root == null or root.scene_file_path != want) and ResourceLoader.exists(want):
+			EditorInterface.open_scene_from_path(want)
+			await get_tree().process_frame
+			await get_tree().process_frame
+	return await start(tour, false, path)
+
+## Editor menu: Project > Tools > Guided Tours… — pick a tour file and
+## play it, no agent involved.
+func open_picker() -> void:
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Guided Tours"
+	dialog.ok_button_text = "Start tour"
+	var box := VBoxContainer.new()
+	dialog.add_child(box)
+	var tours := list_files()
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(460, 240)
+	for entry in tours:
+		var label := String(entry.get("title", entry.path))
+		if entry.has("error"):
+			label += "  (unreadable)"
+		elif entry.has("steps"):
+			label += "  ·  %d steps" % entry.steps
+		list.add_item(label)
+		list.set_item_tooltip(list.item_count - 1, String(entry.path))
+	box.add_child(list)
+	var hint := Label.new()
+	hint.text = "Tours are *%s files in your project. Ask the agent for a tour and press Save on its last card to add one." % TOUR_EXT if tours.is_empty() \
+		else "Double-click a tour, or select it and press Start tour."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size = Vector2(460, 0)
+	box.add_child(hint)
+	var play := func(i: int) -> void:
+		dialog.hide()
+		var result: Dictionary = await play_file(String(tours[i].path))
+		if not result.get("ok", false):
+			_alert("This tour can't start here:\n\n• " + "\n• ".join(result.get("errors", [])))
+	list.item_activated.connect(play)
+	dialog.confirmed.connect(func() -> void:
+		var sel := list.get_selected_items()
+		if not sel.is_empty():
+			play.call(sel[0]))
+	dialog.visibility_changed.connect(func() -> void:
+		if not dialog.visible:
+			dialog.queue_free.call_deferred())
+	EditorInterface.get_base_control().add_child(dialog)
+	dialog.popup_centered()
+	if not tours.is_empty():
+		list.select(0)
+
+func _alert(text: String) -> void:
+	var d := AcceptDialog.new()
+	d.title = "Guided Tours"
+	d.dialog_text = text
+	d.visibility_changed.connect(func() -> void:
+		if not d.visible:
+			d.queue_free.call_deferred())
+	EditorInterface.get_base_control().add_child(d)
+	d.popup_centered()
 
 # ---- Validation ------------------------------------------------------------
 
@@ -234,6 +377,8 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 					if typeof(action) != TYPE_DICTIONARY or not String(action.get("command", "")) in SHOW_ME_COMMANDS:
 						errors.append("%s: show_me commands must be one of %s" % [where, ", ".join(SHOW_ME_COMMANDS)])
 						break
+					if String(action.command) == "attach_script" and not ResourceLoader.exists(String(action.get("script_path", ""))):
+						errors.append("%s: show_me can only attach a script that already exists in the project (%s)" % [where, action.get("script_path", "")])
 	return errors
 
 func _validate_check(check: Dictionary, step: Dictionary, where: String, var_class: Dictionary, errors: Array) -> void:
@@ -496,6 +641,7 @@ func _finish() -> void:
 	_card_next.visible = false
 	_card_show.visible = false
 	_card_why.visible = false
+	_card_save.visible = _source_path == ""
 
 func _on_back_pressed() -> void:
 	if is_running() and not _done and _index > 0:
@@ -528,7 +674,7 @@ func _on_why_pressed() -> void:
 	if panel == null:
 		return
 	var question := "[Guided tour \"%s\", step %d/%d: %s] Why do I do this step? Explain briefly in plain language — don't do it for me, and don't change the scene." % [
-		String(_tour.get("title", "")), _index + 1, _steps.size(), String(step.text)]
+		String(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(String(step.text))]
 	var err: String = panel.ask(question)
 	_log("why_asked", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
 	if err == "":
@@ -645,6 +791,14 @@ func _derive_show_me(check: Dictionary) -> Array:
 				out.append_array(part)
 			return out
 	return []
+
+func _on_save_pressed() -> void:
+	var res := save()
+	if res.has("error"):
+		_card_text.text += "\n[color=#e0b050]Couldn't save: %s[/color]" % _escape(String(res.error))
+	else:
+		_card_save.visible = false
+		_card_text.text += "\n[color=#60e080]Saved to %s — replay it from Project ▸ Tools ▸ Guided Tours…[/color]" % _escape(String(res.path))
 
 func _unlisten_press() -> void:
 	if _pressed_conn.is_empty():
@@ -986,6 +1140,9 @@ func _build_card() -> void:
 	buttons.add_child(_card_show)
 	_card_next = _card_button("Next ▸", "Next step", _on_next_pressed)
 	buttons.add_child(_card_next)
+	_card_save = _card_button("Save tour", "Save this tour to res://tours/ so it can be replayed without the agent", _on_save_pressed)
+	_card_save.visible = false
+	buttons.add_child(_card_save)
 	EditorInterface.get_base_control().add_child(_card)
 
 func _card_button(text: String, tip: String, action: Callable, flat := false) -> Button:
@@ -1002,7 +1159,7 @@ func _refresh_card() -> void:
 		return
 	var step: Dictionary = _steps[_index]
 	_card_title.text = "%s  ·  Step %d/%d" % [String(_tour.get("title", "Tour")), _index + 1, _steps.size()]
-	var text := _markdown(String(step.text))
+	var text := _markdown(_name_vars(String(step.text)))
 	if _note_why != "":
 		text += "\n[color=#8cc4ff]%s[/color]" % _markdown(_note_why)
 	for note in [_note_target, _note_hint, _note_stuck]:
@@ -1061,6 +1218,17 @@ func _dock_rect(c: Control, screen: Rect2) -> Rect2:
 			best = r
 		n = n.get_parent()
 	return best
+
+## "$name" in step text -> the node's current name, so text can name the
+## user's own nodes (longest var names first, so $label2 beats $label).
+func _name_vars(text: String) -> String:
+	var names := _vars.keys()
+	names.sort_custom(func(a, b): return String(a).length() > String(b).length())
+	for name in names:
+		var n = _vars[name].get_ref()
+		if n is Node:
+			text = text.replace("$" + String(name), String(n.name))
+	return text
 
 ## **bold** and `code` only; everything else is literal text.
 func _markdown(src: String) -> String:
