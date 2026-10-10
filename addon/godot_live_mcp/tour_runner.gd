@@ -22,8 +22,9 @@ const RESOLVE_RETRY_SEC := 0.35
 
 ## Bridge commands a step's show_me may run (all undoable). Params use the
 ## bridge's own names; "$var" works in any string value or node_paths entry.
-const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "rename_node",
-	"reparent_node", "remove_node", "connect_signal", "set_node_groups", "attach_script", "save_scene_live"]
+const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set_nested_property",
+	"set_resource_property", "rename_node", "reparent_node", "remove_node", "connect_signal",
+	"set_node_groups", "attach_script", "save_scene_live", "open_scene", "play_scene"]
 
 ## Required fields per done_when type ("@target" = the step itself must have
 ## a target, the control to watch).
@@ -818,8 +819,19 @@ func _derive_show_me(check: Dictionary) -> Array:
 		"node_reparented":
 			return [{"command": "reparent_node", "node_path": check.node_path, "new_parent_path": check.parent}]
 		"property_equals":
-			if not String(check.property).contains(":"):
-				return [{"command": "set_property", "node_path": check.node_path, "property_name": check.property, "value": check.value}]
+			if String(check.property).contains(":"):
+				return [{"command": "set_nested_property", "node_path": check.node_path, "property_path": check.property, "value": check.value}]
+			return [{"command": "set_property", "node_path": check.node_path, "property_name": check.property, "value": check.value}]
+		"property_class":
+			# A new resource of that class (mesh, shape, material…), undoably.
+			var cls := String(check["class"])
+			if not String(check.property).contains(":") and ClassDB.can_instantiate(cls):
+				return [{"command": "set_resource_property", "node_path": check.node_path, "property_name": check.property,
+					"resource_type": cls, "reuse_existing": false}]
+		"scene_open":
+			return [{"command": "open_scene", "path": check.path}]
+		"game_running":
+			return [{"command": "play_scene"}]
 		"script_attached":
 			if check.has("script"):
 				return [{"command": "attach_script", "node_path": check.node_path, "script_path": check.script}]

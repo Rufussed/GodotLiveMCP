@@ -263,10 +263,12 @@ Writing a good spontaneous tour:
 5. **Check state, not clicks.** `node_added` with `capture` (the user may name
    the node anything), `property_equals`, `scene_saved`; `manual` only for
    pure explanation, `control_pressed` only as a last resort.
-6. **Give every step a `why`**: one plain sentence a beginner can follow.
+6. **Make Show me work everywhere.** It's derived for most checks; a
+   `property_changed` step needs an explicit `show_me` with a sensible value.
+7. **Give every step a `why`**: one plain sentence a beginner can follow.
    No jargon without a short gloss.
-7. **`dry_run` first** and fix every reported problem in one go.
-8. Tell the user in chat that the tour has started and that they can press
+8. **`dry_run` first** and fix every reported problem in one go.
+9. Tell the user in chat that the tour has started and that they can press
    Why? or Show me at any point.
 
 During a tour: when the user comes back to chat, call `get_tour_status`
