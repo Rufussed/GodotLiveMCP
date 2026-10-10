@@ -11,9 +11,36 @@ extends Node
 
 const HighlightOverlay = preload("res://addons/godot_live_mcp/highlight_overlay.gd")
 const FORMAT := "godot-live-tour/1"
-const CHECK_TYPES := ["manual", "node_selected", "node_exists", "node_added", "property_equals", "scene_saved"]
 const POLL_SEC := 0.5
 const ALREADY_DONE_SEC := 1.5
+const STUCK_SEC := 90.0
+const RESOLVE_TRIES := 3
+const RESOLVE_RETRY_SEC := 0.35
+
+## Required fields per done_when type ("@target" = the step itself must have
+## a target, the control to watch).
+const CHECK_FIELDS := {
+	"manual": [],
+	"node_selected": ["node_path"],
+	"node_exists": ["node_path"],
+	"node_added": ["parent"],
+	"node_removed": ["node_path"],
+	"node_renamed": ["node_path", "name"],
+	"node_reparented": ["node_path", "parent"],
+	"property_equals": ["node_path", "property", "value"],
+	"property_changed": ["node_path", "property"],
+	"property_class": ["node_path", "property", "class"],
+	"script_attached": ["node_path"],
+	"signal_connected": ["source", "signal", "target"],
+	"in_group": ["node_path", "group"],
+	"scene_open": ["path"],
+	"scene_saved": [],
+	"file_exists": ["path"],
+	"control_pressed": ["@target"],
+	"game_running": [],
+	"all": ["checks"],
+	"any": ["checks"],
+}
 
 var _bridge: Node = null  # bridge.gd: target resolution and node paths
 
@@ -24,18 +51,32 @@ var _vars := {}           # name -> WeakRef(Node); follows renames and moves
 var _events: Array = []
 var _start_msec := 0
 var _step_start_msec := 0
-var _baseline := {}       # per-step snapshot for change-based checks
+var _baseline := {}       # per-step snapshots for change-based checks, by check key
 var _saved_during_step := false
+var _pressed_during_step := false
+var _pressed_conn := []   # [BaseButton (WeakRef), Callable] while a step listens for a press
 var _done := false
+var _revisit := false     # entered with Back: no auto-advance, Next continues
 var _check_queued := false
 var _holding := false     # showing an already-done step; checks wait
+var _resolving := false
 var _poll := 0.0
+var _lost_poll := 0.0
 var _gen := 0             # bumped on every step change; stale awaits bail out
+
+# Card notes, shown in this order under the step text.
+var _note_target := ""    # can't point / select the node again
+var _note_hint := ""      # wrong-turn hint
+var _note_stuck := ""
+var _hints_logged := {}
+var _stuck_logged := false
 
 var _overlay := HighlightOverlay.new()
 var _card: PanelContainer = null
 var _card_title: Label = null
 var _card_text: RichTextLabel = null
+var _card_back: Button = null
+var _card_skip: Button = null
 var _card_next: Button = null
 
 func setup(bridge: Node) -> void:
@@ -50,11 +91,12 @@ func is_running() -> bool:
 # ---- Public API (called by bridge.gd's _cmd_* wrappers) --------------------
 
 ## Validates the tour; unless dry_run, stops any running tour and starts
-## this one. Returns {"ok", "errors"[, "steps"]}.
+## this one. Returns {"ok", "errors", "warnings"[, "steps", "title"]}.
 func start(tour: Dictionary, dry_run: bool) -> Dictionary:
-	var errors := _validate(tour)
+	var warnings := []
+	var errors := _validate(tour, warnings)
 	if not errors.is_empty() or dry_run:
-		return {"ok": errors.is_empty(), "errors": errors, "dry_run": dry_run}
+		return {"ok": errors.is_empty(), "errors": errors, "warnings": warnings, "dry_run": dry_run}
 	stop()
 	_tour = tour
 	_steps = tour.steps
@@ -71,7 +113,7 @@ func start(tour: Dictionary, dry_run: bool) -> Dictionary:
 	# Not awaited: the reply shouldn't wait on target reveal or an
 	# already-done pause.
 	_enter_step(0)
-	return {"ok": true, "errors": [], "steps": _steps.size(), "title": String(tour.get("title", ""))}
+	return {"ok": true, "errors": [], "warnings": warnings, "steps": _steps.size(), "title": String(tour.get("title", ""))}
 
 func stop() -> void:
 	if _index >= 0 and not _done:
@@ -79,7 +121,9 @@ func stop() -> void:
 	_gen += 1
 	_index = -1
 	_holding = false
+	_resolving = false
 	_overlay.clear()
+	_unlisten_press()
 	if _card != null and is_instance_valid(_card):
 		_card.queue_free()
 	_card = null
@@ -103,11 +147,15 @@ func status() -> Dictionary:
 		out["step"] = _index + 1
 		out["step_id"] = String(_steps[_index].get("id", ""))
 		out["step_elapsed_sec"] = (Time.get_ticks_msec() - _step_start_msec) / 1000.0
+		for key in ["target", "hint", "stuck"]:
+			var note: String = {"target": _note_target, "hint": _note_hint, "stuck": _note_stuck}[key]
+			if note != "":
+				out["note_" + key] = note
 	return out
 
 # ---- Validation ------------------------------------------------------------
 
-func _validate(tour: Dictionary) -> Array:
+func _validate(tour: Dictionary, warnings: Array) -> Array:
 	var errors := []
 	if String(tour.get("format", "")) != FORMAT:
 		errors.append("format must be \"%s\"" % FORMAT)
@@ -115,18 +163,29 @@ func _validate(tour: Dictionary) -> Array:
 	if typeof(steps) != TYPE_ARRAY or (steps as Array).is_empty():
 		errors.append("steps must be a non-empty array")
 		return errors
-	if _bridge._get_scene_root() == null:
+	var root: Node = _bridge._get_scene_root()
+	if root == null:
 		errors.append("no scene is open in the editor")
 		return errors
-	var defined := {}
+	var req = tour.get("requires", {})
+	if typeof(req) == TYPE_DICTIONARY:
+		if req.has("scene_open") and root.scene_file_path != String(req.scene_open):
+			errors.append("requires.scene_open: %s is not the scene open in the editor (%s)" % [req.scene_open, root.scene_file_path])
+		for p in req.get("node_exists", []):
+			if _bridge._resolve_node(String(p)) == null:
+				errors.append("requires.node_exists: node not found: %s" % p)
+	# var name -> class name (initial vars: the node's class; captures: the
+	# node_added class, or "" when any class is accepted)
+	var var_class := {}
 	var initial = tour.get("vars", {})
 	if typeof(initial) != TYPE_DICTIONARY:
 		errors.append("vars must be an object of name -> node path")
 	else:
 		for name in initial:
-			if _bridge._resolve_node(String(initial[name])) == null:
+			var n: Node = _bridge._resolve_node(String(initial[name]))
+			if n == null:
 				errors.append("vars.%s: node not found: %s" % [name, initial[name]])
-			defined[String(name)] = true
+			var_class[String(name)] = n.get_class() if n != null else ""
 	for i in (steps as Array).size():
 		var step = steps[i]
 		var where := "step %d" % (i + 1)
@@ -137,32 +196,92 @@ func _validate(tour: Dictionary) -> Array:
 			where += " (%s)" % step.id
 		if String(step.get("text", "")) == "":
 			errors.append("%s: text is required" % where)
-		for err in _vars_used(step.get("target", {}), defined):
-			errors.append("%s: target uses %s before it is defined" % [where, err])
+		var target = step.get("target", {})
+		if typeof(target) == TYPE_DICTIONARY and not (target as Dictionary).is_empty():
+			for v in _vars_used(target, var_class):
+				errors.append("%s: target uses %s before it is defined" % [where, v])
+			if target.has("property") and target.has("node_path"):
+				_check_property(String(target.node_path), String(target.property), var_class, where + ": target", errors)
+			elif not target.has("node_path") and not target.has("property"):
+				# An editor control: may legitimately appear later (a dialog),
+				# so only a warning when it can't be found right now.
+				var found = _bridge._ctl_find(target, "path", "text", "class")
+				if found is String:
+					warnings.append("%s: target not found right now (%s); fine if it only appears later" % [where, found])
 		var check = step.get("done_when", null)
 		if typeof(check) != TYPE_DICTIONARY:
 			errors.append("%s: done_when is required" % where)
 			continue
-		for err in _vars_used(check, defined):
-			errors.append("%s: done_when uses %s before it is defined" % [where, err])
-		var type := String(check.get("type", ""))
-		if not type in CHECK_TYPES:
-			errors.append("%s: unknown done_when type '%s' (expected one of %s)" % [where, type, ", ".join(CHECK_TYPES)])
-			continue
-		var need: Array = {
-			"node_selected": ["node_path"], "node_exists": ["node_path"],
-			"node_added": ["parent"], "property_equals": ["node_path", "property", "value"],
-		}.get(type, [])
-		for key in need:
-			if not check.has(key):
-				errors.append("%s: done_when type '%s' needs '%s'" % [where, type, key])
-		if type == "node_added" and check.has("class") and not ClassDB.class_exists(String(check["class"])):
-			errors.append("%s: unknown class '%s'" % [where, check["class"]])
-		if check.has("capture"):
-			if type != "node_added":
-				errors.append("%s: capture only works with node_added" % where)
-			defined[String(check.capture)] = true
+		_validate_check(check, step, where + ": done_when", var_class, errors)
 	return errors
+
+func _validate_check(check: Dictionary, step: Dictionary, where: String, var_class: Dictionary, errors: Array) -> void:
+	var type := String(check.get("type", ""))
+	if not CHECK_FIELDS.has(type):
+		errors.append("%s: unknown type '%s' (expected one of %s)" % [where, type, ", ".join(CHECK_FIELDS.keys())])
+		return
+	for v in _vars_used(check, var_class):
+		errors.append("%s uses %s before it is defined" % [where, v])
+	for field in CHECK_FIELDS[type]:
+		if field == "@target":
+			if typeof(step.get("target", null)) != TYPE_DICTIONARY:
+				errors.append("%s: type '%s' needs the step to have a target (the control to press)" % [where, type])
+		elif not check.has(field):
+			errors.append("%s: type '%s' needs '%s'" % [where, type, field])
+	if check.has("class") and type in ["node_added", "property_class"] and not ClassDB.class_exists(String(check["class"])):
+		errors.append("%s: unknown class '%s'" % [where, check["class"]])
+	if type in ["property_equals", "property_changed", "property_class"] and check.has("node_path") and check.has("property"):
+		_check_property(String(check.node_path), String(check.property), var_class, where, errors)
+	if type == "signal_connected" and check.has("source") and check.has("signal"):
+		var cls := _class_of(String(check.source), var_class)
+		if cls != "" and not ClassDB.class_has_signal(cls, String(check.signal)):
+			var n: Node = _bridge._resolve_node(String(check.source)) if not String(check.source).begins_with("$") else null
+			if n == null or not n.has_signal(String(check.signal)):
+				errors.append("%s: %s has no signal '%s'" % [where, cls, check.signal])
+	if type in ["all", "any"]:
+		var subs = check.get("checks", [])
+		if typeof(subs) != TYPE_ARRAY or (subs as Array).is_empty():
+			errors.append("%s: '%s' needs a non-empty checks array" % [where, type])
+		else:
+			for j in (subs as Array).size():
+				if typeof(subs[j]) != TYPE_DICTIONARY:
+					errors.append("%s.checks[%d]: must be an object" % [where, j])
+				else:
+					_validate_check(subs[j], step, "%s.checks[%d]" % [where, j], var_class, errors)
+	if check.has("capture"):
+		if type != "node_added":
+			errors.append("%s: capture only works with node_added" % where)
+		else:
+			var_class[String(check.capture)] = String(check.get("class", ""))
+
+## The class a node path will have: the node's own class for an existing
+## node or initial var, the node_added class for a capture, "" if unknown.
+func _class_of(path: String, var_class: Dictionary) -> String:
+	if path.begins_with("$"):
+		var name := path.substr(1).get_slice("/", 0)
+		if path.contains("/"):
+			return ""
+		return String(var_class.get(name, ""))
+	var n: Node = _bridge._resolve_node(path)
+	return n.get_class() if n != null else ""
+
+func _check_property(path: String, prop: String, var_class: Dictionary, where: String, errors: Array) -> void:
+	var base := prop.get_slice(":", 0)
+	if not path.begins_with("$"):
+		var n: Node = _bridge._resolve_node(path)
+		if n != null:
+			for p in n.get_property_list():
+				if p.name == base:
+					return
+			errors.append("%s: %s has no property '%s'" % [where, n.get_class(), base])
+		return
+	var cls := _class_of(path, var_class)
+	if cls == "" or not ClassDB.class_exists(cls):
+		return
+	for p in ClassDB.class_get_property_list(cls):
+		if p.name == base:
+			return
+	errors.append("%s: %s has no property '%s'" % [where, cls, base])
 
 ## Names of $vars referenced in d's string values that aren't defined yet.
 func _vars_used(d, defined: Dictionary) -> Array:
@@ -170,7 +289,7 @@ func _vars_used(d, defined: Dictionary) -> Array:
 	if typeof(d) != TYPE_DICTIONARY:
 		return missing
 	for key in d:
-		if key == "capture":
+		if key == "capture" or key == "checks":
 			continue
 		var v = d[key]
 		if typeof(v) == TYPE_STRING and String(v).begins_with("$"):
@@ -193,7 +312,8 @@ func _sub(path: String) -> String:
 	return _bridge._rel_path(n) + rest
 
 func _node(path: String) -> Node:
-	return _bridge._resolve_node(_sub(path))
+	var p := _sub(path)
+	return null if p.begins_with("<missing") else _bridge._resolve_node(p)
 
 func _sub_all(d: Dictionary) -> Dictionary:
 	var out := {}
@@ -201,56 +321,126 @@ func _sub_all(d: Dictionary) -> Dictionary:
 		out[key] = _sub(String(d[key])) if typeof(d[key]) == TYPE_STRING else d[key]
 	return out
 
+## True if the step refers to a var that a skipped step should have set.
+func _needs_missing_var(step: Dictionary) -> bool:
+	for d in [step.get("target", {}), step.done_when]:
+		if typeof(d) == TYPE_DICTIONARY:
+			for key in d:
+				if typeof(d[key]) == TYPE_STRING and _sub(String(d[key])).begins_with("<missing"):
+					return true
+	return false
+
 # ---- Steps -----------------------------------------------------------------
 
-func _enter_step(i: int) -> void:
+func _enter_step(i: int, revisit := false) -> void:
 	_gen += 1
 	var gen := _gen
 	_index = i
+	_revisit = revisit
 	_step_start_msec = Time.get_ticks_msec()
 	_saved_during_step = false
+	_pressed_during_step = false
+	_note_target = ""
+	_note_hint = ""
+	_note_stuck = ""
+	_hints_logged = {}
+	_stuck_logged = false
 	_overlay.clear()
+	_unlisten_press()
 	var step: Dictionary = _steps[i]
-	var check: Dictionary = step.done_when
 	_baseline = {}
-	if String(check.type) == "node_added":
-		var parent := _node(String(check.parent))
-		var ids := {}
-		if parent != null:
-			for c in parent.get_children():
-				ids[c.get_instance_id()] = true
-		_baseline["children"] = ids
-	_log("step_started")
-	_show_card(step, "")
-	var target = step.get("target", null)
-	if typeof(target) == TYPE_DICTIONARY and not (target as Dictionary).is_empty():
-		var t := _sub_all(target)
-		var res: Dictionary = await _bridge._hl_resolve_target(t, false)
-		if gen != _gen:
-			return
-		if res.has("error"):
-			_log("target_missing", {"error": res.error})
-			_show_card(step, "I can't point at this one — " + String(res.error))
-		elif res.has("tree"):
-			_overlay.add_tree_item(res.tree, res.item_path, String(target.get("label", "")))
-		else:
-			_overlay.add_control(res.control, String(target.get("label", "")))
+	_snapshot(step.done_when, "c")
+	_log("back_to_step" if revisit else "step_started")
+	if _needs_missing_var(step):
+		_note_target = "This step depends on an earlier one that was skipped — go Back, or Skip this one too."
+	_refresh_card()
+	await _point(gen)
+	if gen != _gen:
+		return
+	if revisit:
+		if _passes(step.done_when, "c"):
+			_note_hint = "✓ Already done — press Next to continue."
+			_refresh_card()
+		return
 	# Already true before the user did anything (e.g. the node was selected
 	# anyway): still show the step for a moment so it isn't skipped unseen.
-	if String(check.type) != "manual" and _check_passes(check):
+	if String(step.done_when.type) != "manual" and _passes(step.done_when, "c"):
 		_log("already_done")
-		_show_card(step, "✓ Already done — moving on…")
+		_note_hint = "✓ Already done — moving on…"
+		_refresh_card()
 		_holding = true
 		await get_tree().create_timer(ALREADY_DONE_SEC).timeout
 		_holding = false
 		if gen != _gen:
 			return
-		await _advance()
+		await _advance("step_done")
 		return
 	_queue_check()
 
-func _advance() -> void:
-	_log("step_done")
+## Outlines the current step's target, retrying briefly while the editor
+## settles. If it still can't be found, the step runs without an outline
+## and says so on the card — a broken pointer never blocks the tour.
+func _point(gen: int) -> void:
+	var step: Dictionary = _steps[_index]
+	var target = step.get("target", null)
+	if typeof(target) != TYPE_DICTIONARY or (target as Dictionary).is_empty() or _needs_missing_var(step):
+		return
+	_resolving = true
+	var t := _sub_all(target)
+	var res := {}
+	for attempt in RESOLVE_TRIES:
+		res = await _bridge._hl_resolve_target(t, false)
+		if gen != _gen:
+			return
+		if not res.has("error"):
+			break
+		await get_tree().create_timer(RESOLVE_RETRY_SEC).timeout
+		if gen != _gen:
+			return
+	_resolving = false
+	_overlay.clear()
+	if res.has("error"):
+		if _note_target == "":
+			_log("target_missing", {"error": res.error})
+		_note_target = "I can't point at this one (%s)." % res.error
+	else:
+		_note_target = ""
+		var label := String(target.get("label", ""))
+		if res.has("tree"):
+			_overlay.add_tree_item(res.tree, res.item_path, label)
+		else:
+			_overlay.add_control(res.control, label)
+			if res.control is BaseButton:
+				_unlisten_press()
+				var cb := _on_target_pressed.bind(gen)
+				(res.control as BaseButton).pressed.connect(cb)
+				_pressed_conn = [weakref(res.control), cb]
+	_refresh_card()
+
+## The outlined control was freed (e.g. the Inspector switched node): point
+## again. A property row is only re-found once the Inspector shows that
+## node again — re-opening it ourselves would yank the user's view away.
+func _repoint_if_lost() -> void:
+	if _resolving or _holding or _done or not is_running():
+		return
+	var step: Dictionary = _steps[_index]
+	var target = step.get("target", null)
+	if typeof(target) != TYPE_DICTIONARY or (target as Dictionary).is_empty() or _needs_missing_var(step):
+		return
+	if _overlay.first_target() != null:
+		return
+	if target.has("property") and target.has("node_path"):
+		var n := _node(String(target.node_path))
+		if n != null and EditorInterface.get_inspector().get_edited_object() != n:
+			var note := "Select **%s** again to see this setting." % n.name
+			if _note_target != note:
+				_note_target = note
+				_refresh_card()
+			return
+	await _point(_gen)
+
+func _advance(event: String) -> void:
+	_log(event)
 	if _index + 1 >= _steps.size():
 		_finish()
 	else:
@@ -263,7 +453,36 @@ func _finish() -> void:
 	_log("tour_done")
 	_card_title.text = "Done!"
 	_card_text.text = "You finished [b]%s[/b]." % _escape(String(_tour.get("title", "the tour")))
+	_card_back.visible = false
+	_card_skip.visible = false
 	_card_next.visible = false
+
+func _on_back_pressed() -> void:
+	if is_running() and not _done and _index > 0:
+		_holding = false
+		await _enter_step(_index - 1, true)
+
+func _on_skip_pressed() -> void:
+	if is_running() and not _done:
+		_holding = false
+		await _advance("skipped")
+
+func _on_next_pressed() -> void:
+	if is_running() and not _done and (_revisit or String(_steps[_index].done_when.type) == "manual"):
+		await _advance("step_done")
+
+func _unlisten_press() -> void:
+	if _pressed_conn.is_empty():
+		return
+	var b = _pressed_conn[0].get_ref()
+	if b is BaseButton and (b as BaseButton).pressed.is_connected(_pressed_conn[1]):
+		(b as BaseButton).pressed.disconnect(_pressed_conn[1])
+	_pressed_conn = []
+
+func _on_target_pressed(gen: int) -> void:
+	if gen == _gen:
+		_pressed_during_step = true
+		_queue_check()
 
 # ---- Completion checks -----------------------------------------------------
 
@@ -274,13 +493,58 @@ func _queue_check() -> void:
 
 func _run_check() -> void:
 	_check_queued = false
-	if not is_running() or _done:
+	if not is_running() or _done or _holding:
 		return
 	var check: Dictionary = _steps[_index].done_when
-	if _check_passes(check):
-		await _advance()
+	if _passes(check, "c"):
+		if _revisit:
+			if _note_hint != "✓ Already done — press Next to continue.":
+				_note_hint = "✓ Already done — press Next to continue."
+				_refresh_card()
+			return
+		await _advance("step_done")
+		return
+	var hint := _hint(check, "c")
+	if hint != _note_hint:
+		_note_hint = hint
+		if hint != "" and not _hints_logged.has(hint):
+			_hints_logged[hint] = true
+			_log("wrong_action", {"hint": hint})
+		_refresh_card()
+	var stuck_after := float(_tour.get("stuck_after_sec", STUCK_SEC))
+	if not _stuck_logged and stuck_after > 0 and (Time.get_ticks_msec() - _step_start_msec) / 1000.0 >= stuck_after:
+		_stuck_logged = true
+		_log("stuck")
+		_note_stuck = "Stuck? You can **Skip** this step, or ask the agent for help."
+		_refresh_card()
 
-func _check_passes(check: Dictionary) -> bool:
+## Records what a change-based check compares against, at step start.
+## Keys follow the check's position ("c", "c.0", "c.1"…) so all/any work.
+func _snapshot(check: Dictionary, key: String) -> void:
+	match String(check.type):
+		"node_added":
+			var ids := {}
+			var parent := _node(String(check.parent))
+			if parent != null:
+				for c in parent.get_children():
+					ids[c.get_instance_id()] = true
+			_baseline[key] = ids
+			_baseline[key + ":all"] = _all_node_ids()
+		"node_removed", "node_renamed", "node_reparented":
+			var n := _node(String(check.node_path))
+			_baseline[key] = weakref(n) if n != null else null
+			if n != null:
+				_baseline[key + ":name"] = String(n.name)
+		"property_equals", "property_changed":
+			var n := _node(String(check.node_path))
+			if n != null:
+				_baseline[key] = n.get_indexed(NodePath(String(check.property)))
+				_baseline[key + ":node"] = weakref(n)
+		"all", "any":
+			for j in (check.checks as Array).size():
+				_snapshot(check.checks[j], "%s.%d" % [key, j])
+
+func _passes(check: Dictionary, key: String) -> bool:
 	match String(check.type):
 		"manual":
 			return false  # the card's Next button advances
@@ -293,7 +557,7 @@ func _check_passes(check: Dictionary) -> bool:
 			var parent := _node(String(check.parent))
 			if parent == null:
 				return false
-			var known: Dictionary = _baseline.get("children", {})
+			var known: Dictionary = _baseline.get(key, {})
 			for c in parent.get_children():
 				if known.has(c.get_instance_id()):
 					continue
@@ -303,6 +567,19 @@ func _check_passes(check: Dictionary) -> bool:
 					_vars[String(check.capture)] = weakref(c)
 				return true
 			return false
+		"node_removed":
+			var ref = _baseline.get(key, null)
+			if ref == null:
+				return _node(String(check.node_path)) == null
+			var n = ref.get_ref()
+			return not (n is Node) or not (n as Node).is_inside_tree()
+		"node_renamed":
+			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
+			return n is Node and String(n.name) == String(check.name)
+		"node_reparented":
+			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
+			var parent := _node(String(check.parent))
+			return n is Node and parent != null and (n as Node).get_parent() == parent
 		"property_equals":
 			var n := _node(String(check.node_path))
 			if n == null:
@@ -310,9 +587,118 @@ func _check_passes(check: Dictionary) -> bool:
 			var actual = n.get_indexed(NodePath(String(check.property)))
 			var expected = _bridge._decode_value(String(check.value))
 			return _matches(actual, expected, float(check.get("tolerance", 0.0001)))
+		"property_changed":
+			var n := _node(String(check.node_path))
+			if n == null or not _baseline.has(key):
+				return false
+			var actual = n.get_indexed(NodePath(String(check.property)))
+			return not _matches(actual, _baseline[key], float(check.get("tolerance", 0.0001)))
+		"property_class":
+			var n := _node(String(check.node_path))
+			if n == null:
+				return false
+			var v = n.get_indexed(NodePath(String(check.property)))
+			return v is Object and (v as Object).is_class(String(check["class"]))
+		"script_attached":
+			var n := _node(String(check.node_path))
+			if n == null or n.get_script() == null:
+				return false
+			return not check.has("script") or (n.get_script() as Script).resource_path == String(check.script)
+		"signal_connected":
+			var src := _node(String(check.source))
+			var dst := _node(String(check.target))
+			if src == null or dst == null or not src.has_signal(String(check.signal)):
+				return false
+			for conn in src.get_signal_connection_list(String(check.signal)):
+				var callable: Callable = conn.callable
+				if callable.get_object() == dst and (not check.has("method") or String(callable.get_method()) == String(check.method)):
+					return true
+			return false
+		"in_group":
+			var n := _node(String(check.node_path))
+			return n != null and n.is_in_group(String(check.group))
+		"scene_open":
+			var root: Node = _bridge._get_scene_root()
+			return root != null and root.scene_file_path == String(check.path)
 		"scene_saved":
 			return _saved_during_step
+		"file_exists":
+			var p := String(check.path)
+			return FileAccess.file_exists(p) or DirAccess.dir_exists_absolute(p)
+		"control_pressed":
+			return _pressed_during_step
+		"game_running":
+			return EditorInterface.is_playing_scene()
+		"all":
+			for j in (check.checks as Array).size():
+				if not _passes(check.checks[j], "%s.%d" % [key, j]):
+					return false
+			return true
+		"any":
+			for j in (check.checks as Array).size():
+				if _passes(check.checks[j], "%s.%d" % [key, j]):
+					return true
+			return false
 	return false
+
+## A gentle note when the user changed the right kind of thing in the wrong
+## way; "" when there's nothing specific to say.
+func _hint(check: Dictionary, key: String) -> String:
+	match String(check.type):
+		"node_added":
+			var parent := _node(String(check.parent))
+			if parent == null:
+				return ""
+			var want := String(check.get("class", ""))
+			var known: Dictionary = _baseline.get(key, {})
+			for c in parent.get_children():
+				if not known.has(c.get_instance_id()) and want != "" and not c.is_class(want):
+					return "That added a **%s**; this step wants a **%s**. Undo it with Ctrl+Z." % [c.get_class(), want]
+			if want != "":
+				var all_known: Dictionary = _baseline.get(key + ":all", {})
+				for n in _all_nodes():
+					if not all_known.has(n.get_instance_id()) and n.is_class(want) and n.get_parent() != parent:
+						return "That **%s** went under **%s**; it needs to be a child of **%s**. Drag it onto %s in the Scene dock." % [want, n.get_parent().name, parent.name, parent.name]
+		"node_selected":
+			var n := _node(String(check.node_path))
+			var sel := EditorInterface.get_selection().get_selected_nodes()
+			if n != null and not sel.is_empty() and not n in sel:
+				return "You selected **%s**; this step wants **%s**." % [sel[0].name, n.name]
+		"node_renamed":
+			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
+			if n is Node and String(n.name) != String(_baseline.get(key + ":name", "")) and String(n.name) != String(check.name):
+				return "It's called **%s** now; this step wants **%s**." % [n.name, check.name]
+		"property_equals":
+			var n := _node(String(check.node_path))
+			if n == null or not _baseline.has(key):
+				return ""
+			var actual = n.get_indexed(NodePath(String(check.property)))
+			var tol := float(check.get("tolerance", 0.0001))
+			if not _matches(actual, _baseline[key], tol):
+				return "**%s** is now `%s`; this step wants `%s`." % [check.property, _show(actual), _show(_bridge._decode_value(String(check.value)))]
+		"all", "any":
+			for j in (check.checks as Array).size():
+				var h := _hint(check.checks[j], "%s.%d" % [key, j])
+				if h != "":
+					return h
+	return ""
+
+func _show(v) -> String:
+	return String(v) if typeof(v) == TYPE_STRING else var_to_str(v).strip_edges()
+
+func _all_nodes() -> Array:
+	var root: Node = _bridge._get_scene_root()
+	if root == null:
+		return []
+	var out := [root]
+	out.append_array(root.find_children("*", "", true, false))
+	return out
+
+func _all_node_ids() -> Dictionary:
+	var ids := {}
+	for n in _all_nodes():
+		ids[n.get_instance_id()] = true
+	return ids
 
 func _matches(a, b, tol: float) -> bool:
 	if typeof(a) in [TYPE_INT, TYPE_FLOAT] and typeof(b) in [TYPE_INT, TYPE_FLOAT]:
@@ -372,6 +758,10 @@ func _process(delta: float) -> void:
 	if _poll >= POLL_SEC:
 		_poll = 0.0
 		_queue_check()
+	_lost_poll += delta
+	if _lost_poll >= 1.0:
+		_lost_poll = 0.0
+		_repoint_if_lost()
 
 # ---- Tour card -------------------------------------------------------------
 
@@ -397,13 +787,7 @@ func _build_card() -> void:
 	_card_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_card_title.add_theme_color_override("font_color", Color(0.45, 1.0, 0.55))
 	head.add_child(_card_title)
-	var close := Button.new()
-	close.text = "✕"
-	close.flat = true
-	close.tooltip_text = "End the tour"
-	close.focus_mode = Control.FOCUS_NONE
-	close.pressed.connect(stop)
-	head.add_child(close)
+	head.add_child(_card_button("✕", "End the tour", stop, true))
 	_card_text = RichTextLabel.new()
 	_card_text.bbcode_enabled = true
 	_card_text.fit_content = true
@@ -412,31 +796,47 @@ func _build_card() -> void:
 	_card_text.custom_minimum_size = Vector2(300, 0)
 	_card_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_card_text)
-	_card_next = Button.new()
-	_card_next.text = "Next ▸"
-	_card_next.focus_mode = Control.FOCUS_NONE
-	_card_next.size_flags_horizontal = Control.SIZE_SHRINK_END
-	_card_next.pressed.connect(_on_next_pressed)
-	box.add_child(_card_next)
+	var buttons := HBoxContainer.new()
+	box.add_child(buttons)
+	_card_back = _card_button("◂ Back", "Previous step", _on_back_pressed)
+	buttons.add_child(_card_back)
+	_card_skip = _card_button("Skip", "Skip this step", _on_skip_pressed)
+	buttons.add_child(_card_skip)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buttons.add_child(spacer)
+	_card_next = _card_button("Next ▸", "Next step", _on_next_pressed)
+	buttons.add_child(_card_next)
 	EditorInterface.get_base_control().add_child(_card)
 
-func _show_card(step: Dictionary, note: String) -> void:
-	if _card == null:
+func _card_button(text: String, tip: String, action: Callable, flat := false) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.tooltip_text = tip
+	b.flat = flat
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(action)
+	return b
+
+func _refresh_card() -> void:
+	if _card == null or not is_instance_valid(_card) or _done or not is_running():
 		return
+	var step: Dictionary = _steps[_index]
 	_card_title.text = "%s  ·  Step %d/%d" % [String(_tour.get("title", "Tour")), _index + 1, _steps.size()]
 	var text := _markdown(String(step.text))
-	if note != "":
-		var colour := "#60e080" if note.begins_with("✓") else "#e0b050"
-		text += "\n[i][color=%s]%s[/color][/i]" % [colour, _escape(note)]
+	for note in [_note_target, _note_hint, _note_stuck]:
+		if note != "":
+			var colour := "#60e080" if note.begins_with("✓") else "#e0b050"
+			text += "\n[i][color=%s]%s[/color][/i]" % [colour, _markdown(note)]
 	_card_text.text = text
-	_card_next.visible = String(step.done_when.type) == "manual"
+	_card_back.disabled = _index == 0
+	_card_next.visible = _revisit or String(step.done_when.type) == "manual"
 
-func _on_next_pressed() -> void:
-	if is_running() and not _done and String(_steps[_index].done_when.type) == "manual":
-		await _advance()
-
-## Beside the outline (right of it, else left, else below), or the
-## bottom-right corner when nothing is outlined. Kept on screen.
+## Places the card where it doesn't cover what the user needs. When the
+## outline is inside a narrow dock (Scene, Inspector, FileSystem), the card
+## goes just outside that dock, towards the middle of the screen, so it
+## never hides the dock's other rows. Otherwise beside the outline, or the
+## bottom-right corner when nothing is outlined. Always kept on screen.
 func _place_card() -> void:
 	if _card == null or not is_instance_valid(_card):
 		return
@@ -447,15 +847,36 @@ func _place_card() -> void:
 	var pos: Vector2
 	if not target.has_area():
 		pos = screen.end - size - Vector2(24, 48)
-	elif target.end.x + 12 + size.x <= screen.end.x:
-		pos = Vector2(target.end.x + 12, target.position.y)
-	elif target.position.x - 12 - size.x >= screen.position.x:
-		pos = Vector2(target.position.x - 12 - size.x, target.position.y)
 	else:
-		pos = Vector2(target.position.x, target.end.y + 28)
+		var dock := _dock_rect(_overlay.first_target(), screen)
+		if dock.has_area():
+			var left_side := dock.get_center().x > screen.get_center().x
+			pos.x = dock.position.x - 12 - size.x if left_side else dock.end.x + 12
+			pos.y = target.position.y
+		elif target.end.x + 12 + size.x <= screen.end.x:
+			pos = Vector2(target.end.x + 12, target.position.y)
+		elif target.position.x - 12 - size.x >= screen.position.x:
+			pos = Vector2(target.position.x - 12 - size.x, target.position.y)
+		else:
+			pos = Vector2(target.position.x, target.end.y + 28)
 	pos.x = clampf(pos.x, screen.position.x + 8, screen.end.x - size.x - 8)
 	pos.y = clampf(pos.y, screen.position.y + 8, screen.end.y - size.y - 8)
 	_card.global_position = pos
+
+## The outermost ancestor of c that is still a narrow side column (under a
+## third of the screen wide and most of its height) — i.e. the dock it
+## sits in. Empty when c isn't in one.
+func _dock_rect(c: Control, screen: Rect2) -> Rect2:
+	var best := Rect2()
+	var n: Node = c
+	while n != null and n is Control:
+		var r := (n as Control).get_global_rect()
+		if r.size.x >= screen.size.x / 3.0:
+			break
+		if r.size.y >= screen.size.y * 0.3:
+			best = r
+		n = n.get_parent()
+	return best
 
 ## **bold** and `code` only; everything else is literal text.
 func _markdown(src: String) -> String:
