@@ -236,8 +236,10 @@ input.
 - "Where is X?" → `highlight_editor_control`: one outline that disappears as
   soon as the user acts.
 - "Show me", "teach me", "guide me", "walk me through", "I want to learn",
-  or a message saying **teach mode is on** (the panel's Teach toggle)
-  → start a guided tour (`start_tour`) straight away. Don't ask whether
+  → start a guided tour (`start_tour`) straight away.
+- A message saying **teach mode is on** (the panel's Teach toggle) means
+  *always* call `start_tour` for the task, whatever the wording, without asking and
+  without making the changes yourself. Don't ask whether
   they want it done instead; they've already said.
 - A bare "how do I…?" could mean either: offer both in one line ("I can do
   it, or walk you through it with a guided tour — which?").
@@ -263,8 +265,10 @@ Writing a good spontaneous tour:
 5. **Check state, not clicks.** `node_added` with `capture` (the user may name
    the node anything), `property_equals`, `scene_saved`; `manual` only for
    pure explanation, `control_pressed` only as a last resort.
-6. **Make Show me work everywhere.** It's derived for most checks; a
-   `property_changed` step needs an explicit `show_me` with a sensible value.
+6. **Show me works on almost every step** and announces what it does; for
+   code steps use a `script_contains` check (it writes, saves and attaches
+   the code for the user). Give an explicit `show_me` only when the derived
+   one wouldn't fit.
 7. **Give every step a `why`**: one plain sentence a beginner can follow.
    No jargon without a short gloss.
 8. **`dry_run` first** and fix every reported problem in one go.

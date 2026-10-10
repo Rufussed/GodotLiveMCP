@@ -1389,6 +1389,10 @@ func _cmd_attach_script(params: Dictionary):
 		return _fail("script not found: %s" % script_path)
 	var script := load(script_path)
 	_commit_properties(node, {"script": script})
+	# open: true (tours' Show me) also shows the script in the Script editor.
+	if bool(params.get("open", false)) and script is Script:
+		EditorInterface.edit_script(script as Script)
+		EditorInterface.set_main_screen_editor("Script")
 	return {"ok": true}
 
 func _cmd_validate_script(params: Dictionary):
@@ -1444,6 +1448,13 @@ func _cmd_edit_script_text(params: Dictionary):
 		text = String(current.text).replace(old_text, String(params.new_text))
 	elif not params.has("text"):
 		return _fail("give text (the whole file), or old_text and new_text (a partial edit)")
+	# What the file said before, to find which lines this edit changed.
+	var before_text := ""
+	if FileAccess.file_exists(path):
+		var before_res = _cmd_get_script_text({"path": path})
+		if typeof(before_res) == TYPE_DICTIONARY and not before_res.has("__error__"):
+			before_text = str(before_res.text)
+	var changed := _changed_lines(before_text, text)
 	var created := false
 	if not FileAccess.file_exists(path):
 		DirAccess.make_dir_recursive_absolute(path.get_base_dir())
@@ -1468,9 +1479,12 @@ func _cmd_edit_script_text(params: Dictionary):
 		code_edit.delete_selection()
 		code_edit.insert_text_at_caret(text)
 		code_edit.end_complex_operation()
-		code_edit.set_caret_line(0)
 		code_edit.text_changed.emit()
-	if EditorInterface.is_playing_scene() and res is Script:
+	# A brand-new file isn't "changed lines": just show it from the top.
+	_show_changed_lines(code_edit, changed if before_text != "" else [1, 1], before_text != "")
+	# save: true (from tours' Show me) saves like Ctrl+S; with a game running
+	# it always does, and also reloads the script there.
+	if (EditorInterface.is_playing_scene() or bool(params.get("save", false))) and res is Script:
 		# With a game running, save straight away (like a person pressing
 		# Ctrl+S) and have the game reload it, so the change shows up live.
 		# edit_script() above made this script the current tab.
@@ -1480,11 +1494,64 @@ func _cmd_edit_script_text(params: Dictionary):
 			var err := ResourceSaver.save(scr, path)
 			if err != OK:
 				return _fail("could not save %s (error %d)" % [path, err])
-		_reload_game_scripts()
-		return {"ok": true, "created": created, "unsaved": false,
-			"note": "Saved right away and reloaded in the running game."}
-	return {"ok": true, "created": created, "unsaved": not created,
+		if EditorInterface.is_playing_scene():
+			_reload_game_scripts()
+		return {"ok": true, "created": created, "unsaved": false, "lines": changed,
+			"note": "Saved right away" + (" and reloaded in the running game." if EditorInterface.is_playing_scene() else ".")}
+	return {"ok": true, "created": created, "unsaved": not created, "lines": changed,
 		"note": _mac_keys("Saved on Ctrl+S or when the scene is played.") if not created else "New file written to disk."}
+
+## The first and last changed line (1-based, in the new text) between two
+## versions of a file, by trimming the lines they share at the start and end.
+## A pure deletion points at the line where it happened.
+func _changed_lines(old_text: String, new_text: String) -> Array:
+	var a := old_text.split("\n")
+	var b := new_text.split("\n")
+	var i := 0
+	while i < a.size() and i < b.size() and a[i] == b[i]:
+		i += 1
+	var ja := a.size() - 1
+	var jb := b.size() - 1
+	while ja >= i and jb >= i and a[ja] == b[jb]:
+		ja -= 1
+		jb -= 1
+	if i >= b.size():
+		i = maxi(b.size() - 1, 0)
+		jb = i
+	return [i + 1, maxi(jb, i) + 1]
+
+const SCRIPT_TINT := Color(0.3, 0.55, 1.0, 0.32)
+const SCRIPT_TINT_SEC := 4.0
+
+## Shows an edit in the Script editor: switches to the Script screen,
+## scrolls to the changed lines and tints them for a few seconds.
+func _show_changed_lines(code_edit: CodeEdit, lines: Array, tint := true) -> void:
+	if code_edit == null or lines.size() != 2:
+		return
+	EditorInterface.set_main_screen_editor("Script")
+	var first := clampi(int(lines[0]) - 1, 0, code_edit.get_line_count() - 1)
+	var last := clampi(int(lines[1]) - 1, first, code_edit.get_line_count() - 1)
+	code_edit.set_caret_line(first)
+	code_edit.center_viewport_to_caret()
+	if not tint:
+		return
+	for l in range(first, last + 1):
+		code_edit.set_line_background_color(l, SCRIPT_TINT)
+	var weak := weakref(code_edit)
+	get_tree().create_timer(SCRIPT_TINT_SEC).timeout.connect(func() -> void:
+		var ce = weak.get_ref()
+		if ce is CodeEdit:
+			for l in range(first, mini(last, (ce as CodeEdit).get_line_count() - 1) + 1):
+				(ce as CodeEdit).set_line_background_color(l, Color(0, 0, 0, 0)))
+
+## Opens a script at the given lines and tints them (used by Watch's log).
+func _focus_script(path: String, first: int, last: int) -> void:
+	var res := load(path)
+	if not (res is Script):
+		return
+	var code_edit := await _open_code_editor(res)
+	if code_edit != null:
+		_show_changed_lines(code_edit, [first, last])
 
 ## Reads a script's or shader's current text, including unsaved edits in an
 ## open editor tab (the file on disk can be older than what's on screen).

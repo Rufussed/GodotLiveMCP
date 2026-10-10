@@ -67,7 +67,7 @@
 				"type": {
 					"enum": ["node_selected", "node_exists", "node_added", "node_removed", "node_renamed", "node_reparented",
 						"property_equals", "property_changed", "property_class", "script_attached", "signal_connected",
-						"in_group", "scene_open", "scene_saved", "file_exists", "control_pressed", "game_running",
+						"in_group", "script_contains", "scene_open", "scene_saved", "file_exists", "control_pressed", "game_running",
 						"manual", "all", "any"]
 				},
 				"checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } }
@@ -82,6 +82,7 @@
 				{ "if": { "properties": { "type": { "const": "property_class" } } }, "then": { "required": ["node_path", "property", "class"] } },
 				{ "if": { "properties": { "type": { "const": "signal_connected" } } }, "then": { "required": ["source", "signal", "target"] } },
 				{ "if": { "properties": { "type": { "const": "in_group" } } }, "then": { "required": ["node_path", "group"] } },
+				{ "if": { "properties": { "type": { "const": "script_contains" } } }, "then": { "required": ["text"] } },
 				{ "if": { "properties": { "type": { "enum": ["scene_open", "file_exists"] } } }, "then": { "required": ["path"] } },
 				{ "if": { "properties": { "type": { "enum": ["all", "any"] } } }, "then": { "required": ["checks"] } }
 			]
@@ -92,6 +93,8 @@
 			"properties": {
 				"command": {
 					"enum": ["select_nodes", "add_node_live", "set_property", "set_nested_property", "set_resource_property",
+						"set_properties", "set_transform", "duplicate_node", "add_mesh_instance", "setup_collision",
+						"set_material_3d", "set_physics_material", "setup_environment", "edit_script_text",
 						"rename_node", "reparent_node", "remove_node", "connect_signal", "set_node_groups", "attach_script",
 						"save_scene_live", "open_scene", "play_scene"]
 				}

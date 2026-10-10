@@ -22,9 +22,12 @@ const RESOLVE_RETRY_SEC := 0.35
 
 ## Bridge commands a step's show_me may run (all undoable). Params use the
 ## bridge's own names; "$var" works in any string value or node_paths entry.
-const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set_nested_property",
-	"set_resource_property", "rename_node", "reparent_node", "remove_node", "connect_signal",
-	"set_node_groups", "attach_script", "save_scene_live", "open_scene", "play_scene"]
+const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set_properties", "set_nested_property",
+	"set_resource_property", "set_transform", "duplicate_node", "add_mesh_instance", "setup_collision",
+	"set_material_3d", "set_physics_material", "setup_environment", "rename_node", "reparent_node", "remove_node",
+	"connect_signal", "set_node_groups", "attach_script", "edit_script_text", "save_scene_live", "open_scene",
+	"play_scene"]
+const SHOW_ME_ANNOUNCE_SEC := 1.6   # how long the card announces before Show me acts
 
 ## Required fields per done_when type ("@target" = the step itself must have
 ## a target, the control to watch).
@@ -40,6 +43,7 @@ const CHECK_FIELDS := {
 	"property_changed": ["node_path", "property"],
 	"property_class": ["node_path", "property", "class"],
 	"script_attached": ["node_path"],
+	"script_contains": ["text"],
 	"signal_connected": ["source", "signal", "target"],
 	"in_group": ["node_path", "group"],
 	"scene_open": ["path"],
@@ -81,6 +85,7 @@ var _note_hint := ""      # wrong-turn hint
 var _note_stuck := ""
 var _note_why := ""       # the step's why text, or "asked the agent"
 var _showing := false     # a Show me is running
+var _hint_hold_until := 0 # msec: a Show me result/refusal note stays up until then
 var _pointed_at_new := false   # a node_added+name step moved its outline to the new node
 var _pointing_at_fold := false  # outlining a folded section until it's opened
 var _hints_logged := {}
@@ -447,6 +452,11 @@ func _validate_check(check: Dictionary, step: Dictionary, where: String, var_cla
 				errors.append("%s: type '%s' needs the step to have a target (the control to press)" % [where, type])
 		elif not check.has(field):
 			errors.append("%s: type '%s' needs '%s'" % [where, type, field])
+	if type == "script_contains":
+		if not (check.has("script") or check.has("node_path")):
+			errors.append("%s: type 'script_contains' needs 'script' (a res:// path) or 'node_path' (a node that has the script)" % where)
+		if check.has("script") and not str(check.script).begins_with("res://"):
+			errors.append("%s: script must be a res:// path (got %s)" % [where, check.script])
 	if type == "node_added" and check.has("name") and str(check.name).validate_node_name() != str(check.name):
 		errors.append("%s: '%s' isn't a valid node name" % [where, check.name])
 	if check.has("class") and type in ["node_added", "property_class"] and not ClassDB.class_exists(str(check["class"])):
@@ -571,6 +581,7 @@ func _enter_step(i: int, revisit := false) -> void:
 	_gen += 1
 	var gen := _gen
 	_index = i
+	_showing = false
 	_revisit = revisit
 	_step_start_msec = Time.get_ticks_msec()
 	_saved_during_step = false
@@ -768,13 +779,42 @@ func _agent_panel() -> Node:
 func _on_show_me_pressed() -> void:
 	if not is_running() or _done or _showing:
 		return
-	var actions := _show_me_actions(_steps[_index])
-	if actions.is_empty():
-		return
+	var step: Dictionary = _steps[_index]
+	var actions := _show_me_actions(step)
 	var gen := _gen
+	if actions.is_empty():
+		# An explanation-only step has nothing to do: Show me just moves on.
+		if str(step.done_when.type) == "manual":
+			_showing = true
+			_note_hint = "▶ Nothing to do for this one — moving on…"
+			_refresh_card()
+			_log("show_me")
+			await get_tree().create_timer(1.2).timeout
+			_showing = false
+			if gen == _gen:
+				await _advance("step_done")
+		return
+	for a in actions:
+		var refusal := _show_me_refusal(a)
+		if refusal != "":
+			_note_hint = refusal
+			_hint_hold_until = Time.get_ticks_msec() + 8000
+			_log("show_me_refused", {"why": refusal})
+			_refresh_card()
+			return
 	_showing = true
+	# Announce exactly what's about to happen (code included), then pause so
+	# it can be read before anything changes.
+	var lines := []
+	for a in actions:
+		lines.append("• " + _describe_action(a))
+	_note_hint = "▶ Doing this for you:\n" + "\n".join(lines)
 	_refresh_card()
 	_log("show_me")
+	await get_tree().create_timer(SHOW_ME_ANNOUNCE_SEC).timeout
+	if gen != _gen:
+		_showing = false
+		return
 	for action in actions:
 		var params: Dictionary = action.duplicate()
 		var command := str(params.get("command", ""))
@@ -787,21 +827,81 @@ func _on_show_me_pressed() -> void:
 			_showing = false
 			_log("show_me_failed", {"command": command, "error": res["__error__"]})
 			_note_hint = "Couldn't show this one: %s" % res["__error__"]
+			_hint_hold_until = Time.get_ticks_msec() + 8000
 			_refresh_card()
 			return
 	_showing = false
-	if actions.size() > 1:
-		_note_hint = "Done for you — Ctrl+Z %d times to undo." % actions.size()
-	else:
-		_note_hint = "Done for you — Ctrl+Z to undo."
+	_note_hint = "✓ Done for you — Ctrl+Z%s to undo." % (" %d times" % actions.size() if actions.size() > 1 else "")
+	_hint_hold_until = Time.get_ticks_msec() + 4000
 	_refresh_card()
 	_queue_check()
+
+## Show me writes real code, so it keeps to the safe side: never a @tool
+## script (those run inside the editor the moment they're saved) and never
+## anything under addons/.
+func _show_me_refusal(a: Dictionary) -> String:
+	if str(a.get("command", "")) != "edit_script_text":
+		return ""
+	var path := str(a.get("path", ""))
+	if not path.begins_with("res://") or path.begins_with("res://addons/"):
+		return "Show me won't write to %s (only scripts in your own project, not addons). You can type it in yourself." % path
+	for key in ["text", "new_text"]:
+		if str(a.get(key, "")).contains("@tool"):
+			return "Show me won't write a @tool script — those run inside the editor as soon as they're saved. You can type it in yourself."
+	return ""
+
+## One line for the announcement; code is shown in full, in a block.
+func _describe_action(a: Dictionary) -> String:
+	var node := str(a.get("node_path", ""))
+	match str(a.get("command", "")):
+		"edit_script_text":
+			var code := str(a.get("new_text", a.get("text", ""))).strip_edges()
+			if code.length() > 900:
+				code = code.left(900) + "\n…"
+			var where := ""
+			var new_text := str(a.get("text", ""))
+			var old_text := ""
+			if FileAccess.file_exists(str(a.path)):
+				var cur = _bridge._cmd_get_script_text({"path": str(a.path)})
+				old_text = str(cur.text) if typeof(cur) == TYPE_DICTIONARY and not cur.has("__error__") else ""
+			if a.has("old_text"):
+				new_text = old_text.replace(str(a.old_text), str(a.get("new_text", "")))
+			var lines: Array = _bridge._changed_lines(old_text, new_text)
+			where = ", line %d" % lines[0] if lines[0] == lines[1] else ", lines %d–%d" % [lines[0], lines[1]]
+			return "write to `%s`%s (opened in the Script editor, then saved):\n```\n%s\n```" % [str(a.path).get_file(), where, code]
+		"add_node_live":
+			return "add a **%s** named **%s** under **%s**" % [a.get("node_type", "node"), a.get("node_name", a.get("node_type", "")), str(a.get("parent_path", ".")).get_file()]
+		"set_property":
+			return "set **%s** · %s to `%s`" % [node.get_file(), str(a.get("property_name", "")).capitalize(), a.get("value", "")]
+		"set_nested_property":
+			return "set **%s** · %s to `%s`" % [node.get_file(), str(a.get("property_path", "")).replace(":", " → ").capitalize(), a.get("value", "")]
+		"set_resource_property":
+			return "give **%s** a new %s as %s" % [node.get_file(), a.get("resource_type", "resource"), str(a.get("property_name", "")).capitalize()]
+		"rename_node":
+			return "rename **%s** to **%s**" % [node.get_file(), a.get("new_name", "")]
+		"attach_script":
+			return "attach `%s` to **%s** and open it" % [str(a.get("script_path", "")).get_file(), node.get_file()]
+		"interact_control":
+			return "press the highlighted button"
+		"save_scene_live":
+			return "save the scene"
+		"play_scene":
+			return "play the game"
+		"open_scene":
+			return "open `%s`" % str(a.get("path", "")).get_file()
+	return str(a.get("command", "")).replace("_", " ") + (" on **%s**" % node.get_file() if node != "" else "")
 
 ## The step's show_me actions with $vars filled in, or ones derived from its
 ## done_when check; [] when the step can't be shown.
 func _show_me_actions(step: Dictionary) -> Array:
 	var raw = step.get("show_me", null)
 	var actions: Array = raw if typeof(raw) == TYPE_ARRAY else _derive_show_me(step.done_when)
+	if typeof(raw) != TYPE_ARRAY and str(step.done_when.type) == "control_pressed" and typeof(step.get("target")) == TYPE_DICTIONARY:
+		# Press the very control the step outlines.
+		var press: Dictionary = (step.target as Dictionary).duplicate()
+		press["command"] = "interact_control"
+		press["action"] = "press"
+		actions = [press]
 	var out := []
 	for action in actions:
 		var a := {}
@@ -818,10 +918,71 @@ func _show_me_actions(step: Dictionary) -> Array:
 				v = arr
 			a[key] = v
 		out.append(a)
-	return out
+	# Attaching a script that doesn't exist yet: write a minimal one for the
+	# node's class first (a later script_contains step can fill in the code),
+	# and open it in the Script editor afterwards.
+	var final := []
+	for a in out:
+		if str(a.get("command", "")) == "attach_script":
+			var sp := str(a.get("script_path", ""))
+			if sp != "" and not FileAccess.file_exists(sp):
+				var target: Node = _bridge._resolve_node(str(a.get("node_path", ".")))
+				final.append({"command": "edit_script_text", "path": sp, "save": true,
+					"text": "extends %s\n" % (target.get_class() if target != null else "Node")})
+			a["open"] = true
+		final.append(a)
+	return final
+
+func _script_path_for(check: Dictionary) -> String:
+	if check.has("script"):
+		return str(check.script)
+	var n := _node(str(check.get("node_path", "")))
+	if n != null and n.get_script() != null:
+		return (n.get_script() as Script).resource_path
+	return ""
+
+## Whitespace collapsed, so a check isn't defeated by indentation or blank lines.
+func _squash(text: String) -> String:
+	return RegEx.create_from_string("\\s+").sub(text, " ", true).strip_edges()
+
+## A different value of the same type, for steps that only ask the learner
+## to change something. null when there's no sensible nudge.
+func _nudge(v):
+	match typeof(v):
+		TYPE_BOOL: return not v
+		TYPE_INT: return v + 1
+		TYPE_FLOAT: return v + maxf(1.0, absf(v) * 0.5)
+		TYPE_VECTOR2: return v + Vector2(50, 50)
+		TYPE_VECTOR3: return v + Vector3(0, 1, 0)
+		TYPE_COLOR: return (v as Color).lightened(0.3) if (v as Color).v < 0.9 else (v as Color).darkened(0.3)
+		TYPE_STRING: return str(v) + "!"
+	return null
 
 func _derive_show_me(check: Dictionary) -> Array:
 	match str(check.type):
+		"script_contains":
+			var path := _script_path_for(check)
+			if path == "":
+				return []
+			var code := str(check.text)
+			if FileAccess.file_exists(path):
+				if check.has("replace"):
+					return [{"command": "edit_script_text", "path": path, "old_text": str(check.replace), "new_text": code, "save": true}]
+				var cur = _bridge._cmd_get_script_text({"path": path})
+				var base: String = str(cur.text) if typeof(cur) == TYPE_DICTIONARY and not cur.has("__error__") else ""
+				return [{"command": "edit_script_text", "path": path, "text": base.rstrip("\n") + "\n" + code + "\n", "save": true}]
+			return [{"command": "edit_script_text", "path": path, "save": true,
+				"text": "extends %s\n\n%s\n" % [str(check.get("extends", "Node")), code]}]
+		"property_changed":
+			var n := _node(str(check.node_path))
+			if n == null:
+				return []
+			var nv = _nudge(n.get_indexed(NodePath(str(check.property))))
+			if nv == null:
+				return []
+			if str(check.property).contains(":"):
+				return [{"command": "set_nested_property", "node_path": check.node_path, "property_path": check.property, "value": var_to_str(nv)}]
+			return [{"command": "set_property", "node_path": check.node_path, "property_name": check.property, "value": var_to_str(nv)}]
 		"node_selected":
 			return [{"command": "select_nodes", "node_paths": [check.node_path]}]
 		"node_added":
@@ -913,13 +1074,15 @@ func _on_target_pressed(gen: int) -> void:
 # ---- Completion checks -----------------------------------------------------
 
 func _queue_check() -> void:
-	if not _check_queued and not _holding and is_running() and not _done:
+	if not _check_queued and not _holding and not _showing and is_running() and not _done:
 		_check_queued = true
 		_run_check.call_deferred()
 
 func _run_check() -> void:
 	_check_queued = false
-	if not is_running() or _done or _holding:
+	# While Show me is announcing or acting, the card's notes are its own
+	# (a check would overwrite them, or advance mid-action).
+	if not is_running() or _done or _holding or _showing:
 		return
 	var check: Dictionary = _steps[_index].done_when
 	if _passes(check, "c"):
@@ -934,7 +1097,7 @@ func _run_check() -> void:
 	if hint.begins_with("✓ Added!") and not _pointed_at_new:
 		_pointed_at_new = true
 		_point_at_new_node(check)
-	if hint != _note_hint:
+	if hint != _note_hint and Time.get_ticks_msec() >= _hint_hold_until:
 		_note_hint = hint
 		if hint != "" and not _hints_logged.has(hint):
 			_hints_logged[hint] = true
@@ -1048,6 +1211,15 @@ func _passes(check: Dictionary, key: String) -> bool:
 		"in_group":
 			var n := _node(str(check.node_path))
 			return n != null and n.is_in_group(str(check.group))
+		"script_contains":
+			var path := _script_path_for(check)
+			if path == "":
+				return false
+			# Includes unsaved edits in the open script tab.
+			var got = _bridge._cmd_get_script_text({"path": path})
+			if typeof(got) != TYPE_DICTIONARY or got.has("__error__"):
+				return false
+			return _squash(str(got.text)).contains(_squash(str(check.text)))
 		"scene_open":
 			var root: Node = _bridge._get_scene_root()
 			return root != null and root.scene_file_path == str(check.path)
@@ -1098,7 +1270,7 @@ func _hint(check: Dictionary, key: String) -> String:
 			var n := _node(str(check.node_path))
 			var sel := EditorInterface.get_selection().get_selected_nodes()
 			if n != null and not sel.is_empty() and not n in sel:
-				return "You selected **%s**; this step wants **%s**." % [sel[0].name, n.name]
+				return "You selected **%s**; this step wants **%s**." % [_node_label(sel[0]), _node_label(n)]
 		"node_renamed":
 			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
 			if n is Node and str(n.name) != str(_baseline.get(key + ":name", "")) and str(n.name) != str(check.name):
@@ -1117,6 +1289,12 @@ func _hint(check: Dictionary, key: String) -> String:
 				if h != "":
 					return h
 	return ""
+
+## A node's name, or its path under the scene root when it has a parent —
+## "MeshInstance3D" alone is ambiguous when two nodes share that name.
+func _node_label(n: Node) -> String:
+	var path: String = _bridge._rel_path(n)
+	return str(n.name) if path == "." or path == str(n.name) else path
 
 func _show(v) -> String:
 	return str(v) if typeof(v) == TYPE_STRING else var_to_str(v).strip_edges()
@@ -1214,7 +1392,7 @@ func _build_card() -> void:
 	sb.set_content_margin_all(10)
 	_card.add_theme_stylebox_override("panel", sb)
 	_card.mouse_default_cursor_shape = Control.CURSOR_MOVE
-	_card.tooltip_text = "Drag to move · double-click to let it follow the outline again"
+	_card.tooltip_text = "Drag the title to move · double-click to let it follow the outline again"
 	_card.gui_input.connect(_on_card_input)
 	_card_pinned = false
 	# Layout nodes pass clicks through, so a drag can start anywhere that
@@ -1237,7 +1415,11 @@ func _build_card() -> void:
 	_card_text.scroll_active = false
 	_card_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_card_text.custom_minimum_size = Vector2(300, 0)
-	_card_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Selectable and copyable (e.g. a line of code to paste into a script).
+	# Dragging the card therefore works from the title and button row.
+	_card_text.selection_enabled = true
+	_card_text.context_menu_enabled = true
+	_card_text.mouse_filter = Control.MOUSE_FILTER_STOP
 	box.add_child(_card_text)
 	var buttons := HBoxContainer.new()
 	buttons.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -1324,7 +1506,7 @@ func _refresh_card() -> void:
 	_card_text.text = text
 	_card_back.disabled = _index == 0
 	_card_next.visible = _revisit or str(step.done_when.type) == "manual"
-	_card_show.visible = not _show_me_actions(step).is_empty() and not _revisit
+	_card_show.visible = (not _show_me_actions(step).is_empty() or str(step.done_when.type) == "manual") and not _revisit
 	_card_show.disabled = _showing
 	_card_why.visible = str(step.get("why", "")) != "" or _agent_panel() != null
 
@@ -1396,6 +1578,9 @@ func _markdown(src: String) -> String:
 	var out := _escape(src)
 	var bold := RegEx.create_from_string("\\*\\*(.+?)\\*\\*")
 	out = bold.sub(out, "[b]$1[/b]", true)
+	# Fenced blocks first (multi-line code); newlines are kept.
+	var fenced := RegEx.create_from_string("(?s)```[a-zA-Z]*\\n?(.*?)```")
+	out = fenced.sub(out, "[code]$1[/code]", true)
 	var code := RegEx.create_from_string("`(.+?)`")
 	out = code.sub(out, "[code]$1[/code]", true)
 	return out

@@ -1381,9 +1381,9 @@ func _style_button(b: Button, color: Color) -> void:
 func _style_teach_button(on: bool) -> void:
 	_tutorial_button.text = "Teach"
 	_tutorial_button.tooltip_text = (
-		"Teach mode is ON: how-to questions are answered with a step-by-step guided tour in the editor, instead of the agent doing it for you. Click to turn off."
+		"Teach mode is ON: every message is answered with a step-by-step guided tour in the editor, instead of the agent doing it for you. Click to turn off."
 		if on else
-		"Teach mode is off. Click to turn on: how-to questions will then be answered with a step-by-step guided tour in the editor, instead of the agent doing it for you.")
+		"Teach mode is off. Click to turn on: every message will then be answered with a step-by-step guided tour in the editor, instead of the agent doing it for you.")
 	_style_toggle(_tutorial_button, on, Color(0.22, 0.6, 0.28))
 
 func _style_watch_button(on: bool) -> void:
@@ -2057,7 +2057,7 @@ func _on_input_gui_input(event: InputEvent) -> void:
 
 ## Sends text as if the user typed it — used by guided tours' "Why?"
 ## button. Returns "" on success, else why it couldn't be sent.
-const _TUTORIAL_NOTE := "\n\n[Teach mode is on in the panel: if this is a how-to request, answer it with a guided tour (start_tour) and don't do it for me — no need to ask which I want. Otherwise answer normally.]"
+const _TUTORIAL_NOTE := "\n\n[Teach mode is on in the panel. Answer this by calling start_tour with a step-by-step guided tour for the task — always, no need to ask, and don't do the work for me or change the scene yourself. Look at the scene first so the tour uses my real node names. If the scene already has what I asked for, say so in one sentence instead of touring things that are already done, and offer a tour of the next step or a change. If it isn't a build/how-to task (a plain question), answer in a sentence or two and offer a tour.]"
 
 ## What actually goes to the agent: the user's text, plus the tutorial-mode
 ## note when that toggle is on (not for the tour card's own Why? questions).

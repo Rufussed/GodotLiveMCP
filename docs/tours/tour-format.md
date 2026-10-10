@@ -132,6 +132,7 @@ says it can't point at it.
 | `script_attached` | `node_path`, `script`? | The node has a script (that script, if given). |
 | `signal_connected` | `source`, `signal`, `target`, `method`? | `source.signal` is connected to `target` (that `method`, if given). |
 | `in_group` | `node_path`, `group` | The node is in the group. |
+| `script_contains` | `script` (a `res://` path) or `node_path` (a node with the script), `text`, `extends`?, `replace`? | The script's text, including unsaved edits, contains `text` (whitespace ignored). `extends` and `replace` only affect Show me. |
 | `scene_open` | `path` | That scene is the one being edited. |
 | `scene_saved` | none | The scene is saved during the step. |
 | `file_exists` | `path` | The file or folder exists. |
@@ -153,15 +154,23 @@ name, the card says what's different.
 
 ### Show me
 
-**Show me** does the current step for the user, undoably. It is derived
-automatically for `node_selected`, `node_added` (with `class`; and `name`,
-if given), `node_removed`, `node_renamed`, `node_reparented`,
-`property_equals`, `property_class` (creates a new resource of that class,
-e.g. a `BoxMesh` for a mesh), `script_attached` (with `script`),
-`signal_connected` (with `method`), `in_group`, `scene_open`,
-`scene_saved`, `game_running`, and `all` of those. `property_changed`
-has no value to derive from, so give it one explicitly (recorded tours
-include the value you used):
+**Show me** does the current step for the user. It **announces first**: the
+card lists exactly what it is about to do (code included), waits a moment
+so it can be read, then does it. Almost every step can be shown:
+
+- derived from `done_when` for `node_selected`, `node_added` (with `class`;
+  and `name`), `node_removed`, `node_renamed`, `node_reparented`,
+  `property_equals`, `property_class` (creates a new resource, e.g. a
+  `BoxMesh`), `property_changed` (nudges the current value: flips a switch,
+  adds to a number or vector, lightens a colour), `script_attached` (with
+  `script`), `script_contains` (creates the script, or edits it, with the
+  code; opens it in the Script editor and saves it), `signal_connected`
+  (with `method`), `in_group`, `scene_open`, `scene_saved`, `game_running`,
+  `control_pressed` (presses the outlined button), and `all` of those;
+- `manual` steps: Show me just moves on.
+
+Anything else can give an explicit `show_me` (below). Action effects can be
+undone with Ctrl+Z, except written script files.
 
 ```json
 "show_me": [
@@ -172,7 +181,10 @@ include the value you used):
 `command` is one of `select_nodes` (`node_paths`), `add_node_live`
 (`parent_path`, `node_type`, `node_name`), `set_property` (`node_path`,
 `property_name`, `value`), `set_nested_property` (`node_path`,
-`property_path` such as `"shape:size"`, `value`), `set_resource_property`
+`property_path` such as `"shape:size"`, `value`), `set_properties`, `set_transform`,
+`duplicate_node`, `add_mesh_instance`, `setup_collision`, `set_material_3d`,
+`set_physics_material`, `setup_environment`, `edit_script_text` (`path`, `text` or
+`old_text`/`new_text`, `save`), `set_resource_property`
 (`node_path`, `property_name`, `resource_type`), `rename_node`
 (`node_path`, `new_name`), `reparent_node` (`node_path`,
 `new_parent_path`), `remove_node` (`node_path`), `connect_signal`
@@ -189,6 +201,10 @@ Tours are **data, not code**, so they are safe to share:
   to evaluate.
 - **Show me** runs only the allow-listed editor commands above. It runs
   only when the user presses the button, and every action can be undone.
+- Show me never writes a `@tool` script (they run inside the editor as
+  soon as they're saved) and never writes under `addons/`; it says so and
+  leaves it to the learner.
+- The card's text can be selected and copied, so code can be pasted.
 - A tour can't bring code with it: `attach_script` may only attach a
   script that already exists in the project, and validation rejects
   anything else.
