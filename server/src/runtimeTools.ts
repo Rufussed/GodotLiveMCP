@@ -38,6 +38,8 @@ export const runtimeToolNames = new Set([
   'simulate_mouse_button',
   'simulate_mouse_motion',
   'wait_for_game_condition',
+  'capture_game_frames',
+  'monitor_game_properties',
 ]);
 
 export function isRuntimeTool(name: string): boolean {
@@ -175,7 +177,59 @@ export const runtimeToolDefinitions = [
       required: ['expression'],
     },
   },
+  {
+    name: 'capture_game_frames',
+    description:
+      'Capture several screenshots of a RUNNING GAME spaced interval_sec apart (real time), returned as ' +
+      'consecutive image blocks labelled with their timestamp — for judging motion, animation, or anything ' +
+      'a single get_game_screenshot can\'t show. Total span (count-1)*interval_sec is capped at 10s. Pair with ' +
+      'simulate_key etc. by sending the input first, then capturing.' + RUNTIME_REQUIREMENT_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        count: { type: 'integer', description: 'Number of frames, 1-8 (default 4)' },
+        interval_sec: { type: 'number', description: 'Seconds between frames (default 0.25; 0 = consecutive rendered frames)' },
+        max_dimension: { type: 'integer', description: 'Downscale so neither dimension exceeds this (default 400; 0 = full resolution)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'monitor_game_properties',
+    description:
+      'Sample node properties and/or expressions in a RUNNING GAME every interval_sec for duration_sec ' +
+      '(max 10s) and return the time series as {columns, rows} — one call instead of polling ' +
+      'game_eval_expression yourself. Use for "does the player actually fall / does health drain / does the ' +
+      'velocity settle". Every watch entry is validated before sampling starts, so a misspelled property ' +
+      'errors immediately.' + VALUE_ENCODING_NOTE + RUNTIME_REQUIREMENT_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        watch: {
+          type: 'array',
+          description: 'What to sample. Each entry: {node_path, property} or {node_path, expression}, plus optional label.',
+          items: {
+            type: 'object',
+            properties: {
+              ...NODE_PATH_PROPERTY,
+              property: { type: 'string', description: 'Property name; sub-paths like "position:y" or "velocity:x" are allowed' },
+              expression: { type: 'string', description: 'GDScript expression evaluated with the node as self, e.g. "global_position.distance_to(get_node(\"../Goal\").global_position)"' },
+              label: { type: 'string', description: 'Column name (defaults to node_path.property)' },
+            },
+          },
+        },
+        duration_sec: { type: 'number', description: 'How long to sample, max 10 (default 2)' },
+        interval_sec: { type: 'number', description: 'Seconds between samples (default 0.1; 0 = every rendered frame)' },
+        max_samples: { type: 'integer', description: 'Stop early after this many rows (default 200, max 1000)' },
+      },
+      required: ['watch'],
+    },
+  },
 ];
+
+// runtime_bridge.gd caps sampling commands at 10s; allow headroom for
+// frame encoding and the round trip.
+const SAMPLING_TIMEOUT_MS = 15000;
 
 let sharedClient: BridgeClient | null = null;
 function getClient(): BridgeClient {
@@ -242,6 +296,32 @@ export async function handleRuntimeTool(name: string, args: any): Promise<any> {
         expression: params.expression,
         timeout_sec: params.timeout_sec ?? 2.0,
       }));
+    case 'capture_game_frames': {
+      const result = await client.call('capture_game_frames', {
+        count: params.count ?? 4,
+        interval_sec: params.interval_sec ?? 0.25,
+        max_dimension: params.max_dimension ?? 400,
+      }, SAMPLING_TIMEOUT_MS);
+      return {
+        content: result.frames.flatMap((f: any) => [
+          { type: 'text', text: `t=${f.t.toFixed(3)}s (${f.width}x${f.height})` },
+          { type: 'image', data: f.base64, mimeType: `image/${f.format}` },
+        ]),
+      };
+    }
+    case 'monitor_game_properties': {
+      const result = await client.call('monitor_properties', {
+        watch: params.watch,
+        duration_sec: params.duration_sec ?? 2.0,
+        interval_sec: params.interval_sec ?? 0.1,
+        max_samples: params.max_samples ?? 200,
+      }, SAMPLING_TIMEOUT_MS);
+      // One row per line: pretty-printed JSON would put every cell on its own line.
+      return textResult(
+        JSON.stringify(result.columns) + '\n' +
+        result.rows.map((r: any[]) => JSON.stringify([Number(r[0].toFixed(3)), ...r.slice(1)])).join('\n')
+      );
+    }
     default:
       throw new Error(`Unknown runtime tool: ${name}`);
   }

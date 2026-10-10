@@ -284,10 +284,15 @@ func _cmd_set_properties(params: Dictionary):
 ## get_editor_screenshot (which only sees the editor's 3D viewport gizmo
 ## view, not a running game).
 func _cmd_get_game_screenshot(params: Dictionary):
-	var max_dimension := int(params.get("max_dimension", 800))
+	var shot := _capture_viewport(int(params.get("max_dimension", 800)))
+	if shot.is_empty():
+		return _fail("could not capture viewport image")
+	return shot
+
+func _capture_viewport(max_dimension: int) -> Dictionary:
 	var img := get_viewport().get_texture().get_image()
 	if img == null:
-		return _fail("could not capture viewport image")
+		return {}
 
 	var w := img.get_width()
 	var h := img.get_height()
@@ -302,6 +307,119 @@ func _cmd_get_game_screenshot(params: Dictionary):
 		"width": img.get_width(),
 		"height": img.get_height(),
 	}
+
+## Upper bound on how long a capture/monitor command may run; the MCP
+## server sizes its per-call timeout from the same limit. Socket I/O for
+## other commands waits while one of these runs (see _process()).
+const _MAX_SAMPLE_DURATION_SEC := 10.0
+
+## Waits interval_sec of real time (ignores Engine.time_scale and pause),
+## or one rendered frame when interval_sec is 0.
+func _wait_interval(interval_sec: float) -> void:
+	if interval_sec <= 0.0:
+		await get_tree().process_frame
+	else:
+		await get_tree().create_timer(interval_sec, true, false, true).timeout
+
+## Several screenshots spaced interval_sec apart — motion, not a single
+## still. The first frame is taken immediately.
+func _cmd_capture_game_frames(params: Dictionary):
+	var count := clampi(int(params.get("count", 4)), 1, 8)
+	var interval_sec: float = max(float(params.get("interval_sec", 0.25)), 0.0)
+	var max_dimension := int(params.get("max_dimension", 400))
+	if interval_sec * (count - 1) > _MAX_SAMPLE_DURATION_SEC:
+		return _fail("(count - 1) * interval_sec exceeds %ss" % _MAX_SAMPLE_DURATION_SEC)
+
+	var start := Time.get_ticks_msec()
+	var frames := []
+	for i in count:
+		if i > 0:
+			await _wait_interval(interval_sec)
+		var shot := _capture_viewport(max_dimension)
+		if shot.is_empty():
+			return _fail("could not capture viewport image")
+		shot["t"] = (Time.get_ticks_msec() - start) / 1000.0
+		frames.append(shot)
+	return {"frames": frames}
+
+## Samples node properties (and/or expressions) every interval_sec for
+## duration_sec and returns a time series. Every watch is validated
+## before sampling starts, so a misspelled property fails up front
+## instead of producing a column of nulls.
+func _cmd_monitor_properties(params: Dictionary):
+	var watch: Array = params.get("watch", [])
+	if watch.is_empty():
+		return _fail("watch is empty")
+	var duration_sec: float = float(params.get("duration_sec", 2.0))
+	var interval_sec: float = max(float(params.get("interval_sec", 0.1)), 0.0)
+	if duration_sec <= 0.0 or duration_sec > _MAX_SAMPLE_DURATION_SEC:
+		return _fail("duration_sec must be in (0, %s]" % _MAX_SAMPLE_DURATION_SEC)
+	var max_samples := clampi(int(params.get("max_samples", 200)), 1, 1000)
+
+	var input_names: Array = _SINGLETON_NAMES.duplicate()
+	var input_values: Array = [ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader, ResourceSaver]
+	for key_name in _KEY_CONSTANTS:
+		input_names.append(key_name)
+		input_values.append(_KEY_CONSTANTS[key_name])
+
+	# Each entry: [label, node, property-or-"", Expression-or-null]
+	var columns := []
+	for item in watch:
+		if typeof(item) != TYPE_DICTIONARY:
+			return _fail("each watch entry must be an object")
+		var node_path := String(item.get("node_path", "."))
+		var node := _resolve_node(node_path)
+		if node == null:
+			return _fail("node not found: %s" % node_path)
+		var prop := String(item.get("property", ""))
+		var expr_src := String(item.get("expression", ""))
+		if (prop == "") == (expr_src == ""):
+			return _fail("watch entry for %s needs exactly one of property or expression" % node_path)
+		var expr: Expression = null
+		if prop != "":
+			# Sub-paths like "position:x" are read with get_indexed();
+			# validate the base property name.
+			var base := prop.get_slice(":", 0)
+			var known := false
+			for p in node.get_property_list():
+				if p.name == base:
+					known = true
+					break
+			if not known:
+				return _fail("unknown property on %s: %s" % [node_path, base])
+		else:
+			expr = Expression.new()
+			if expr.parse(expr_src, input_names) != OK:
+				return _fail("parse error in %s: %s" % [expr_src, expr.get_error_text()])
+		var what := prop if prop != "" else expr_src
+		var label := String(item.get("label", what if node_path == "." else "%s.%s" % [node_path, what]))
+		columns.append([label, node, prop, expr])
+
+	var labels := []
+	for c in columns:
+		labels.append(c[0])
+
+	var start := Time.get_ticks_msec()
+	var rows := []
+	while true:
+		var t := (Time.get_ticks_msec() - start) / 1000.0
+		var row := [t]
+		for c in columns:
+			var node = c[1]
+			if not is_instance_valid(node):
+				row.append("<freed>")
+			elif c[3] == null:
+				row.append(var_to_str(node.get_indexed(NodePath(c[2]))))
+			else:
+				var expr: Expression = c[3]
+				var value = expr.execute(input_values, node, true)
+				row.append("<error: %s>" % expr.get_error_text() if expr.has_execute_failed() else var_to_str(value))
+		rows.append(row)
+		if t >= duration_sec or rows.size() >= max_samples:
+			break
+		await _wait_interval(interval_sec)
+
+	return {"columns": ["t"] + labels, "rows": rows}
 
 ## Key enum constant values for Godot 4.7, fetched directly from a live
 ## instance via compiled GDScript rather than guessed — confirmed live

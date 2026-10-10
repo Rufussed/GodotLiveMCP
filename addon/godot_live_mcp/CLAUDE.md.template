@@ -166,6 +166,11 @@ with its own tool set: `game_eval_expression`, `game_list_scene_tree`,
 `simulate_mouse_motion`, and `wait_for_game_condition` (polls a boolean
 expression once per frame instead of one round trip per frame — use this
 instead of manually looping `game_eval_expression` calls).
+To check behaviour over time rather than at one instant, use
+`monitor_game_properties` (samples properties/expressions into a time
+series, up to 10s) and `capture_game_frames` (several timestamped
+screenshots for judging motion), typically right after a `simulate_*`
+input.
 
 - Prefer `play_scene`/`stop_scene` over godot-mcp's inherited
   `run_project` — the latter spawns a separate CLI process this MCP
