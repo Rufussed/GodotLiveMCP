@@ -78,6 +78,7 @@ var _note_hint := ""      # wrong-turn hint
 var _note_stuck := ""
 var _note_why := ""       # the step's why text, or "asked the agent"
 var _showing := false     # a Show me is running
+var _pointed_at_new := false   # a node_added+name step moved its outline to the new node
 var _pointing_at_fold := false  # outlining a folded section until it's opened
 var _hints_logged := {}
 var _stuck_logged := false
@@ -92,6 +93,9 @@ var _card_next: Button = null
 var _card_show: Button = null
 var _card_why: Button = null
 var _card_save: Button = null
+var _card_pinned := false   # the user dragged the card: keep it where they put it
+var _card_drag := Vector2.ZERO  # grab offset while dragging
+var _card_dragging := false
 
 func setup(bridge: Node) -> void:
 	_bridge = bridge
@@ -406,6 +410,8 @@ func _validate_check(check: Dictionary, step: Dictionary, where: String, var_cla
 				errors.append("%s: type '%s' needs the step to have a target (the control to press)" % [where, type])
 		elif not check.has(field):
 			errors.append("%s: type '%s' needs '%s'" % [where, type, field])
+	if type == "node_added" and check.has("name") and String(check.name).validate_node_name() != String(check.name):
+		errors.append("%s: '%s' isn't a valid node name" % [where, check.name])
 	if check.has("class") and type in ["node_added", "property_class"] and not ClassDB.class_exists(String(check["class"])):
 		errors.append("%s: unknown class '%s'" % [where, check["class"]])
 	if type in ["property_equals", "property_changed", "property_class"] and check.has("node_path") and check.has("property"):
@@ -541,6 +547,7 @@ func _enter_step(i: int, revisit := false) -> void:
 	_overlay.clear()
 	_unlisten_press()
 	_pointing_at_fold = false
+	_pointed_at_new = false
 	var step: Dictionary = _steps[i]
 	_baseline = {}
 	_snapshot(step.done_when, "c")
@@ -781,7 +788,7 @@ func _derive_show_me(check: Dictionary) -> Array:
 			return [{"command": "select_nodes", "node_paths": [check.node_path]}]
 		"node_added":
 			if check.has("class"):
-				return [{"command": "add_node_live", "parent_path": check.parent, "node_type": check["class"], "node_name": check["class"]}]
+				return [{"command": "add_node_live", "parent_path": check.parent, "node_type": check["class"], "node_name": check.get("name", check["class"])}]
 		"node_removed":
 			return [{"command": "remove_node", "node_path": check.node_path}]
 		"node_renamed":
@@ -826,6 +833,21 @@ func _on_save_pressed() -> void:
 		_card_save.visible = false
 		_card_text.text += "\n[color=#60e080]Saved to %s — replay it from Project ▸ Tools ▸ Guided Tours…[/color]" % _escape(String(res.path))
 
+## The node_added step's new node now needs renaming: outline its Scene
+## dock row instead of the + button.
+func _point_at_new_node(check: Dictionary) -> void:
+	var cap := String(check.get("capture", ""))
+	var n = _vars[cap].get_ref() if cap != "" and _vars.has(cap) else null
+	if not n is Node:
+		return
+	var gen := _gen
+	var res: Dictionary = await _bridge._hl_resolve_target({"node_path": _bridge._rel_path(n)}, false)
+	if gen != _gen or res.has("error") or not res.has("tree"):
+		return
+	_unlisten_press()
+	_overlay.clear()
+	_overlay.add_tree_item(res.tree, res.item_path, "")
+
 func _unlisten_press() -> void:
 	if _pressed_conn.is_empty():
 		return
@@ -860,11 +882,14 @@ func _run_check() -> void:
 		await _advance("step_done")
 		return
 	var hint := _hint(check, "c")
+	if hint.begins_with("✓ Added!") and not _pointed_at_new:
+		_pointed_at_new = true
+		_point_at_new_node(check)
 	if hint != _note_hint:
 		_note_hint = hint
 		if hint != "" and not _hints_logged.has(hint):
 			_hints_logged[hint] = true
-			_log("wrong_action", {"hint": hint})
+			_log("rename_prompted" if hint.begins_with("✓ Added!") else "wrong_action", {"hint": hint})
 		_refresh_card()
 	var stuck_after := float(_tour.get("stuck_after_sec", STUCK_SEC))
 	if not _stuck_logged and stuck_after > 0 and (Time.get_ticks_msec() - _step_start_msec) / 1000.0 >= stuck_after:
@@ -920,7 +945,9 @@ func _passes(check: Dictionary, key: String) -> bool:
 					continue
 				if check.has("capture"):
 					_vars[String(check.capture)] = weakref(c)
-				return true
+				# With a name, the step goes on to "now rename it" (see
+				# _hint and _point_at_new_node) and completes once it's named.
+				return not check.has("name") or String(c.name) == String(check.name)
 			return false
 		"node_removed":
 			var ref = _baseline.get(key, null)
@@ -1009,6 +1036,10 @@ func _hint(check: Dictionary, key: String) -> String:
 			for c in parent.get_children():
 				if not known.has(c.get_instance_id()) and want != "" and not c.is_class(want):
 					return "That added a **%s**; this step wants a **%s**. Undo it with Ctrl+Z." % [c.get_class(), want]
+			if check.has("name"):
+				for c in parent.get_children():
+					if not known.has(c.get_instance_id()) and (want == "" or c.is_class(want)) and String(c.name) != String(check.name):
+						return "✓ Added! Now rename it to **%s**: double-click it in the Scene dock (or press F2) and type `%s`." % [check.name, check.name]
 			if want != "":
 				var all_known: Dictionary = _baseline.get(key + ":all", {})
 				for n in _all_nodes():
@@ -1133,10 +1164,18 @@ func _build_card() -> void:
 	sb.set_corner_radius_all(6)
 	sb.set_content_margin_all(10)
 	_card.add_theme_stylebox_override("panel", sb)
+	_card.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	_card.tooltip_text = "Drag to move · double-click to let it follow the outline again"
+	_card.gui_input.connect(_on_card_input)
+	_card_pinned = false
+	# Layout nodes pass clicks through, so a drag can start anywhere that
+	# isn't a button.
 	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_theme_constant_override("separation", 6)
 	_card.add_child(box)
 	var head := HBoxContainer.new()
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(head)
 	_card_title = Label.new()
 	_card_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1152,12 +1191,14 @@ func _build_card() -> void:
 	_card_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_card_text)
 	var buttons := HBoxContainer.new()
+	buttons.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(buttons)
 	_card_back = _card_button("◂ Back", "Previous step", _on_back_pressed)
 	buttons.add_child(_card_back)
 	_card_skip = _card_button("Skip", "Skip this step", _on_skip_pressed)
 	buttons.add_child(_card_skip)
 	var spacer := Control.new()
+	spacer.mouse_filter = Control.MOUSE_FILTER_PASS
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	buttons.add_child(spacer)
 	_card_why = _card_button("Why?", "Why this step?", _on_why_pressed)
@@ -1170,6 +1211,26 @@ func _build_card() -> void:
 	_card_save.visible = false
 	buttons.add_child(_card_save)
 	EditorInterface.get_base_control().add_child(_card)
+
+## Drag the card anywhere (not on its buttons, which take their own
+## clicks); it then stays put for the rest of the tour. Double-click hands
+## placement back to the outline-following logic.
+func _on_card_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var mb := event as InputEventMouseButton
+		if mb.double_click:
+			_card_pinned = false
+			_card_dragging = false
+		elif mb.pressed:
+			_card_dragging = true
+			_card_drag = mb.global_position - _card.global_position
+		else:
+			_card_dragging = false
+		_card.accept_event()
+	elif event is InputEventMouseMotion and _card_dragging:
+		_card_pinned = true
+		_card.global_position = (event as InputEventMouseMotion).global_position - _card_drag
+		_card.accept_event()
 
 func _card_button(text: String, tip: String, action: Callable, flat := false) -> Button:
 	var b := Button.new()
@@ -1210,6 +1271,12 @@ func _place_card() -> void:
 	var screen := EditorInterface.get_base_control().get_global_rect()
 	var size := _card.get_combined_minimum_size()
 	_card.size = size
+	if _card_pinned or _card_dragging:
+		# Where the user put it; only kept on screen (e.g. after a resize).
+		_card.global_position = Vector2(
+			clampf(_card.global_position.x, screen.position.x, screen.end.x - size.x),
+			clampf(_card.global_position.y, screen.position.y, screen.end.y - size.y))
+		return
 	var target := _overlay.visible_rect()
 	var pos: Vector2
 	if not target.has_area():

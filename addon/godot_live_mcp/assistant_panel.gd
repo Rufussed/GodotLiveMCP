@@ -39,6 +39,8 @@ const _TERMINALS := [
 const _MAC_PATH_PREFIX := 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; '
 
 var _external_button: Button       # header: open the chosen agent in a separate terminal window
+var _tutorial_button: Button       # input row: answer how-to questions with guided tours
+var _raw_next := false             # the next send is the tour card's own question: no tutorial note
 var _term_emulator_found := true   # a terminal emulator exists for External (set by _refresh_status)
 var _agent_button: MenuButton      # header: agent + model (+ effort) menu
 var _agent_model_menu: PopupMenu
@@ -1306,6 +1308,16 @@ func _build_session_ui() -> void:
 	_chat_view = splitter
 	_build_term_view()
 
+	# Tutorial mode: how-to questions get a guided tour instead of the
+	# agent doing it — one toggle instead of the agent asking each time.
+	_tutorial_button = Button.new()
+	_tutorial_button.text = "Tutorial"
+	_tutorial_button.toggle_mode = true
+	_tutorial_button.button_pressed = bool(_meta("tutorial_mode", false))
+	_tutorial_button.tooltip_text = "Tutorial mode: when on, the agent answers how-to questions with a step-by-step guided tour in the editor instead of doing it for you."
+	_tutorial_button.toggled.connect(func(on: bool) -> void: _set_meta("tutorial_mode", on))
+	input_row.add_child(_tutorial_button)
+
 	_send_button = Button.new()
 	_send_button.icon = _svg_icon("send.svg")
 	_send_button.tooltip_text = "Send (Enter)"
@@ -1943,6 +1955,18 @@ func _on_input_gui_input(event: InputEvent) -> void:
 
 ## Sends text as if the user typed it — used by guided tours' "Why?"
 ## button. Returns "" on success, else why it couldn't be sent.
+const _TUTORIAL_NOTE := "\n\n[Tutorial mode is on in the panel: if this is a how-to request, answer it with a guided tour (start_tour) and don't do it for me — no need to ask which I want. Otherwise answer normally.]"
+
+## What actually goes to the agent: the user's text, plus the tutorial-mode
+## note when that toggle is on (not for the tour card's own Why? questions).
+func _outgoing(text: String) -> String:
+	if _raw_next:
+		_raw_next = false
+		return text
+	if _tutorial_button != null and _tutorial_button.button_pressed:
+		return text + _TUTORIAL_NOTE
+	return text
+
 func ask(text: String) -> String:
 	var agent := _active_agent()
 	if not (agent in _CHAT_AGENTS):
@@ -1950,7 +1974,9 @@ func ask(text: String) -> String:
 	if agent in _TURN_AGENTS and _session_active:
 		return "%s is still working on the last message" % _cli_name(agent)
 	_input_field.text = text
+	_raw_next = true
 	_on_send_pressed()
+	_raw_next = false
 	return ""
 
 ## get separate feedback for; acceptable since _start_session already
@@ -1967,24 +1993,26 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 	if not (agent in _CHAT_AGENTS):
 		_append_transcript("[i]%s has no chat view yet — switch to Terminal or External.[/i]" % _cli_name(agent))
 		return
+	var you := "You (tutorial):" if (_tutorial_button != null and _tutorial_button.button_pressed and not _raw_next) else "You:"
+	var outgoing := _outgoing(text)
 	if _session_active and _session_kind != agent:
 		_stop_session("")  # a leftover process from another agent
 	if agent in _TURN_AGENTS:
 		if _session_active:
 			_append_transcript("[i]%s is still working on the last message — wait for it to finish.[/i]" % _cli_name(agent))
 			return
-		if _start_turn(agent, text):
-			_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
+		if _start_turn(agent, outgoing):
+			_append_transcript("[color=#e5c07b][b]%s[/b] %s[/color]" % [you, text.xml_escape()])
 			_input_field.text = ""
 			_set_busy("chat", true)
 		return
 	if not _session_active:
 		if not _start_session(text):
 			return
-	_append_transcript("[color=#e5c07b][b]You:[/b] %s[/color]" % text.xml_escape())
+	_append_transcript("[color=#e5c07b][b]%s[/b] %s[/color]" % [you, text.xml_escape()])
 	var payload := {
 		"type": "user",
-		"message": {"role": "user", "content": [{"type": "text", "text": text}]},
+		"message": {"role": "user", "content": [{"type": "text", "text": outgoing}]},
 	}
 	_pipe.stdio.store_string(JSON.stringify(payload) + "\n")
 	_input_field.text = ""

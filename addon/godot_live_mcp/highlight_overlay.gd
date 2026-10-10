@@ -114,7 +114,7 @@ func _ensure_layer() -> Control:
 func _make_panel(label: String) -> Panel:
 	var panel := Panel.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.2, 0.9, 0.35, 0.12)
+	sb.draw_center = false  # outline only; the control stays readable
 	sb.border_color = Color(0.25, 0.95, 0.4, 1.0)
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(4)
