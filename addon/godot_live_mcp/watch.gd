@@ -42,12 +42,9 @@ var _beat_left := 0.0
 var _beat_gen := 0         # stale async outline lookups check this
 var _overlay := HighlightOverlay.new()
 
-var _panel: PanelContainer = null
+var _panel: Control = null
 var _panel_text: RichTextLabel = null
 var _panel_title: Label = null
-var _moved := false          # the user dragged the panel
-var _drag := Vector2.ZERO
-var _dragging := false
 
 func setup(bridge: Node) -> void:
 	_bridge = bridge
@@ -108,9 +105,7 @@ func clear() -> void:
 	_current_entry = {}
 	_skipped = 0
 	_overlay.clear()
-	if _panel != null and is_instance_valid(_panel):
-		_panel.queue_free()
-	_panel = null
+	_remove_panel()
 
 # ---- Describing commands ---------------------------------------------------
 
@@ -419,77 +414,69 @@ func _show(beat: Dictionary) -> void:
 		else:
 			_overlay.add_control(res.control, "")
 
-# ---- Log panel ------------------------------------------------------------
+# ---- Log dock -------------------------------------------------------------
+#
+# A real editor dock ("Watch Log", lower-right slot by default), so it can be
+# resized, moved to another dock slot, or floated as its own window — all
+# Godot's own dock handling. Added when Watch first has something to show,
+# removed when Watch is turned off.
 
 func _ensure_panel() -> void:
 	if _panel != null and is_instance_valid(_panel):
 		return
-	_panel = PanelContainer.new()
-	_panel.name = "GodotLiveMCPWatch"
-	_panel.z_index = 100
-	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_panel.mouse_default_cursor_shape = Control.CURSOR_MOVE
-	_panel.tooltip_text = "Watch mode: what the agent just did, newest first. Click a line to point at that node or setting; drag to move."
 	var scale := EditorInterface.get_editor_scale()  # sizes are pixels; HiDPI editors scale 2x
-	_panel.custom_minimum_size = Vector2(540 * scale, 0)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.1, 0.13, 0.18, 0.94)
-	sb.border_color = Color(0.35, 0.6, 1.0)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(6)
-	sb.set_content_margin_all(8)
-	_panel.add_theme_stylebox_override("panel", sb)
-	_panel.gui_input.connect(_on_panel_input)
-	var box := VBoxContainer.new()
-	box.mouse_filter = Control.MOUSE_FILTER_PASS
-	_panel.add_child(box)
+	_panel = VBoxContainer.new()
+	_panel.name = "Watch Log"
+	_panel.tooltip_text = "What the agent did, grouped by message, newest first. Click a line to point at that node or setting."
+	_panel.custom_minimum_size = Vector2(240 * scale, 160 * scale)
 	_panel_title = Label.new()
 	_panel_title.text = "Watching the agent"
 	_panel_title.add_theme_color_override("font_color", Color(0.55, 0.78, 1.0))
-	box.add_child(_panel_title)
+	_panel.add_child(_panel_title)
 	_panel_text = RichTextLabel.new()
 	_panel_text.bbcode_enabled = true
-	# Scrolls once a session's steps outgrow it (newest at the top).
+	# Fills the dock and scrolls (newest at the top).
 	_panel_text.fit_content = false
 	_panel_text.scroll_active = true
+	_panel_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_panel_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_panel_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_panel_text.custom_minimum_size = Vector2(520 * scale, 360 * scale)
 	_panel_text.add_theme_constant_override("line_separation", int(7 * scale))  # air between actions
-	# PASS, not IGNORE: the lines are clickable links, and clicks elsewhere
-	# still reach the panel for dragging.
-	_panel_text.mouse_filter = Control.MOUSE_FILTER_PASS
 	_panel_text.meta_underlined = false
 	_panel_text.meta_clicked.connect(_on_log_clicked)
-	box.add_child(_panel_text)
-	EditorInterface.get_base_control().add_child(_panel)
+	_panel.add_child(_panel_text)
+	var plugin: EditorPlugin = _bridge._editor_plugin
+	if plugin == null:
+		return
+	plugin.add_control_to_dock(EditorPlugin.DOCK_SLOT_RIGHT_BL, _panel)
+	# Bring it to the front once, when it first appears; after that the
+	# user decides which dock tab is showing.
+	# (Godot 4.6+ wraps the control in an EditorDock: walk up to the tabs.)
+	var tab: Node = _panel
+	while tab != null and tab.get_parent() != null and not (tab.get_parent() is TabContainer):
+		tab = tab.get_parent()
+	if tab != null and tab.get_parent() is TabContainer:
+		var tabs := tab.get_parent() as TabContainer
+		tabs.current_tab = tabs.get_tab_idx_from_control(tab as Control)
+
+func _remove_panel() -> void:
+	if _panel == null or not is_instance_valid(_panel):
+		_panel = null
+		return
+	var plugin: EditorPlugin = _bridge._editor_plugin if _bridge else null
+	if plugin != null and _panel.get_parent() != null:
+		plugin.remove_control_from_docks(_panel)
+	_panel.queue_free()
+	_panel = null
+	_panel_title = null
+	_panel_text = null
+
+func _exit_tree() -> void:
+	_overlay.clear()
+	_remove_panel()
 
 func _place_panel() -> void:
-	if _panel == null or not is_instance_valid(_panel):
-		return
-	var screen := EditorInterface.get_base_control().get_global_rect()
-	var size := _panel.get_combined_minimum_size()
-	_panel.size = size
-	if not _moved:
-		_panel.global_position = Vector2(screen.end.x - size.x - 24, screen.end.y - size.y - 260)
-	_panel.global_position = Vector2(
-		clampf(_panel.global_position.x, screen.position.x, screen.end.x - size.x),
-		clampf(_panel.global_position.y, screen.position.y, screen.end.y - size.y))
-
-func _on_panel_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
-		var mb := event as InputEventMouseButton
-		if mb.double_click:
-			_moved = false
-		elif mb.pressed:
-			_dragging = true
-			_drag = mb.global_position - _panel.global_position
-		else:
-			_dragging = false
-		_panel.accept_event()
-	elif event is InputEventMouseMotion and _dragging:
-		_moved = true
-		_panel.global_position = (event as InputEventMouseMotion).global_position - _drag
-		_panel.accept_event()
+	pass  # docked: Godot places and sizes it
 
 func _markdown(src: String) -> String:
 	var out := src.replace("[", "[lb]")
