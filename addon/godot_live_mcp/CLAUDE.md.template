@@ -78,6 +78,16 @@ holds that version. `get_script_text` says `source` (editor or file) and
 Never write a script that is open in the editor straight to disk: the editor
 keeps its own copy and can overwrite or revert it.
 
+## Addons: search the official Asset Library first
+
+When the user asks for an addon, plugin or tool for Godot, call
+`search_assets` first (the official Godot Asset Library, filtered to this
+editor's version) before suggesting GitHub or the web. Tell the user the
+title, author, license and support level of what you found and which you'd
+pick, and confirm before `install_asset`. Installing only copies files into
+`addons/`; **never enable a plugin yourself** — it runs code inside the
+editor — tell the user and let them enable it (Project Settings > Plugins).
+
 ## Saving
 
 Every `set_property`/`add_node_live`/etc. call changes the editor's

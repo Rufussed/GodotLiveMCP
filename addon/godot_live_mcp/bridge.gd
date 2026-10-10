@@ -3072,6 +3072,105 @@ func _cmd_highlight_editor_control(params: Dictionary):
 func _cmd_clear_editor_highlights(_params: Dictionary):
 	return {"cleared": _hl_clear()}
 
+# --- Installing an Asset Library zip --------------------------------------------
+
+const ASSET_MAX_UNZIPPED := 300 * 1024 * 1024
+
+## Extracts a downloaded asset zip (fetched by the MCP server from the
+## official Asset Library) into the project. By default only the zip's
+## addons/ folder is installed — an asset's demo scene, project.godot and
+## icon would collide with the user's own files. Existing files are never
+## overwritten unless asked, entries with path tricks are skipped, and the
+## plugin is NOT enabled (that runs its code in the editor: the user's call).
+func _cmd_install_asset_zip(params: Dictionary):
+	var zip_path := str(params.get("zip_path", ""))
+	var include := str(params.get("include", "addons"))
+	var overwrite := bool(params.get("overwrite", false))
+	var slug := str(params.get("name", "asset")).to_snake_case().validate_filename()
+	if slug == "":
+		slug = "asset"
+	var reader := ZIPReader.new()
+	if reader.open(zip_path) != OK:
+		return _fail("could not open the downloaded zip")
+	var entries: Array = []
+	for f in reader.get_files():
+		if not str(f).ends_with("/"):
+			entries.append(str(f))
+	# GitHub zips wrap everything in one "<repo>-<commit>/" folder: strip it.
+	var root := ""
+	if not entries.is_empty():
+		var first_root: String = entries[0].get_slice("/", 0)
+		var shared := true
+		for e in entries:
+			if not e.contains("/") or e.get_slice("/", 0) != first_root:
+				shared = false
+				break
+		if shared:
+			root = first_root + "/"
+	var files: Array = []   # [name inside the zip, path relative to the project]
+	for e in entries:
+		files.append([e, e.trim_prefix(root)])
+	var chosen: Array = []
+	var dest_prefix := "res://"
+	var addon_files := files.filter(func(pair): return str(pair[1]).begins_with("addons/"))
+	if include == "addons":
+		if addon_files.is_empty():
+			var tops := {}
+			for pair in files:
+				tops[str(pair[1]).get_slice("/", 0)] = true
+			reader.close()
+			return _fail("this asset has no addons/ folder (it contains: %s). Call again with include: \"all\" to put everything in res://%s/" % [", ".join(tops.keys().slice(0, 8)), slug])
+		chosen = addon_files
+	else:
+		chosen = files
+		dest_prefix = "res://%s/" % slug
+
+	var written := 0
+	var total := 0
+	var skipped_existing: Array = []
+	var skipped_unsafe := 0
+	var plugin_cfgs: Array = []
+	var folders := {}
+	var licenses: Array = []
+	for pair in chosen:
+		var rel: String = pair[1]
+		if rel.contains("..") or rel.begins_with("/") or rel.contains(":") or rel.contains("\\") or rel.begins_with(".git") or rel.contains("/.git/"):
+			skipped_unsafe += 1
+			continue
+		var dest := dest_prefix + rel
+		if FileAccess.file_exists(dest) and not overwrite:
+			skipped_existing.append(rel)
+			continue
+		var data := reader.read_file(pair[0])
+		total += data.size()
+		if total > ASSET_MAX_UNZIPPED:
+			reader.close()
+			return _fail("the asset is larger than %d MB unpacked — not installing" % (ASSET_MAX_UNZIPPED / 1048576))
+		DirAccess.make_dir_recursive_absolute(dest.get_base_dir())
+		var out := FileAccess.open(dest, FileAccess.WRITE)
+		if out == null:
+			reader.close()
+			return _fail("could not write %s (error %d)" % [dest, FileAccess.get_open_error()])
+		out.store_buffer(data)
+		out.close()
+		written += 1
+		folders[rel.get_slice("/", 0) if include != "addons" else "/".join(rel.split("/").slice(0, 2))] = true
+		if rel.get_file() == "plugin.cfg":
+			plugin_cfgs.append(dest)
+		if rel.get_file().to_lower().begins_with("licen"):
+			licenses.append(dest)
+	reader.close()
+	EditorInterface.get_resource_filesystem().scan()
+	var plugins: Array = []
+	for cfg_path in plugin_cfgs:
+		var cfg := ConfigFile.new()
+		if cfg.load(cfg_path) == OK:
+			plugins.append({"plugin_cfg": cfg_path, "name": cfg.get_value("plugin", "name", ""),
+				"version": cfg.get_value("plugin", "version", ""), "description": str(cfg.get_value("plugin", "description", "")).left(200)})
+	return {"installed_files": written, "folders": folders.keys(), "plugins": plugins, "license_files": licenses,
+		"skipped_existing": skipped_existing.slice(0, 20), "skipped_existing_count": skipped_existing.size(),
+		"skipped_unsafe": skipped_unsafe, "enabled": false}
+
 # --- Watch mode (watch.gd) ---------------------------------------------------
 
 const WatchScript = preload("res://addons/godot_live_mcp/watch.gd")
