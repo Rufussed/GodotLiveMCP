@@ -85,7 +85,7 @@ export class BridgeClient {
     }
   }
 
-  async call(command: string, params: Record<string, any> = {}): Promise<any> {
+  async call(command: string, params: Record<string, any> = {}, timeoutMs?: number): Promise<any> {
     if (!this.token) {
       this.token = discoverProjectToken();
     }
@@ -97,14 +97,14 @@ export class BridgeClient {
       );
     }
     try {
-      return await this.send(this.token, command, params);
+      return await this.send(this.token, command, params, timeoutMs);
     } catch (err) {
       // The configured token can be the wrong one (e.g. a fixed global token
       // while this editor generated its own) — fall back to the project's.
       if (err instanceof BridgeError && err.message === 'invalid token') {
         const discovered = discoverProjectToken();
         if (discovered && discovered !== this.token) {
-          const result = await this.send(discovered, command, params);
+          const result = await this.send(discovered, command, params, timeoutMs);
           this.token = discovered;
           return result;
         }
@@ -113,7 +113,7 @@ export class BridgeClient {
     }
   }
 
-  private send(token: string, command: string, params: Record<string, any>): Promise<any> {
+  private send(token: string, command: string, params: Record<string, any>, timeoutMs = this.timeoutMs): Promise<any> {
     const id = randomUUID();
     const payload = JSON.stringify({ id, token, command, params }) + '\n';
 
@@ -138,12 +138,12 @@ export class BridgeClient {
         // answered. What silence means is a busy editor or a modal dialog —
         // and that the command may still finish, so a retry could repeat it.
         reject(new BridgeError(connected
-          ? `No reply to "${command}" within ${this.timeoutMs / 1000}s. The GodotLiveMCP addon is connected, so the editor is ` +
+          ? `No reply to "${command}" within ${timeoutMs / 1000}s. The GodotLiveMCP addon is connected, so the editor is ` +
             `probably busy or showing a dialog (check the editor window). The command may still complete — check the ` +
             `result before repeating it.`
           : `Timed out connecting to the GodotLiveMCP bridge (is the addon running in the editor?)`
         ));
-      }, this.timeoutMs);
+      }, timeoutMs);
 
       socket.on('connect', () => {
         connected = true;
