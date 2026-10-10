@@ -133,6 +133,10 @@ says it can't point at it.
 | `signal_connected` | `source`, `signal`, `target`, `method`? | `source.signal` is connected to `target` (that `method`, if given). |
 | `in_group` | `node_path`, `group` | The node is in the group. |
 | `script_contains` | `script` (a `res://` path) or `node_path` (a node with the script), `text`, `extends`?, `replace`? | The script's text, including unsaved edits, contains `text` (whitespace ignored). `extends` and `replace` only affect Show me. |
+| `script_ok` | `script` or `node_path` | The script (including unsaved edits) parses with no errors. |
+| `output_contains` | `text` | The Output panel (which also carries the running game's prints) shows `text` after the step began. |
+| `no_errors` | none | No new error lines since the step began, in the editor or in the running game. |
+| `game_property` | `node_path`, `property`, `op` (`>` `<` `>=` `<=` `==` `~=`), `value`, `tolerance`? | A property **in the running game** compares true. Needs the game's runtime bridge (the `GodotLiveMCPRuntime` autoload). |
 | `scene_open` | `path` | That scene is the one being edited. |
 | `scene_saved` | none | The scene is saved during the step. |
 | `file_exists` | `path` | The file or folder exists. |
@@ -151,6 +155,26 @@ A step whose check is already true when it starts is shown briefly ("✓
 Already done") before moving on. When the user does something close but
 wrong, such as the wrong class, wrong parent, or a different value or
 name, the card says what's different.
+
+### Verifying a step's result (`verify`)
+
+`done_when` says the learner did the thing; an optional `verify` says it
+**worked**. It's any check, usually one of the four above:
+
+```json
+{
+	"text": "Press **F6**. The ball should land on the floor.",
+	"done_when": { "type": "game_running" },
+	"verify": { "type": "game_property", "node_path": "$ball", "property": "position:y", "op": ">", "value": "-5" }
+}
+```
+
+After `done_when` passes, the step only completes once `verify` passes. If
+it hasn't passed after a short wait (`wait_sec`; by default 0.6 s for
+`script_ok`, 3–4 s for output and game checks), the card says what's wrong,
+for example "✗ That didn't work: the script has an error — line 7: Expected
+closing ")"", and records a `verify_failed` event for the agent. It keeps
+re-checking, so the tour moves on by itself once the learner fixes it.
 
 ### Show me
 
