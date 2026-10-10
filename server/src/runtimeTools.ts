@@ -20,7 +20,7 @@ const NODE_PATH_PROPERTY = {
 
 const VALUE_ENCODING_NOTE =
   ' Values are Godot\'s var_to_str() string encoding (e.g. "5", "true", "\\"hello\\"", ' +
-  '"Vector2(1, 2)", "Color(1, 0, 0, 1)") — not plain JSON.';
+  '"Vector2(1, 2)", "Color(1, 0, 0, 1)"; colours may also be "#ff0000") — not plain JSON.';
 
 const RUNTIME_REQUIREMENT_NOTE =
   ' Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target ' +
