@@ -51,6 +51,7 @@ export const bridgeToolNames = new Set([
   'clear_editor_selection',
   'validate_script',
   'edit_script_text',
+  'save_scripts',
   'set_properties_multi',
   'set_animation_keys',
   'set_animation_track_path',
@@ -510,6 +511,11 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'save_scripts',
+    description: 'Save every open script that has unsaved edits (tabs marked (*)), like Ctrl+S on each, and check each file on disk. Returns what was saved.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'edit_script_text',
     description:
       'Edit a GDScript (.gd) or shader (.gdshader) file the way a person would: ' +
@@ -528,6 +534,7 @@ export const bridgeToolDefinitions = [
         text: { type: 'string', description: 'the complete new file contents (omit when using old_text/new_text)' },
         old_text: { type: 'string', description: 'exact text to replace; must appear exactly once in the current file' },
         new_text: { type: 'string', description: 'what to replace old_text with (may be empty to delete it)' },
+        save: { type: 'boolean', description: 'Also save the script/shader to disk (like Ctrl+S) and verify the file. Default false: the edit stays in the editor tab, marked (*). The result always says saved, editor_matches, disk_matches and, for GDScript, parse_error.' },
       },
       required: ['path'],
     },
@@ -1684,12 +1691,15 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('set_properties_multi', { edits: params.edits ?? [] }));
     case 'save_resource_file':
       return textResult(await client.call('save_resource_file', { path: params.path, source: params.source }));
+    case 'save_scripts':
+      return textResult(await client.call('save_scripts', {}));
     case 'edit_script_text':
       return textResult(await client.call('edit_script_text', {
         path: params.path,
         ...(params.text !== undefined ? { text: params.text } : {}),
         ...(params.old_text !== undefined ? { old_text: params.old_text } : {}),
         ...(params.new_text !== undefined ? { new_text: params.new_text } : {}),
+        ...(params.save !== undefined ? { save: params.save } : {}),
       }));
     case 'get_script_text':
       return textResult(await client.call('get_script_text', { path: params.path }));
