@@ -99,6 +99,7 @@ export const bridgeToolNames = new Set([
   'clear_editor_highlights',
   'start_tour',
   'get_tour_status',
+  'revise_tour',
   'stop_tour',
   'save_tour',
   'list_tours',
@@ -1325,10 +1326,30 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'revise_tour',
+    description:
+      'Change course in the running guided tour when something went wrong (a verify_failed event, a failed Show me, a learner who is ' +
+      'stuck, or an "Ask the agent" message): replaces the steps from from_step (1-based; default the current step) with new ones, keeping ' +
+      'progress, variables ($ball etc.) and the log. The card tells the learner the plan changed (show note). Use this INSTEAD of changing ' +
+      'the scene yourself. Steps use the same format as start_tour; validated first, all problems at once; dry_run to check only. ' +
+      'from_step may be the step after the current one (to keep the current step and change what follows).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        steps: { type: 'array', items: { type: 'object' }, description: 'The new steps (start_tour step format)' },
+        from_step: { type: 'integer', description: 'First step to replace (1-based; default: the current step)' },
+        note: { type: 'string', description: 'One line for the learner: why the plan changed' },
+        dry_run: { type: 'boolean', description: 'Validate only (default false)' },
+      },
+      required: ['steps'],
+    },
+  },
+  {
     name: 'get_tour_status',
     description:
       'Where the user is in the guided tour: current step, seconds on it, captured vars (as current node paths), and the ' +
-      'event log (step_started, step_done, already_done, wrong_action, stuck, target_missing, skipped, back_to_step, why_shown, ' +
+      'problems (the recent things that went wrong on the current step: verify_failed, show_me_failed, wrong_action, stuck…), current_step, ' +
+      'and the event log (step_started, step_done, already_done, wrong_action, stuck, target_missing, skipped, back_to_step, why_shown, ' +
       'why_asked, show_me, show_me_failed, stopped, ' +
       'tour_done), plus any note currently on the card (note_target / note_hint / note_stuck). Call this first when the user comes back ' +
       'to chat mid-tour.',
@@ -1883,6 +1904,9 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('set_watch_mode', { on: params.on ?? true }));
     case 'list_tours':
       return textResult(await client.call('list_tours', {}));
+    case 'revise_tour':
+      return textResult(await client.call('revise_tour', { steps: params.steps, from_step: params.from_step ?? 0,
+        note: params.note ?? '', dry_run: params.dry_run ?? false }));
     case 'get_tour_status':
       return textResult(await client.call('get_tour_status', {}));
     case 'stop_tour':

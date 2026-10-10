@@ -2963,6 +2963,20 @@ func _cmd_list_tours(_params: Dictionary):
 func open_tour_picker() -> void:
 	_tours().open_picker()
 
+## Replaces the remaining steps of the running tour (the agent's way of
+## changing course when something went wrong); never touches the scene.
+func _cmd_revise_tour(params: Dictionary):
+	var steps = params.get("steps", null)
+	if typeof(steps) != TYPE_ARRAY:
+		return _fail("steps must be an array of tour steps")
+	var res: Dictionary = await _tours().revise(steps, int(params.get("from_step", 0)), str(params.get("note", "")), bool(params.get("dry_run", false)))
+	if not res.ok:
+		var msg := "revision is invalid:\n- " + "\n- ".join(res.errors)
+		if not res.warnings.is_empty():
+			msg += "\nwarnings:\n- " + "\n- ".join(res.warnings)
+		return _fail(msg)
+	return res
+
 func _cmd_get_tour_status(_params: Dictionary):
 	return _tours().status()
 

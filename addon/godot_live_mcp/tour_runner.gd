@@ -27,6 +27,9 @@ const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set
 	"set_material_3d", "set_physics_material", "setup_environment", "rename_node", "reparent_node", "remove_node",
 	"connect_signal", "set_node_groups", "attach_script", "edit_script_text", "save_scene_live", "open_scene",
 	"play_scene"]
+## Event types that mean a step isn't going well: what the agent is shown
+## (get_tour_status.problems) and what the Ask the agent button sends.
+const PROBLEM_TYPES := ["verify_failed", "show_me_failed", "show_me_refused", "wrong_action", "stuck", "target_missing"]
 const GAME_OPS := [">", "<", ">=", "<=", "==", "~="]
 const SHOW_ME_ANNOUNCE_SEC := 1.6   # how long the card announces before Show me acts
 
@@ -119,6 +122,7 @@ var _card_skip: Button = null
 var _card_next: Button = null
 var _card_show: Button = null
 var _card_why: Button = null
+var _card_ask: Button = null
 var _card_save: Button = null
 var _card_close: Button = null  # the Done card's main action
 var _card_pinned := false   # the user dragged the card: keep it where they put it
@@ -216,6 +220,14 @@ func status() -> Dictionary:
 		out["step"] = _index + 1
 		out["step_id"] = str(_steps[_index].get("id", ""))
 		out["step_elapsed_sec"] = (Time.get_ticks_msec() - _step_start_msec) / 1000.0
+		var cur: Dictionary = _steps[_index]
+		out["current_step"] = {"text": str(cur.get("text", "")), "done_when": cur.get("done_when"),
+			"verify": cur.get("verify"), "fixup": bool(cur.get("_fixup", false))}
+		var problems := []
+		for e in _events:
+			if str(e.type) in PROBLEM_TYPES:
+				problems.append(e)
+		out["problems"] = problems.slice(maxi(0, problems.size() - 6))
 		for key in ["target", "hint", "stuck"]:
 			var note: String = {"target": _note_target, "hint": _note_hint, "stuck": _note_stuck}[key]
 			if note != "":
@@ -1009,6 +1021,7 @@ func _finish() -> void:
 	_card_skip.visible = false
 	_card_next.visible = false
 	_card_show.visible = false
+	_card_ask.visible = false
 	_card_why.visible = false
 	_card_save.visible = _source_path == ""
 	_card_close.visible = true
@@ -1032,6 +1045,100 @@ func _on_next_pressed() -> void:
 		# Through the normal check, so a verify on the step still runs.
 		_manual_done = true
 		_queue_check()
+
+## Something on the card says the step isn't working.
+func _has_problem() -> bool:
+	return _note_hint.begins_with("✗") or _note_hint.begins_with("Couldn't show") or _note_hint.begins_with("Show me won't") \
+		or _note_stuck != "" or _note_target.begins_with("I can't point")
+
+## What to tell the agent: where the learner is, what went wrong, and to
+## fix the plan (revise_tour), not the scene.
+func _build_digest() -> String:
+	var step: Dictionary = _steps[_index]
+	var lines := []
+	if _note_hint != "":
+		lines.append(_note_hint)
+	if _note_target != "":
+		lines.append(_note_target)
+	if _note_stuck != "":
+		lines.append("The learner has been on this step a long time.")
+	for e in _events:
+		if str(e.type) in PROBLEM_TYPES and int(e.get("step", 0)) == _index + 1:
+			var detail := str(e.get("saw", e.get("error", e.get("hint", ""))))
+			lines.append("%s%s" % [e.type, ": " + detail if detail != "" else ""])
+	# One line per problem: drop an event line whose detail the card note already says.
+	var uniq := []
+	for l in lines:
+		var text := str(l).left(300)
+		var detail := text.get_slice(": ", 1) if text.contains(": ") and str(l).split(": ")[0] in PROBLEM_TYPES else ""
+		var covered := false
+		for other in lines:
+			if other != l and detail != "" and str(other).contains(detail):
+				covered = true
+		if not covered and not text in uniq:
+			uniq.append(text)
+	return "[Guided tour \"%s\", step %d/%d: %s]\nSomething isn't working here:\n- %s\n\nThe step's checks: %s\n\nFix the PLAN, not the scene: call revise_tour to replace the remaining steps (from step %d) with ones that get me past this. Keep using $vars for my node names, and don't change the scene yourself. Call get_tour_status if you need more detail." % [
+		str(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(str(step.get("text", ""))),
+		"\n- ".join(uniq), JSON.stringify({"done_when": step.get("done_when"), "verify": step.get("verify")}).left(500), _index + 1]
+
+func _on_ask_pressed() -> void:
+	if not is_running() or _done:
+		return
+	var panel := _agent_panel()
+	if panel == null:
+		return
+	var err: String = panel.ask(_build_digest())
+	_log("asked_agent", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
+	if err == "":
+		_bridge._editor_plugin.make_bottom_panel_item_visible(panel)
+		_note_why = "Asked the agent — see the AI Assistant panel."
+	else:
+		_note_why = "Couldn't ask the agent: " + err
+	_refresh_card()
+
+## revise_tour: replace the steps from from_step (1-based; default the
+## current one) with new ones, keeping progress, variables and the log.
+## Returns {"ok", "errors", "warnings"[, "steps", "from_step"]}.
+func revise(new_steps: Array, from_step: int, note: String, dry_run: bool) -> Dictionary:
+	if not is_running() or _done:
+		return {"ok": false, "errors": ["no tour is running — start one with start_tour"], "warnings": []}
+	var in_fixup := _fixup_active or _verify_only
+	var cur := _resume_origin if in_fixup else _index
+	var from := from_step if from_step > 0 else cur + 1
+	if from < 1 or from > cur + 2:
+		return {"ok": false, "errors": ["from_step must be between 1 and %d (the step after the current one)" % (cur + 2)], "warnings": []}
+	var prefix := []
+	for st in _steps.slice(0, from - 1):
+		if not st.get("_fixup", false):
+			prefix.append((st as Dictionary).duplicate(true))
+	var candidate := _tour.duplicate(true)
+	candidate["steps"] = prefix + new_steps
+	var warnings := []
+	_validated = false
+	var errors := _validate(candidate, warnings)
+	if not _validated:
+		errors = ["couldn't finish checking the new steps (unexpected data)"]
+	if not errors.is_empty() or dry_run:
+		return {"ok": errors.is_empty(), "errors": errors, "warnings": warnings, "dry_run": dry_run}
+	_steps = candidate.steps
+	_tour["steps"] = _steps
+	_fixup_active = false
+	_verify_only = false
+	_log("revised", {"from_step": from, "steps": new_steps.size(), "note": note})
+	var banner := "🛠 The agent changed the plan from here" + (": " + note if note != "" else ".")
+	if from - 1 <= cur:
+		if from - 1 >= _steps.size():
+			_finish()
+			return {"ok": true, "errors": [], "warnings": warnings, "steps": _steps.size(), "from_step": from}
+		await _enter_step(from - 1)
+	else:
+		if in_fixup:
+			await _enter_step(cur)
+		_refresh_card()
+	_note_hint = banner
+	_hint_hold_until = Time.get_ticks_msec() + 15000
+	_refresh_card()
+	return {"ok": true, "errors": [], "warnings": warnings, "steps": _steps.size(), "from_step": from}
 
 ## "Why?": the step's own why text first (works offline, in saved tours);
 ## pressed again, or when there is none, the question goes to the agent in
@@ -1744,6 +1851,9 @@ func _build_card() -> void:
 	buttons.add_child(spacer)
 	_card_why = _card_button("Why?", "Why this step?", _on_why_pressed)
 	buttons.add_child(_card_why)
+	_card_ask = _card_button("Ask the agent", "Tell the agent what went wrong so it can change the plan", _on_ask_pressed)
+	_card_ask.visible = false
+	buttons.add_child(_card_ask)
 	_card_show = _card_button("Show me", "Do this step for me (undo with Ctrl+Z)", _on_show_me_pressed)
 	buttons.add_child(_card_show)
 	_card_next = _card_button("Next ▸", "Next step", _on_next_pressed)
@@ -1819,6 +1929,7 @@ func _refresh_card() -> void:
 	_card_next.visible = _revisit or str(step.done_when.type) == "manual"
 	_card_show.visible = (not _show_me_actions(step).is_empty() or str(step.done_when.type) == "manual") and not _revisit
 	_card_show.disabled = _showing
+	_card_ask.visible = _has_problem() and _agent_panel() != null and not _showing
 	_card_why.visible = str(step.get("why", "")) != "" or _agent_panel() != null
 
 ## Places the card where it doesn't cover what the user needs. When the
