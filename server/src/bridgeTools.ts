@@ -6,6 +6,7 @@
 
 import { BridgeClient } from './bridgeClient.js';
 import { validateToolArgs } from './validateArgs.js';
+import { searchAssets, installAsset } from './assetLibrary.js';
 
 const NODE_PATH_PROPERTY = {
   node_path: {
@@ -101,6 +102,8 @@ export const bridgeToolNames = new Set([
   'start_tour',
   'get_tour_status',
   'get_perf_stats',
+  'search_assets',
+  'install_asset',
   'revise_tour',
   'stop_tour',
   'save_tour',
@@ -1353,6 +1356,45 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'search_assets',
+    description:
+      'Search the OFFICIAL Godot Asset Library (godotengine.org/asset-library) for addons. When the user asks for an addon, plugin or ' +
+      'tool for Godot, search here FIRST, before suggesting GitHub or the web. Results fit the open editor\'s Godot version and show title, ' +
+      'author, license, support level (official / community / testing), rating, version and last update. Tell the user what you found and ' +
+      'ask which to install, unless they already named one. The newer store.godotengine.org has no public API, so it is not searched.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What to search for, e.g. "dialogue", "state machine", "terrain"' },
+        category: { type: 'string', description: 'Optional category name (e.g. "Tools", "Scripts", "Shaders") or id' },
+        sort: { type: 'string', enum: ['rating', 'cost', 'name', 'updated'], description: 'Order (default: the library\'s own)' },
+        support: { type: 'string', enum: ['official', 'community', 'testing'], description: 'Only this support level' },
+        max_results: { type: 'integer', description: 'How many (default 8, max 20)' },
+        page: { type: 'integer', description: 'Result page, from 0' },
+        godot_version: { type: 'string', description: 'e.g. "4.7"; default: the open editor\'s version' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'install_asset',
+    description:
+      'Install an Asset Library asset (the asset_id from search_assets) into the open project: downloads the exact published version from ' +
+      'its official source, verifies the checksum when the library gives one, and extracts its addons/ folder into res://addons/. Never ' +
+      'overwrites existing files unless overwrite is true, and does NOT enable the plugin — a plugin runs code inside the editor. Always tell ' +
+      'the user the title, author and license first, and enable the plugin (Project > Project Settings > Plugins) only when they agree. ' +
+      'Assets without an addons/ folder (templates, demos) need include: "all", which puts everything in res://<name>/.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_id: { type: 'string', description: 'The asset_id from search_assets' },
+        include: { type: 'string', enum: ['addons', 'all'], description: 'addons (default): only the addons/ folder. all: everything, into res://<name>/' },
+        overwrite: { type: 'boolean', description: 'Replace files that already exist (default false)' },
+      },
+      required: ['asset_id'],
+    },
+  },
+  {
     name: 'get_perf_stats',
     description:
       'How much time the GodotLiveMCP addon itself spends in its periodic work, in ms: the per-frame bridge polling, running tours ' +
@@ -1931,6 +1973,10 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'revise_tour':
       return textResult(await client.call('revise_tour', { steps: params.steps, from_step: params.from_step ?? 0,
         note: params.note ?? '', dry_run: params.dry_run ?? false }));
+    case 'search_assets':
+      return textResult(await searchAssets(params, client));
+    case 'install_asset':
+      return textResult(await installAsset(params, client));
     case 'get_perf_stats':
       return textResult(await client.call('get_perf_stats', { reset: params.reset ?? false }));
     case 'get_tour_status':
