@@ -6,6 +6,8 @@ extends Node
 ## AI Assistant panel's robot uses it to show that an AI is working in the
 ## editor, whichever client (chat, CLI, a separate terminal, another tool) it is.
 signal activity(ok: bool)
+## Watch mode switched on/off (by the panel button or the set_watch_mode tool).
+signal watch_changed(on: bool)
 
 ## Headless local socket bridge for the GodotLiveMCP MCP server.
 ##
@@ -277,6 +279,8 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 				error = "%s (%s)" % [error, slow]
 
 	activity.emit(ok)
+	if is_watching():
+		_watch().observe(command, params, result, ok, error)
 	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
 
 func _edited_scene_label() -> String:
@@ -2749,6 +2753,39 @@ func _cmd_highlight_editor_control(params: Dictionary):
 ## Removes every highlight drawn by highlight_editor_control.
 func _cmd_clear_editor_highlights(_params: Dictionary):
 	return {"cleared": _hl_clear()}
+
+# --- Watch mode (watch.gd) ---------------------------------------------------
+
+const WatchScript = preload("res://addons/godot_live_mcp/watch.gd")
+var _watch_node: Node = null
+
+## Kept here (not in the panel) so it applies to any agent connected to this
+## editor — the panel's Watch button just shows and sets it.
+func is_watching() -> bool:
+	return bool(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "watch_mode", false))
+
+func set_watching(on: bool) -> void:
+	if on == is_watching():
+		return
+	EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", "watch_mode", on)
+	if not on and _watch_node != null and is_instance_valid(_watch_node):
+		_watch_node.clear()
+	watch_changed.emit(on)
+
+func _watch() -> Node:
+	if _watch_node == null or not is_instance_valid(_watch_node):
+		_watch_node = WatchScript.new()
+		_watch_node.name = "Watch"
+		_watch_node.setup(self)
+		add_child(_watch_node)
+	return _watch_node
+
+func _cmd_set_watch_mode(params: Dictionary):
+	set_watching(bool(params.get("on", true)))
+	return {"watching": is_watching()}
+
+func _cmd_get_watch_mode(_params: Dictionary):
+	return {"watching": is_watching()}
 
 # --- guided tours (tour_runner.gd) ------------------------------------------
 

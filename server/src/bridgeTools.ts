@@ -105,6 +105,7 @@ export const bridgeToolNames = new Set([
   'start_recording',
   'stop_recording',
   'get_recording_status',
+  'set_watch_mode',
   'refresh_editor_scripts',
   'get_material_info',
   'add_animation_state',
@@ -1350,6 +1351,20 @@ export const bridgeToolDefinitions = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'set_watch_mode',
+    description:
+      'Turn Watch mode on or off in the editor. While on, each change you make through these tools is shown to the user as ' +
+      'it happens: the node or property you touched is briefly outlined and a small log lists what you did ("added Ball ' +
+      '(RigidBody3D)", "Ball · Mass → 2"). It never slows you down. Turn it on when the user says "let me watch", "show me ' +
+      'what you\'re doing" or wants to follow along without doing it themselves (for "teach me", use a guided tour instead). ' +
+      'The user can also toggle it with the panel\'s Watch button.',
+    inputSchema: {
+      type: 'object',
+      properties: { on: { type: 'boolean', description: 'true to turn Watch on (default), false to turn it off' } },
+      required: [],
+    },
+  },
+  {
     name: 'list_tours',
     description: 'List the saved .tour.json files in the project (path, title, step count, required scene).',
     inputSchema: { type: 'object', properties: {}, required: [] },
@@ -1834,6 +1849,8 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         save: params.save ?? true, path: params.path ?? '', discard: params.discard ?? false }));
     case 'get_recording_status':
       return textResult(await client.call('get_recording_status', {}));
+    case 'set_watch_mode':
+      return textResult(await client.call('set_watch_mode', { on: params.on ?? true }));
     case 'list_tours':
       return textResult(await client.call('list_tours', {}));
     case 'get_tour_status':
