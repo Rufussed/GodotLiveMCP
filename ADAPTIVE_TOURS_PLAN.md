@@ -1,6 +1,7 @@
 # Adaptive tours — changing course when a step goes wrong
 
-Draft, 2026-10-10. Extends `TUTORIAL_TOOLS_PLAN.md` (tours) and
+Status: phases 1–4 built and tested live (2026-10-10); phase 5 (recorder
+support) skipped. Written as a draft the same day. Extends `TUTORIAL_TOOLS_PLAN.md` (tours) and
 `WATCH_MODE_PLAN.md`.
 
 ## The problem
