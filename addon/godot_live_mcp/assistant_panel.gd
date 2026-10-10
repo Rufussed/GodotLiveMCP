@@ -1308,14 +1308,17 @@ func _build_session_ui() -> void:
 	_chat_view = splitter
 	_build_term_view()
 
-	# Tutorial mode: how-to questions get a guided tour instead of the
-	# agent doing it — one toggle instead of the agent asking each time.
+	# Teach mode: how-to questions get a guided tour instead of the agent
+	# doing it — one toggle instead of the agent asking each time. Solid
+	# green when on, grey when off, so the state is obvious at a glance.
 	_tutorial_button = Button.new()
-	_tutorial_button.text = "Tutorial"
 	_tutorial_button.toggle_mode = true
+	_tutorial_button.focus_mode = Control.FOCUS_NONE
 	_tutorial_button.button_pressed = bool(_meta("tutorial_mode", false))
-	_tutorial_button.tooltip_text = "Tutorial mode: when on, the agent answers how-to questions with a step-by-step guided tour in the editor instead of doing it for you."
-	_tutorial_button.toggled.connect(func(on: bool) -> void: _set_meta("tutorial_mode", on))
+	_tutorial_button.toggled.connect(func(on: bool) -> void:
+		_set_meta("tutorial_mode", on)
+		_style_teach_button(on))
+	_style_teach_button(_tutorial_button.button_pressed)
 	input_row.add_child(_tutorial_button)
 
 	_send_button = Button.new()
@@ -1358,6 +1361,25 @@ func _style_button(b: Button, color: Color) -> void:
 	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
 		b.add_theme_color_override(c, Color.WHITE)
+
+func _style_teach_button(on: bool) -> void:
+	_tutorial_button.text = "Teach"
+	_tutorial_button.tooltip_text = (
+		"Teach mode is ON: how-to questions are answered with a step-by-step guided tour in the editor, instead of the agent doing it for you. Click to turn off."
+		if on else
+		"Teach mode is off. Click to turn on: how-to questions will then be answered with a step-by-step guided tour in the editor, instead of the agent doing it for you.")
+	var color := Color(0.22, 0.6, 0.28) if on else Color(0.28, 0.3, 0.34)
+	_style_button(_tutorial_button, color)
+	# A toggled-on button under the mouse draws "hover_pressed", which
+	# _style_button doesn't set — without this it falls back to theme grey.
+	var hp := StyleBoxFlat.new()
+	hp.bg_color = color.lightened(0.12)
+	hp.set_corner_radius_all(4)
+	hp.content_margin_left = 8
+	hp.content_margin_right = 8
+	_tutorial_button.add_theme_stylebox_override("hover_pressed", hp)
+	if not on:
+		_tutorial_button.add_theme_color_override("font_color", Color(0.75, 0.77, 0.8))
 
 ## Stops the reply in progress without ending the conversation: Claude gets
 ## the stream-json "interrupt" control request (confirmed: the session and
@@ -1955,7 +1977,7 @@ func _on_input_gui_input(event: InputEvent) -> void:
 
 ## Sends text as if the user typed it — used by guided tours' "Why?"
 ## button. Returns "" on success, else why it couldn't be sent.
-const _TUTORIAL_NOTE := "\n\n[Tutorial mode is on in the panel: if this is a how-to request, answer it with a guided tour (start_tour) and don't do it for me — no need to ask which I want. Otherwise answer normally.]"
+const _TUTORIAL_NOTE := "\n\n[Teach mode is on in the panel: if this is a how-to request, answer it with a guided tour (start_tour) and don't do it for me — no need to ask which I want. Otherwise answer normally.]"
 
 ## What actually goes to the agent: the user's text, plus the tutorial-mode
 ## note when that toggle is on (not for the tour card's own Why? questions).
@@ -1993,7 +2015,7 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 	if not (agent in _CHAT_AGENTS):
 		_append_transcript("[i]%s has no chat view yet — switch to Terminal or External.[/i]" % _cli_name(agent))
 		return
-	var you := "You (tutorial):" if (_tutorial_button != null and _tutorial_button.button_pressed and not _raw_next) else "You:"
+	var you := "You (teach):" if (_tutorial_button != null and _tutorial_button.button_pressed and not _raw_next) else "You:"
 	var outgoing := _outgoing(text)
 	if _session_active and _session_kind != agent:
 		_stop_session("")  # a leftover process from another agent

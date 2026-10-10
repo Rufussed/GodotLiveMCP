@@ -236,7 +236,7 @@ input.
 - "Where is X?" → `highlight_editor_control`: one outline that disappears as
   soon as the user acts.
 - "Show me", "teach me", "guide me", "walk me through", "I want to learn",
-  or a message saying **tutorial mode is on** (the panel's Tutorial toggle)
+  or a message saying **teach mode is on** (the panel's Teach toggle)
   → start a guided tour (`start_tour`) straight away. Don't ask whether
   they want it done instead; they've already said.
 - A bare "how do I…?" could mean either: offer both in one line ("I can do
