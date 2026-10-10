@@ -17,6 +17,11 @@ const STUCK_SEC := 90.0
 const RESOLVE_TRIES := 3
 const RESOLVE_RETRY_SEC := 0.35
 
+## Bridge commands a step's show_me may run (all undoable). Params use the
+## bridge's own names; "$var" works in any string value or node_paths entry.
+const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "rename_node",
+	"reparent_node", "remove_node", "connect_signal", "set_node_groups", "attach_script", "save_scene_live"]
+
 ## Required fields per done_when type ("@target" = the step itself must have
 ## a target, the control to watch).
 const CHECK_FIELDS := {
@@ -68,6 +73,9 @@ var _gen := 0             # bumped on every step change; stale awaits bail out
 var _note_target := ""    # can't point / select the node again
 var _note_hint := ""      # wrong-turn hint
 var _note_stuck := ""
+var _note_why := ""       # the step's why text, or "asked the agent"
+var _showing := false     # a Show me is running
+var _pointing_at_fold := false  # outlining a folded section until it's opened
 var _hints_logged := {}
 var _stuck_logged := false
 
@@ -78,6 +86,8 @@ var _card_text: RichTextLabel = null
 var _card_back: Button = null
 var _card_skip: Button = null
 var _card_next: Button = null
+var _card_show: Button = null
+var _card_why: Button = null
 
 func setup(bridge: Node) -> void:
 	_bridge = bridge
@@ -122,6 +132,7 @@ func stop() -> void:
 	_index = -1
 	_holding = false
 	_resolving = false
+	_showing = false
 	_overlay.clear()
 	_unlisten_press()
 	if _card != null and is_instance_valid(_card):
@@ -213,6 +224,16 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 			errors.append("%s: done_when is required" % where)
 			continue
 		_validate_check(check, step, where + ": done_when", var_class, errors)
+		if step.has("why") and typeof(step.why) != TYPE_STRING:
+			errors.append("%s: why must be a string" % where)
+		if step.has("show_me"):
+			if typeof(step.show_me) != TYPE_ARRAY:
+				errors.append("%s: show_me must be an array of {command, ...params}" % where)
+			else:
+				for action in step.show_me:
+					if typeof(action) != TYPE_DICTIONARY or not String(action.get("command", "")) in SHOW_ME_COMMANDS:
+						errors.append("%s: show_me commands must be one of %s" % [where, ", ".join(SHOW_ME_COMMANDS)])
+						break
 	return errors
 
 func _validate_check(check: Dictionary, step: Dictionary, where: String, var_class: Dictionary, errors: Array) -> void:
@@ -343,10 +364,12 @@ func _enter_step(i: int, revisit := false) -> void:
 	_note_target = ""
 	_note_hint = ""
 	_note_stuck = ""
+	_note_why = ""
 	_hints_logged = {}
 	_stuck_logged = false
 	_overlay.clear()
 	_unlisten_press()
+	_pointing_at_fold = false
 	var step: Dictionary = _steps[i]
 	_baseline = {}
 	_snapshot(step.done_when, "c")
@@ -410,6 +433,9 @@ func _point(gen: int) -> void:
 			_overlay.add_tree_item(res.tree, res.item_path, label)
 		else:
 			_overlay.add_control(res.control, label)
+			_pointing_at_fold = bool(res.entry.get("folded", false))
+			if _pointing_at_fold:
+				_note_target = "It's inside the outlined section — click its heading to open it."
 			if res.control is BaseButton:
 				_unlisten_press()
 				var cb := _on_target_pressed.bind(gen)
@@ -426,6 +452,18 @@ func _repoint_if_lost() -> void:
 	var step: Dictionary = _steps[_index]
 	var target = step.get("target", null)
 	if typeof(target) != TYPE_DICTIONARY or (target as Dictionary).is_empty() or _needs_missing_var(step):
+		return
+	if _pointing_at_fold:
+		# Once the section is opened, swap to the property row itself.
+		var prop := String(target.get("property", ""))
+		for ep in EditorInterface.get_inspector().find_children("*", "EditorProperty", true, false):
+			if String((ep as EditorProperty).get_edited_property()) == prop and (ep as Control).is_visible_in_tree():
+				_pointing_at_fold = false
+				_overlay.clear()
+				_overlay.add_control(ep, String(target.get("label", "")))
+				_note_target = ""
+				_refresh_card()
+				return
 		return
 	if _overlay.first_target() != null:
 		return
@@ -456,6 +494,8 @@ func _finish() -> void:
 	_card_back.visible = false
 	_card_skip.visible = false
 	_card_next.visible = false
+	_card_show.visible = false
+	_card_why.visible = false
 
 func _on_back_pressed() -> void:
 	if is_running() and not _done and _index > 0:
@@ -470,6 +510,141 @@ func _on_skip_pressed() -> void:
 func _on_next_pressed() -> void:
 	if is_running() and not _done and (_revisit or String(_steps[_index].done_when.type) == "manual"):
 		await _advance("step_done")
+
+## "Why?": the step's own why text first (works offline, in saved tours);
+## pressed again, or when there is none, the question goes to the agent in
+## the AI Assistant panel with the tour context.
+func _on_why_pressed() -> void:
+	if not is_running() or _done:
+		return
+	var step: Dictionary = _steps[_index]
+	var why := String(step.get("why", ""))
+	if why != "" and _note_why != why:
+		_note_why = why
+		_log("why_shown")
+		_refresh_card()
+		return
+	var panel := _agent_panel()
+	if panel == null:
+		return
+	var question := "[Guided tour \"%s\", step %d/%d: %s] Why do I do this step? Explain briefly in plain language — don't do it for me, and don't change the scene." % [
+		String(_tour.get("title", "")), _index + 1, _steps.size(), String(step.text)]
+	var err: String = panel.ask(question)
+	_log("why_asked", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
+	if err == "":
+		_bridge._editor_plugin.make_bottom_panel_item_visible(panel)
+		_note_why = (why + "\n" if why != "" else "") + "Asked the agent — see the AI Assistant panel."
+	else:
+		_note_why = (why + "\n" if why != "" else "") + "Couldn't ask the agent: " + err
+	_refresh_card()
+
+## The in-editor AI Assistant panel, if the plugin has one.
+func _agent_panel() -> Node:
+	var plugin = _bridge._editor_plugin if _bridge else null
+	if plugin == null:
+		return null
+	var panel = plugin.get("_assistant_panel")
+	return panel if panel is Node and is_instance_valid(panel) and panel.has_method("ask") else null
+
+## "Show me": does the step for the user through the bridge's own undoable
+## commands; the step then completes through its normal check.
+func _on_show_me_pressed() -> void:
+	if not is_running() or _done or _showing:
+		return
+	var actions := _show_me_actions(_steps[_index])
+	if actions.is_empty():
+		return
+	var gen := _gen
+	_showing = true
+	_refresh_card()
+	_log("show_me")
+	for action in actions:
+		var params: Dictionary = action.duplicate()
+		var command := String(params.get("command", ""))
+		params.erase("command")
+		var res = await _bridge.call("_cmd_" + command, params)
+		if gen != _gen:
+			_showing = false
+			return
+		if typeof(res) == TYPE_DICTIONARY and res.has("__error__"):
+			_showing = false
+			_log("show_me_failed", {"command": command, "error": res["__error__"]})
+			_note_hint = "Couldn't show this one: %s" % res["__error__"]
+			_refresh_card()
+			return
+	_showing = false
+	if actions.size() > 1:
+		_note_hint = "Done for you — Ctrl+Z %d times to undo." % actions.size()
+	else:
+		_note_hint = "Done for you — Ctrl+Z to undo."
+	_refresh_card()
+	_queue_check()
+
+## The step's show_me actions with $vars filled in, or ones derived from its
+## done_when check; [] when the step can't be shown.
+func _show_me_actions(step: Dictionary) -> Array:
+	var raw = step.get("show_me", null)
+	var actions: Array = raw if typeof(raw) == TYPE_ARRAY else _derive_show_me(step.done_when)
+	var out := []
+	for action in actions:
+		var a := {}
+		for key in action:
+			var v = action[key]
+			if typeof(v) == TYPE_STRING:
+				v = _sub(String(v))
+				if String(v).begins_with("<missing"):
+					return []
+			elif typeof(v) == TYPE_ARRAY:
+				var arr := []
+				for item in v:
+					arr.append(_sub(String(item)) if typeof(item) == TYPE_STRING else item)
+				v = arr
+			a[key] = v
+		out.append(a)
+	return out
+
+func _derive_show_me(check: Dictionary) -> Array:
+	match String(check.type):
+		"node_selected":
+			return [{"command": "select_nodes", "node_paths": [check.node_path]}]
+		"node_added":
+			if check.has("class"):
+				return [{"command": "add_node_live", "parent_path": check.parent, "node_type": check["class"], "node_name": check["class"]}]
+		"node_removed":
+			return [{"command": "remove_node", "node_path": check.node_path}]
+		"node_renamed":
+			return [{"command": "rename_node", "node_path": check.node_path, "new_name": check.name}]
+		"node_reparented":
+			return [{"command": "reparent_node", "node_path": check.node_path, "new_parent_path": check.parent}]
+		"property_equals":
+			if not String(check.property).contains(":"):
+				return [{"command": "set_property", "node_path": check.node_path, "property_name": check.property, "value": check.value}]
+		"script_attached":
+			if check.has("script"):
+				return [{"command": "attach_script", "node_path": check.node_path, "script_path": check.script}]
+		"signal_connected":
+			if check.has("method"):
+				return [{"command": "connect_signal", "node_path": check.source, "signal_name": check.signal, "target_node_path": check.target, "method_name": check.method}]
+		"in_group":
+			var n := _node(String(check.node_path))
+			if n != null:
+				var groups := []
+				for g in n.get_groups():
+					if not String(g).begins_with("_"):
+						groups.append(String(g))
+				groups.append(String(check.group))
+				return [{"command": "set_node_groups", "node_path": check.node_path, "groups": groups}]
+		"scene_saved":
+			return [{"command": "save_scene_live"}]
+		"all":
+			var out := []
+			for sub in check.checks:
+				var part := _derive_show_me(sub)
+				if part.is_empty():
+					return []
+				out.append_array(part)
+			return out
+	return []
 
 func _unlisten_press() -> void:
 	if _pressed_conn.is_empty():
@@ -805,6 +980,10 @@ func _build_card() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	buttons.add_child(spacer)
+	_card_why = _card_button("Why?", "Why this step?", _on_why_pressed)
+	buttons.add_child(_card_why)
+	_card_show = _card_button("Show me", "Do this step for me (undo with Ctrl+Z)", _on_show_me_pressed)
+	buttons.add_child(_card_show)
 	_card_next = _card_button("Next ▸", "Next step", _on_next_pressed)
 	buttons.add_child(_card_next)
 	EditorInterface.get_base_control().add_child(_card)
@@ -824,6 +1003,8 @@ func _refresh_card() -> void:
 	var step: Dictionary = _steps[_index]
 	_card_title.text = "%s  ·  Step %d/%d" % [String(_tour.get("title", "Tour")), _index + 1, _steps.size()]
 	var text := _markdown(String(step.text))
+	if _note_why != "":
+		text += "\n[color=#8cc4ff]%s[/color]" % _markdown(_note_why)
 	for note in [_note_target, _note_hint, _note_stuck]:
 		if note != "":
 			var colour := "#60e080" if note.begins_with("✓") else "#e0b050"
@@ -831,6 +1012,9 @@ func _refresh_card() -> void:
 	_card_text.text = text
 	_card_back.disabled = _index == 0
 	_card_next.visible = _revisit or String(step.done_when.type) == "manual"
+	_card_show.visible = not _show_me_actions(step).is_empty() and not _revisit
+	_card_show.disabled = _showing
+	_card_why.visible = String(step.get("why", "")) != "" or _agent_panel() != null
 
 ## Places the card where it doesn't cover what the user needs. When the
 ## outline is inside a narrow dock (Scene, Inspector, FileSystem), the card

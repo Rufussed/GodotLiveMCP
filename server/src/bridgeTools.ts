@@ -1250,7 +1250,14 @@ export const bridgeToolDefinitions = [
       'highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every ' +
       'problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\n' +
       'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, requires?: {scene_open?, node_exists?: [paths]}, ' +
-      'stuck_after_sec? (default 90; 0 = off), steps: [{id?, text, target?, done_when}]}.\n' +
+      'stuck_after_sec? (default 90; 0 = off), steps: [{id?, text, why?, target?, done_when, show_me?}]}.\n' +
+      '- why: one or two sentences on why this step matters; shown by the card\'s Why? button (works with no agent). ' +
+      'Pressed again, Why? sends the question to the in-editor agent panel.\n' +
+      '- show_me: actions the card\'s Show me button runs to do the step for the user (undoable). Usually omit it: it is ' +
+      'derived from done_when for node_selected, node_added (with class), node_removed/renamed/reparented, property_equals, ' +
+      'script_attached (with script), signal_connected (with method), in_group, scene_saved and all. Explicit form: ' +
+      '[{command, ...bridge params}], command one of select_nodes, add_node_live, set_property, rename_node, reparent_node, ' +
+      'remove_node, connect_signal, set_node_groups, attach_script, save_scene_live.\n' +
       '- text: short instruction; **bold** and `code` are rendered.\n' +
       '- target: what to outline — same fields as highlight_editor_control (node_path, property, path/root, text, tooltip, ' +
       'class, index, label). A node target outlines its Scene dock row WITHOUT selecting it. Omit for a card-only step. If ' +
@@ -1265,7 +1272,7 @@ export const bridgeToolDefinitions = [
       '"scene_open" {path} | "scene_saved" | "file_exists" {path} | "control_pressed" (the step\'s target button was ' +
       'pressed — fallback only, misses shortcuts) | "game_running" | "manual" (user clicks Next) | "all"/"any" {checks: [...]}.\n' +
       '- Anywhere a node path is accepted, "$name" or "$name/Child" refers to a var.\n' +
-      '- The card gives the user Back, Skip and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
+      '- The card gives the user Back, Skip, Why?, Show me and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
       'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +
       'Validation checks property and signal names against the real classes; editor controls that can\'t be found yet are ' +
       'warnings, not errors (they may appear later, e.g. in a dialog).\n' +
@@ -1283,7 +1290,8 @@ export const bridgeToolDefinitions = [
     name: 'get_tour_status',
     description:
       'Where the user is in the guided tour: current step, seconds on it, captured vars (as current node paths), and the ' +
-      'event log (step_started, step_done, already_done, wrong_action, stuck, target_missing, skipped, back_to_step, stopped, ' +
+      'event log (step_started, step_done, already_done, wrong_action, stuck, target_missing, skipped, back_to_step, why_shown, ' +
+      'why_asked, show_me, show_me_failed, stopped, ' +
       'tour_done), plus any note currently on the card (note_target / note_hint / note_stuck). Call this first when the user comes back ' +
       'to chat mid-tour.',
     inputSchema: { type: 'object', properties: {}, required: [] },

@@ -2572,7 +2572,12 @@ func _hl_resolve_target(t: Dictionary, select := true) -> Dictionary:
 				control = ep
 				break
 		if control == null:
-			return {"error": "property '%s' exists but its row isn't visible in the Inspector (collapsed section, or hidden by the editor's property filter)" % prop}
+			# In a folded section: point at the section's heading instead,
+			# so the user knows to open it.
+			var sec := _section_for(obj, prop)
+			if not sec.is_empty():
+				return await _hl_revealed(sec.control, {"kind": "property", "property": prop, "on": obj.get_class(), "folded": sec.folded})
+			return {"error": "property '%s' exists but its row isn't visible in the Inspector (hidden by the editor's property filter?)" % prop}
 		return await _hl_revealed(control, {"kind": "property", "property": prop, "on": obj.get_class()})
 	elif t.has("node_path") and not (t.has("path") or t.has("text") or t.has("class") or t.has("tooltip")):
 		var node := _resolve_node(String(t.node_path))
@@ -2608,6 +2613,43 @@ func _hl_resolve_target(t: Dictionary, select := true) -> Dictionary:
 	if "text" in found and String(found.get("text")) != "":
 		entry["text"] = String(found.get("text"))
 	return await _hl_revealed(found, entry)
+
+## The Inspector section heading to point at when prop has no visible row.
+## Rows inside a folded section don't exist until it's opened, so the
+## heading is found from its tooltip_text: either the property itself (a
+## checkable heading such as Camera2D's "Position Smoothing [On]", tooltip
+## "property|Camera2D|position_smoothing_enabled" — folded false, its
+## checkbox sets the value) or the folded group/subgroup the property
+## belongs to (tooltip = the group name — folded true). {} if neither.
+func _section_for(obj: Object, prop: String) -> Dictionary:
+	var sections := []
+	for sec in EditorInterface.get_inspector().find_children("*", "EditorInspectorSection", true, false):
+		if (sec as Control).is_visible_in_tree():
+			sections.append(sec)
+	for sec in sections:
+		var tip := (sec as Control).tooltip_text
+		if tip.begins_with("property|") and tip.ends_with("|" + prop):
+			return {"control": sec, "folded": false}
+	var group := ""
+	var subgroup := ""
+	for p in obj.get_property_list():
+		if p.usage & PROPERTY_USAGE_CATEGORY:
+			group = ""
+			subgroup = ""
+		elif p.usage & PROPERTY_USAGE_GROUP:
+			group = p.name
+			subgroup = ""
+		elif p.usage & PROPERTY_USAGE_SUBGROUP:
+			subgroup = p.name
+		elif p.name == prop:
+			break
+	for name in [subgroup, group]:
+		if name == "":
+			continue
+		for sec in sections:
+			if (sec as Control).tooltip_text.to_lower() == String(name).to_lower():
+				return {"control": sec, "folded": true}
+	return {}
 
 func _hl_revealed(control: Control, entry: Dictionary) -> Dictionary:
 	await _hl_reveal(control)
