@@ -8,7 +8,20 @@
 	"properties": {
 		"format": { "const": "godot-live-tour/1" },
 		"title": { "type": "string" },
-		"vars": { "type": "object", "additionalProperties": { "type": "string" } },
+		"vars": {
+			"type": "object",
+			"additionalProperties": {
+				"oneOf": [
+					{ "type": "string" },
+					{
+						"type": "object",
+						"required": ["class"],
+						"properties": { "class": { "type": "string" }, "name": { "type": "string" }, "hint": { "type": "string" } },
+						"additionalProperties": false
+					}
+				]
+			}
+		},
 		"requires": {
 			"type": "object",
 			"properties": {

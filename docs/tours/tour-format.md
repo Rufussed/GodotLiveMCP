@@ -14,9 +14,11 @@ Tours come from two places:
   no network, nothing leaves the machine. Any tour can be saved from its
   last card ("Save tour") or with the `save_tour` tool, then edited by hand.
 
-Machine-readable schema: [`tour.schema.json`](tour.schema.json). Example:
-[`first-label.tour.json`](first-label.tour.json), which works in any
-project with a scene open.
+Machine-readable schema: [`tour.schema.json`](tour.schema.json). Examples, a beginner series that works in any project with a 2D scene
+open, in this order: [`first-label`](first-label.tour.json),
+[`collisions`](collisions.tour.json),
+[`player-movement`](player-movement.tour.json),
+[`ui-button`](ui-button.tour.json), [`signals`](signals.tour.json).
 
 ## File layout
 
@@ -35,7 +37,7 @@ project with a scene open.
 |---|---|---|
 | `format` | yes | Always `"godot-live-tour/1"`. |
 | `title` | no | Shown on the card and in the tour list. |
-| `vars` | no | Names for nodes that already exist: `name` → node path relative to the scene root (`"."` is the root). |
+| `vars` | no | Names for nodes that already exist: `name` → a node path relative to the scene root (`"."` is the root), or `{"class": "CharacterBody2D", "hint": "…"}` for the first node of that class, whatever the user named it (add `"name"` when the scene may hold several). If there's none, the tour won't start and shows the hint, e.g. "play the Collisions tour first". |
 | `requires` | no | `scene_open`: the tour's scene, opened automatically when played from the menu. `node_exists`: node paths that must exist. |
 | `stuck_after_sec` | no | Seconds before a "Stuck?" note appears (default 90, `0` = never). |
 | `steps` | yes | One or more steps, run in order. |
@@ -59,8 +61,8 @@ except under `addons/` and hidden folders.
 | Field | Required | Meaning |
 |---|---|---|
 | `id` | no | For your own reference; appears in status and errors. |
-| `text` | yes | The instruction. `**bold**` and `` `code` `` are rendered; `$name` is replaced by that node's current name. |
-| `why` | no | One plain sentence on why the step matters, shown by the card's **Why?** button. |
+| `text` | yes | The instruction. `**bold**` and `` `code` `` are rendered; `$name` is replaced by that node's current name (write `$$name` to get a literal `$` before it, e.g. `$$label.text` → `$Label.text`). |
+| `why` | no | One plain sentence on why the step matters, shown by the card's **Why?** button. `$name` works here too. |
 | `target` | no | What to outline (below). Omit for a card-only step. |
 | `done_when` | yes | The check that completes the step (below). |
 | `show_me` | no | What **Show me** does (below). Usually derived automatically. |
@@ -84,6 +86,9 @@ The same fields as the `highlight_editor_control` tool:
 | `{ "root": "scene_tree", "tooltip": "Add/Create a New Node" }` | An editor control matched by tooltip (case-insensitive substring); best for icon-only buttons. |
 | `{ "root": "editor", "text": "2D", "index": 0 }` | An editor control matched by its visible text, plus `class`/`index` to disambiguate. |
 | `{ "root": "inspector", "path": "…" }` | An editor control by path, as listed by `dump_control_tree`. Fragile across Godot versions; prefer `tooltip` or `text`. |
+
+Entries in the editor's top menu bar (Scene, Project, Debug…) can't be
+outlined; describe them in the step text instead.
 
 `root` is one of `inspector` (default), `scene_tree`, `filesystem`,
 `bottom_panel` or `editor`. An optional `label` adds a caption under the

@@ -1,0 +1,72 @@
+{
+	"format": "godot-live-tour/1",
+	"title": "A player that runs and jumps",
+	"vars": {
+		"root": ".",
+		"floor": { "class": "StaticBody2D", "hint": "play “Collisions: a crate lands on a floor” first, so the player has something to stand on" }
+	},
+	"steps": [
+		{
+			"id": "select-root",
+			"text": "Select **$root**, the top node of your scene.",
+			"target": { "node_path": "$root" },
+			"done_when": { "type": "node_selected", "node_path": "$root" }
+		},
+		{
+			"id": "add-player",
+			"text": "Click **+**, search for `CharacterBody2D`, and press **Create**.",
+			"why": "A CharacterBody2D is a body that your code moves, for example from the arrow keys, and it still collides with walls and floors.",
+			"target": { "root": "scene_tree", "tooltip": "Add/Create a New Node" },
+			"done_when": { "type": "node_added", "parent": "$root", "class": "CharacterBody2D", "capture": "player" }
+		},
+		{
+			"id": "player-shape",
+			"text": "With **$player** selected, add a `CollisionShape2D` as its child.",
+			"why": "Without a shape, the player would fall straight through **$floor**.",
+			"target": { "root": "scene_tree", "tooltip": "Add/Create a New Node" },
+			"done_when": { "type": "node_added", "parent": "$player", "class": "CollisionShape2D", "capture": "player_shape" }
+		},
+		{
+			"id": "player-rect",
+			"text": "In the Inspector, set **Shape** to a **New RectangleShape2D**.",
+			"target": { "node_path": "$player_shape", "property": "shape" },
+			"done_when": { "type": "property_class", "node_path": "$player_shape", "property": "shape", "class": "RectangleShape2D" }
+		},
+		{
+			"id": "add-sprite",
+			"text": "Select **$player** again and add a `Sprite2D` as its child.",
+			"why": "The body and its shape are invisible. A Sprite2D is the picture you see.",
+			"target": { "root": "scene_tree", "tooltip": "Add/Create a New Node" },
+			"done_when": { "type": "node_added", "parent": "$player", "class": "Sprite2D", "capture": "sprite" }
+		},
+		{
+			"id": "sprite-texture",
+			"text": "Drag `icon.svg` (or any image) from the **FileSystem** dock onto **Texture** in the Inspector.",
+			"why": "The texture is the image the sprite draws.",
+			"target": { "node_path": "$sprite", "property": "texture" },
+			"done_when": { "type": "property_class", "node_path": "$sprite", "property": "texture", "class": "Texture2D" }
+		},
+		{
+			"id": "player-move",
+			"text": "Move **$player** so it starts above **$floor**.",
+			"done_when": { "type": "property_changed", "node_path": "$player", "property": "position" },
+			"show_me": [
+				{ "command": "set_property", "node_path": "$player", "property_name": "position", "value": "Vector2(300, 200)" }
+			]
+		},
+		{
+			"id": "attach-script",
+			"text": "Select **$player**, click **Attach Script**, keep the template **CharacterBody2D: Basic Movement**, and press **Create**. Then come back to the **2D** view.",
+			"why": "A script is code that belongs to a node. This template already handles gravity, running and jumping, so you can read how it works.",
+			"target": { "root": "scene_tree", "tooltip": "Attach a new or existing script to the selected node" },
+			"done_when": { "type": "script_attached", "node_path": "$player" }
+		},
+		{
+			"id": "run",
+			"text": "Press **F6** to play. Use the **arrow keys** to run and **Space** to jump.",
+			"why": "In the script, `ui_left`/`ui_right` and `ui_accept` are Godot's built-in actions for the arrow keys and Space/Enter.",
+			"target": { "root": "editor", "tooltip": "Play the currently edited scene" },
+			"done_when": { "type": "game_running" }
+		}
+	]
+}

@@ -120,7 +120,7 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	_vars = {}
 	var initial: Dictionary = tour.get("vars", {})
 	for name in initial:
-		_vars[String(name)] = weakref(_bridge._resolve_node(String(initial[name])))
+		_vars[String(name)] = weakref(_resolve_var(initial[name]))
 	_start_msec = Time.get_ticks_msec()
 	_connect_signals()
 	_build_card()
@@ -333,12 +333,24 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 	var var_class := {}
 	var initial = tour.get("vars", {})
 	if typeof(initial) != TYPE_DICTIONARY:
-		errors.append("vars must be an object of name -> node path")
+		errors.append("vars must be an object of name -> node path or {class, hint?}")
 	else:
 		for name in initial:
-			var n: Node = _bridge._resolve_node(String(initial[name]))
+			var spec = initial[name]
+			if typeof(spec) == TYPE_DICTIONARY and not ClassDB.class_exists(String(spec.get("class", ""))):
+				errors.append("vars.%s: unknown class '%s'" % [name, spec.get("class", "")])
+				continue
+			var n: Node = _resolve_var(spec)
 			if n == null:
-				errors.append("vars.%s: node not found: %s" % [name, initial[name]])
+				if typeof(spec) == TYPE_DICTIONARY:
+					var msg := "vars.%s: this tour needs a %s in the scene" % [name, spec["class"]]
+					if String(spec.get("name", "")) != "":
+						msg += " named '%s'" % spec.name
+					if String(spec.get("hint", "")) != "":
+						msg += " — " + String(spec.hint)
+					errors.append(msg)
+				else:
+					errors.append("vars.%s: node not found: %s" % [name, spec])
 			var_class[String(name)] = n.get_class() if n != null else ""
 	for i in (steps as Array).size():
 		var step = steps[i]
@@ -448,6 +460,20 @@ func _check_property(path: String, prop: String, var_class: Dictionary, where: S
 		if p.name == base:
 			return
 	errors.append("%s: %s has no property '%s'" % [where, cls, base])
+
+## A vars entry: a node path, or {"class": "CharacterBody2D"} for the first
+## node of that class in the scene (whatever the user named it), optionally
+## {"name": …} too when the scene may hold several — lets one tour build on
+## what an earlier tour made.
+func _resolve_var(spec) -> Node:
+	if typeof(spec) == TYPE_DICTIONARY:
+		var cls := String(spec.get("class", ""))
+		var want_name := String(spec.get("name", ""))
+		for n in _all_nodes():
+			if n.is_class(cls) and (want_name == "" or String(n.name) == want_name):
+				return n
+		return null
+	return _bridge._resolve_node(String(spec))
 
 ## Names of $vars referenced in d's string values that aren't defined yet.
 func _vars_used(d, defined: Dictionary) -> Array:
@@ -664,7 +690,7 @@ func _on_why_pressed() -> void:
 	if not is_running() or _done:
 		return
 	var step: Dictionary = _steps[_index]
-	var why := String(step.get("why", ""))
+	var why := _name_vars(String(step.get("why", "")))
 	if why != "" and _note_why != why:
 		_note_why = why
 		_log("why_shown")
