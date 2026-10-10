@@ -40,7 +40,9 @@ const _MAC_PATH_PREFIX := 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/
 
 var _external_button: Button       # header: open the chosen agent in a separate terminal window
 var _tutorial_button: Button       # input row: answer how-to questions with guided tours
-var _raw_next := false             # the next send is the tour card's own question: no tutorial note
+var _raw_next := false
+var _watch_button: Button          # input row: Watch mode (state lives in the bridge)
+var _bridge_ref: Node = null             # the next send is the tour card's own question: no tutorial note
 var _term_emulator_found := true   # a terminal emulator exists for External (set by _refresh_status)
 var _agent_button: MenuButton      # header: agent + model (+ effort) menu
 var _agent_model_menu: PopupMenu
@@ -1317,8 +1319,22 @@ func _build_session_ui() -> void:
 	_tutorial_button.button_pressed = bool(_meta("tutorial_mode", false))
 	_tutorial_button.toggled.connect(func(on: bool) -> void:
 		_set_meta("tutorial_mode", on)
-		_style_teach_button(on))
+		_style_teach_button(on)
+		if on and _bridge_ref != null and _bridge_ref.is_watching():
+			_bridge_ref.set_watching(false))
 	_style_teach_button(_tutorial_button.button_pressed)
+
+	# Watch mode: see each action the agent takes, as it takes it.
+	_watch_button = Button.new()
+	_watch_button.toggle_mode = true
+	_watch_button.focus_mode = Control.FOCUS_NONE
+	_watch_button.toggled.connect(func(on: bool) -> void:
+		if _bridge_ref != null:
+			_bridge_ref.set_watching(on)
+		else:
+			_style_watch_button(on))
+	_style_watch_button(false)
+	input_row.add_child(_watch_button)
 	input_row.add_child(_tutorial_button)
 
 	_send_button = Button.new()
@@ -1368,8 +1384,20 @@ func _style_teach_button(on: bool) -> void:
 		"Teach mode is ON: how-to questions are answered with a step-by-step guided tour in the editor, instead of the agent doing it for you. Click to turn off."
 		if on else
 		"Teach mode is off. Click to turn on: how-to questions will then be answered with a step-by-step guided tour in the editor, instead of the agent doing it for you.")
-	var color := Color(0.22, 0.6, 0.28) if on else Color(0.28, 0.3, 0.34)
-	_style_button(_tutorial_button, color)
+	_style_toggle(_tutorial_button, on, Color(0.22, 0.6, 0.28))
+
+func _style_watch_button(on: bool) -> void:
+	_watch_button.text = "Watch"
+	_watch_button.tooltip_text = (
+		"Watch mode is ON: each action the agent takes is shown in the editor as it happens — the node or property it touched is outlined, and a log lists what it did. Click to turn off."
+		if on else
+		"Watch mode is off. Click to turn on: see each action the agent takes in the editor as it happens.")
+	_style_toggle(_watch_button, on, Color(0.25, 0.45, 0.85))
+
+## A mode toggle: solid colour when on, grey when off.
+func _style_toggle(b: Button, on: bool, on_color: Color) -> void:
+	var color := on_color if on else Color(0.28, 0.3, 0.34)
+	_style_button(b, color)
 	# A toggled-on button under the mouse draws "hover_pressed", which
 	# _style_button doesn't set — without this it falls back to theme grey.
 	var hp := StyleBoxFlat.new()
@@ -1377,9 +1405,27 @@ func _style_teach_button(on: bool) -> void:
 	hp.set_corner_radius_all(4)
 	hp.content_margin_left = 8
 	hp.content_margin_right = 8
-	_tutorial_button.add_theme_stylebox_override("hover_pressed", hp)
+	b.add_theme_stylebox_override("hover_pressed", hp)
 	if not on:
-		_tutorial_button.add_theme_color_override("font_color", Color(0.75, 0.77, 0.8))
+		b.add_theme_color_override("font_color", Color(0.75, 0.77, 0.8))
+
+## Watch mode lives in the bridge (it applies to any agent on this editor);
+## the button mirrors it, including when an agent switches it.
+func set_bridge(bridge: Node) -> void:
+	_bridge_ref = bridge
+	if bridge == null:
+		return
+	if not bridge.watch_changed.is_connected(_on_watch_changed):
+		bridge.watch_changed.connect(_on_watch_changed)
+	_on_watch_changed(bridge.is_watching())
+
+func _on_watch_changed(on: bool) -> void:
+	if _watch_button == null:
+		return
+	_watch_button.set_pressed_no_signal(on)
+	_style_watch_button(on)
+	if on and _tutorial_button.button_pressed:
+		_tutorial_button.button_pressed = false  # Teach and Watch exclude each other
 
 ## Stops the reply in progress without ending the conversation: Claude gets
 ## the stream-json "interrupt" control request (confirmed: the session and
@@ -1819,6 +1865,40 @@ func _build_settings_popup() -> void:
 		_apply_on_next_message("Usage-data preference changed"))
 	box.add_child(data_check)
 
+	# Watch mode pacing (read live by watch.gd, so changes apply at once).
+	box.add_child(HSeparator.new())
+	var watch_label := Label.new()
+	watch_label.text = "Watch mode"
+	watch_label.add_theme_font_override("font", bold)
+	box.add_child(watch_label)
+	var step_row := HBoxContainer.new()
+	var step_text := Label.new()
+	step_text.text = "Time per step (seconds)"
+	step_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	step_row.add_child(step_text)
+	var step_spin := SpinBox.new()
+	step_spin.min_value = 0.0
+	step_spin.max_value = 10.0
+	step_spin.step = 0.5
+	step_spin.value = float(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "watch_step_sec", 2.0))
+	step_spin.tooltip_text = (
+		"How long Watch shows each change the agent makes: its log line is highlighted and the\n" +
+		"node and setting it touched are outlined. If the agent is faster, Watch runs behind.\n" +
+		"0 = keep up with the agent instead (short flashes, changes on one node grouped).")
+	step_spin.value_changed.connect(func(v: float):
+		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", "watch_step_sec", v))
+	step_row.add_child(step_spin)
+	box.add_child(step_row)
+	var follow_check := CheckBox.new()
+	follow_check.text = "Show changed settings in the Inspector"
+	follow_check.tooltip_text = (
+		"On: Watch opens each node the agent changes in the Inspector, so the setting it changed\n" +
+		"can be outlined. Off: your Inspector is left alone; only the node's row is outlined.")
+	follow_check.button_pressed = bool(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "watch_follow", true))
+	follow_check.toggled.connect(func(on: bool):
+		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", "watch_follow", on))
+	box.add_child(follow_check)
+
 func _panel_agent() -> String:
 	return _preferred_assistant()
 
@@ -2017,6 +2097,9 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 		return
 	var you := "You (teach):" if (_tutorial_button != null and _tutorial_button.button_pressed and not _raw_next) else "You:"
 	var outgoing := _outgoing(text)
+	# Watch groups the agent's steps by the message they answer.
+	if _bridge_ref != null and _bridge_ref.is_watching() and you != "":
+		_bridge_ref._watch().begin_response(text)
 	if _session_active and _session_kind != agent:
 		_stop_session("")  # a leftover process from another agent
 	if agent in _TURN_AGENTS:
