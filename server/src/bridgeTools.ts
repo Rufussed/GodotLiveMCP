@@ -1264,11 +1264,16 @@ export const bridgeToolDefinitions = [
       '- show_me: actions the card\'s Show me button runs to do the step for the user (undoable). Derived automatically from ' +
       'done_when for node_selected, node_added (with class), node_removed/renamed/reparented, property_equals, property_class ' +
       '(new resource of that class, e.g. a BoxMesh), script_attached (with script), signal_connected (with method), in_group, ' +
-      'scene_open, scene_saved, game_running and all. property_changed has no value to derive — give it an explicit show_me ' +
-      'with a sensible value so Show me works on every step. Explicit form: [{command, ...bridge params}], command one of ' +
+      'scene_open, scene_saved, game_running, script_contains (creates/edits the script with your code, opens and saves it), ' +
+      'property_changed (nudges the current value), control_pressed (presses the outlined button), manual (just moves on) and all. ' +
+      'Show me announces what it is about to do, then does it; it refuses @tool scripts and anything under addons/. Give an explicit ' +
+      'show_me only when the derived one wouldn\'t fit. Explicit form: [{command, ...bridge params}], command one of ' +
       'select_nodes, add_node_live, set_property, set_nested_property {node_path, property_path, value}, set_resource_property ' +
       '{node_path, property_name, resource_type}, rename_node, reparent_node, remove_node, connect_signal, set_node_groups, ' +
-      'attach_script, save_scene_live, open_scene {path}, play_scene.\n' +
+      'set_properties, set_transform, duplicate_node, add_mesh_instance, setup_collision, set_material_3d, set_physics_material, ' +
+      'setup_environment, edit_script_text {path, text | old_text+new_text, save}, attach_script, save_scene_live, open_scene {path}, play_scene.\n' +
+      '- script_contains {script | node_path, text, extends?, replace?}: the script\'s text contains text (whitespace ignored) — use it for ' +
+      '"type this code" steps; Show me writes it (replace: the snippet text replaces; extends: base class for a new file).\n' +
       '- The card gives the user Back, Skip, Why?, Show me and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
       'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +
       'Validation checks property and signal names against the real classes; editor controls that can\'t be found yet are ' +

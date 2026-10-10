@@ -153,7 +153,12 @@ func _describe(command: String, p: Dictionary, r: Dictionary) -> Dictionary:
 		"set_node_groups":
 			return {"caption": "**%s** · groups → %s" % [_short(node), ", ".join(p.get("groups", []))], "node": node}
 		"edit_script_text":
-			return {"caption": "edited `%s`" % str(p.get("path", "a script")).get_file()}
+			var lines: Array = r.get("lines", []) if typeof(r.get("lines")) == TYPE_ARRAY else []
+			var where := ""
+			if lines.size() == 2:
+				where = " · line %d" % lines[0] if int(lines[0]) == int(lines[1]) else " · lines %d–%d" % [lines[0], lines[1]]
+			return {"caption": "edited `%s`%s" % [str(p.get("path", "a script")).get_file(), where],
+				"script": str(p.get("path", "")), "lines": lines}
 		"save_scene_live":
 			return {"caption": "saved the scene"}
 		"open_scene":
@@ -306,6 +311,9 @@ func _add_to_log(beat: Dictionary) -> Dictionary:
 	if beat.has("ref"):
 		entry["node"] = beat.ref
 		entry["property"] = str(beat.get("property", ""))
+	if str(beat.get("script", "")) != "":
+		entry["script"] = str(beat.script)
+		entry["lines"] = beat.get("lines", [])
 	entries.push_front(entry)
 	if entries.size() > MAX_ENTRIES:
 		entries.resize(MAX_ENTRIES)
@@ -333,7 +341,8 @@ func _refresh_panel() -> void:
 		for ei in (g.entries as Array).size():
 			var e: Dictionary = g.entries[ei]
 			var n = e.node.get_ref() if e.has("node") else null
-			var line: String = "   [url=e:%d:%d]%s[/url]" % [gi, ei, e.line] if n is Node and (n as Node).is_inside_tree() else "   " + str(e.line)
+			var linked: bool = (n is Node and (n as Node).is_inside_tree()) or e.has("script")
+			var line: String = "   [url=e:%d:%d]%s[/url]" % [gi, ei, e.line] if linked else "   " + str(e.line)
 			if _current and is_same(e, _current_entry):
 				line = "[bgcolor=#2b4f86]%s[/bgcolor]" % line
 			lines.append(line)
@@ -364,6 +373,10 @@ func _on_log_clicked(meta) -> void:
 	if gi < 0 or gi >= _groups.size() or ei < 0 or ei >= (_groups[gi].entries as Array).size():
 		return
 	var entry: Dictionary = _groups[gi].entries[ei]
+	if entry.has("script"):
+		var lines: Array = entry.get("lines", [1, 1])
+		_bridge._focus_script(str(entry.script), int(lines[0]), int(lines[-1]))
+		return
 	if not entry.has("node"):
 		return
 	var n = entry.node.get_ref()
@@ -443,6 +456,7 @@ func _ensure_panel() -> void:
 	_panel_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_panel_text.add_theme_constant_override("line_separation", int(7 * scale))  # air between actions
 	_panel_text.meta_underlined = false
+	_panel_text.selection_enabled = true   # lines can be selected and copied; clicks still follow links
 	_panel_text.meta_clicked.connect(_on_log_clicked)
 	_panel.add_child(_panel_text)
 	var plugin: EditorPlugin = _bridge._editor_plugin
