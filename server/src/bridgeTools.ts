@@ -1212,7 +1212,7 @@ export const bridgeToolDefinitions = [
       'throwaway run_script. Targets: `property` (an Inspector property by name — opens the node first when ' +
       '`node_path` is given, else uses what the Inspector already shows), `node_path` alone (selects the node and ' +
       'outlines its Scene dock row), or any editor control by `path` (+ `root`, as in dump_control_tree) or by ' +
-      '`text`/`class` (+ `index`), e.g. a menu button or the Animation editor\'s Edit menu. Tabs and the bottom ' +
+      '`text`/`tooltip`/`class` (+ `index`), e.g. a menu button or the Animation editor\'s Edit menu. Tabs and the bottom ' +
       'panel are switched so the target is visible. The highlight is released by ANY Inspector property edit or undoable editor action ' +
       '(the user changing something: a gizmo drag, a Scene dock change, undo/redo), a scene switch, the timeout, or clear_editor_highlights; calling this again ' +
       'replaces it. Several controls at once: pass `targets` (an array of the same objects). Fails with a clear ' +
@@ -1225,6 +1225,7 @@ export const bridgeToolDefinitions = [
         root: { type: 'string', description: 'For path matching: "inspector" (default), "scene_tree", "filesystem", "bottom_panel", "editor", or a node path in the editor UI' },
         path: { type: 'string', description: 'Control path from dump_control_tree' },
         text: { type: 'string', description: 'Match a visible control by its exact text, e.g. "Edit"' },
+        tooltip: { type: 'string', description: 'Match by tooltip (case-insensitive substring) — for icon-only buttons, e.g. "Add/Create a New Node"' },
         class: { type: 'string', description: 'Match by class (alone or with text)' },
         index: { type: 'integer', description: 'Which match, when text/class matches several' },
         label: { type: 'string', description: 'Short caption shown under the outline, e.g. "Speed Scale: 1.0 = normal"' },
@@ -1248,16 +1249,26 @@ export const bridgeToolDefinitions = [
       '"teach me" rather than "do it". Inspect the scene first and use the user\'s real node names. Unlike ' +
       'highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every ' +
       'problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\n' +
-      'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, steps: [{id?, text, target?, done_when}]}.\n' +
+      'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, requires?: {scene_open?, node_exists?: [paths]}, ' +
+      'stuck_after_sec? (default 90; 0 = off), steps: [{id?, text, target?, done_when}]}.\n' +
       '- text: short instruction; **bold** and `code` are rendered.\n' +
-      '- target: what to outline — same fields as highlight_editor_control (node_path, property, path/root, text, class, ' +
-      'index, label). A node target outlines its Scene dock row WITHOUT selecting it. Omit for a card-only step. If it ' +
-      'can\'t be found the step still runs, with a note on the card.\n' +
-      '- done_when.type: "node_selected" {node_path} | "node_exists" {node_path} | "node_added" {parent, class?, ' +
-      'capture?} (a new child since the step began; capture binds it to a var for later steps, so the user may name it ' +
-      'anything) | "property_equals" {node_path, property (sub-paths ok), value (var_to_str form or "load:res://…"), ' +
-      'tolerance?} | "scene_saved" | "manual" (user clicks Next — for explanation-only steps).\n' +
+      '- target: what to outline — same fields as highlight_editor_control (node_path, property, path/root, text, tooltip, ' +
+      'class, index, label). A node target outlines its Scene dock row WITHOUT selecting it. Omit for a card-only step. If ' +
+      'it can\'t be found the step still runs, with a note on the card; a property row is re-found when the user selects ' +
+      'that node again.\n' +
+      '- done_when.type (state checks preferred): "node_selected" {node_path} | "node_exists" {node_path} | "node_added" ' +
+      '{parent, class?, capture?} (a new child since the step began; capture binds it to a var, so the user may name it ' +
+      'anything) | "node_removed" {node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | ' +
+      '"property_equals" {node_path, property (sub-paths ok), value (var_to_str form or "load:res://…"), tolerance?} | ' +
+      '"property_changed" {node_path, property} | "property_class" {node_path, property, class} | "script_attached" ' +
+      '{node_path, script?} | "signal_connected" {source, signal, target, method?} | "in_group" {node_path, group} | ' +
+      '"scene_open" {path} | "scene_saved" | "file_exists" {path} | "control_pressed" (the step\'s target button was ' +
+      'pressed — fallback only, misses shortcuts) | "game_running" | "manual" (user clicks Next) | "all"/"any" {checks: [...]}.\n' +
       '- Anywhere a node path is accepted, "$name" or "$name/Child" refers to a var.\n' +
+      '- The card gives the user Back, Skip and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
+      'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +
+      'Validation checks property and signal names against the real classes; editor controls that can\'t be found yet are ' +
+      'warnings, not errors (they may appear later, e.g. in a dialog).\n' +
       'Keep tours to 3–8 steps, one action each; prefer state checks over manual. Check progress with get_tour_status.',
     inputSchema: {
       type: 'object',
@@ -1272,7 +1283,8 @@ export const bridgeToolDefinitions = [
     name: 'get_tour_status',
     description:
       'Where the user is in the guided tour: current step, seconds on it, captured vars (as current node paths), and the ' +
-      'event log (step_started, step_done, target_missing, stopped, tour_done). Call this first when the user comes back ' +
+      'event log (step_started, step_done, already_done, wrong_action, stuck, target_missing, skipped, back_to_step, stopped, ' +
+      'tour_done), plus any note currently on the card (note_target / note_hint / note_stuck). Call this first when the user comes back ' +
       'to chat mid-tour.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },

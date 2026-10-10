@@ -37,6 +37,14 @@ func visible_rect() -> Rect2:
 			return panel.get_global_rect()
 	return Rect2()
 
+## The Control (or Tree, for a row) under the first outline, or null.
+func first_target() -> Control:
+	if _items.is_empty():
+		return null
+	var item: Dictionary = _items[0]
+	var c = item.control.get_ref() if item.has("control") else item.tree.get_ref()
+	return c if c is Control else null
+
 ## Removes every outline; returns how many there were.
 func clear() -> int:
 	var n := _items.size()

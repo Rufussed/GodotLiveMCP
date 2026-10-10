@@ -2334,18 +2334,22 @@ func _ctl_find(params: Dictionary, key_path := "path", key_text := "text", key_c
 		if not (found is Control):
 			return "no control at path '%s' under '%s' (dump_control_tree lists valid paths; auto-numbered paths shift if the UI was rebuilt)" % [params[key_path], root_name]
 		return found
-	if not (params.has(key_text) or params.has(key_class)):
-		return "give a path, or text and/or class to match"
+	if not (params.has(key_text) or params.has(key_class) or params.has("tooltip")):
+		return "give a path, or text, tooltip and/or class to match"
 	var want_text := String(params.get(key_text, ""))
 	var want_class := String(params.get(key_class, ""))
+	# Icon-only toolbar buttons have no text, but a stable tooltip; matched
+	# as a case-insensitive substring since tooltips are long sentences.
+	var want_tip := String(params.get("tooltip", "")).to_lower()
 	var matches := []
 	for c in ui.find_children("*", want_class, true, false):
 		if c is Control and (c as Control).is_visible_in_tree() \
-				and (want_text == "" or ("text" in c and String(c.get("text")) == want_text)):
+				and (want_text == "" or ("text" in c and String(c.get("text")) == want_text)) \
+				and (want_tip == "" or (c as Control).tooltip_text.to_lower().contains(want_tip)):
 			matches.append(c)
 	var index := int(params.get("index", 0))
 	if matches.is_empty():
-		return "no visible control matches text='%s' class='%s' under '%s'" % [want_text, want_class, root_name]
+		return "no visible control matches text='%s' tooltip='%s' class='%s' under '%s'" % [want_text, want_tip, want_class, root_name]
 	if matches.size() > 1 and not params.has("index"):
 		return "%d controls match; pass index (0-%d) or use a path from dump_control_tree" % [matches.size(), matches.size() - 1]
 	if index < 0 or index >= matches.size():
@@ -2570,7 +2574,7 @@ func _hl_resolve_target(t: Dictionary, select := true) -> Dictionary:
 		if control == null:
 			return {"error": "property '%s' exists but its row isn't visible in the Inspector (collapsed section, or hidden by the editor's property filter)" % prop}
 		return await _hl_revealed(control, {"kind": "property", "property": prop, "on": obj.get_class()})
-	elif t.has("node_path") and not (t.has("path") or t.has("text") or t.has("class")):
+	elif t.has("node_path") and not (t.has("path") or t.has("text") or t.has("class") or t.has("tooltip")):
 		var node := _resolve_node(String(t.node_path))
 		if node == null:
 			return {"error": "node not found: %s" % t.node_path}
@@ -2685,7 +2689,10 @@ func _cmd_start_tour(params: Dictionary):
 		return _fail("tour must be an object")
 	var res: Dictionary = await _tours().start(tour, bool(params.get("dry_run", false)))
 	if not res.ok:
-		return _fail("tour is invalid:\n- " + "\n- ".join(res.errors))
+		var msg := "tour is invalid:\n- " + "\n- ".join(res.errors)
+		if not res.warnings.is_empty():
+			msg += "\nwarnings:\n- " + "\n- ".join(res.warnings)
+		return _fail(msg)
 	return res
 
 func _cmd_get_tour_status(_params: Dictionary):
