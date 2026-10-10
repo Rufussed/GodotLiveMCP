@@ -1425,7 +1425,7 @@ func _script_path_from_text() -> String:
 	var found := RegEx.create_from_string("res://[A-Za-z0-9_/.\\-]+\\.gd").search(_derive_step_text)
 	return found.get_string() if found != null else ""
 
-func _derive_show_me(check: Dictionary) -> Array:
+func _derive_show_me(check: Dictionary, key := "c") -> Array:
 	match str(check.type):
 		"script_contains":
 			var path := _script_path_for(check)
@@ -1478,7 +1478,7 @@ func _derive_show_me(check: Dictionary) -> Array:
 			if check.has("class"):
 				# Already added but not renamed yet: rename it, don't add a second.
 				var parent := _node(str(check.parent))
-				var known: Dictionary = _baseline.get("c", {})
+				var known: Dictionary = _baseline.get(key, {})
 				if parent != null and check.has("name"):
 					for c in parent.get_children():
 						if not known.has(c.get_instance_id()) and c.is_class(str(check["class"])) and _is_default_name(str(c.name), c.get_class()):
@@ -1531,10 +1531,23 @@ func _derive_show_me(check: Dictionary) -> Array:
 				return [{"command": "set_node_groups", "node_path": check.node_path, "groups": groups}]
 		"scene_saved":
 			return [{"command": "save_scene_live"}]
+		"node_exists":
+			# A node of a real node type that isn't there yet: add it ("…/CollisionShape3D").
+			var path := _sub(str(check.node_path))
+			if path.begins_with("<missing") or _bridge._resolve_node(path) != null:
+				return []
+			var type_name := path.get_file()
+			if ClassDB.class_exists(type_name) and ClassDB.can_instantiate(type_name) and ClassDB.is_parent_class(type_name, "Node"):
+				var holder := path.get_base_dir()
+				return [{"command": "add_node_live", "parent_path": holder if holder != "" else ".", "node_type": type_name, "node_name": type_name}]
 		"all":
 			var out := []
-			for sub in check.checks:
-				var part := _derive_show_me(sub)
+			for j in (check.checks as Array).size():
+				var sub: Dictionary = check.checks[j]
+				var subkey := "%s.%d" % [key, j]
+				if _passes(sub, subkey):
+					continue  # already satisfied: nothing to do for this part
+				var part := _derive_show_me(sub, subkey)
 				if part.is_empty():
 					return []
 				out.append_array(part)
