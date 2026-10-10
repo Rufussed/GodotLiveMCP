@@ -176,6 +176,38 @@ for example "✗ That didn't work: the script has an error — line 7: Expected
 closing ")"", and records a `verify_failed` event for the agent. It keeps
 re-checking, so the tour moves on by itself once the learner fixes it.
 
+### Recovering when a verify fails (`on_fail`)
+
+A step with a `verify` can say what to do if it fails, as plain data (so it
+works in a saved tour with no agent):
+
+```json
+{
+	"text": "Press **Next** when your script is written.",
+	"done_when": { "type": "manual" },
+	"verify": { "type": "script_ok", "script": "res://player.gd" },
+	"on_fail": {
+		"note": "The script has an error. Let's fix it first.",
+		"steps": [
+			{ "text": "Fix the error shown in the Script editor.", "done_when": { "type": "script_ok", "script": "res://player.gd" } }
+		]
+	}
+}
+```
+
+When the verify fails, the card shows `note` (or the generic "That didn't
+work: …") and the `steps` are inserted as **fix-up steps** (the title says
+"fix-up"). When the last one is done, the original step is checked again
+("checking again"), and only then does the tour go on. This happens **once
+per step**; if the check fails a second time the card just keeps saying what
+is wrong. Fix-up steps can't have their own `on_fail`, so it can't nest.
+
+### Skipping a step that's already satisfied (`skip_if`)
+
+`"skip_if": { …a check… }` on a step: if it is already true when the step
+would start, the step is skipped without being shown (and logged as
+`skipped_if`). Use it for steps like "add a floor" when one may exist.
+
 ### Show me
 
 **Show me** does the current step for the user. It **announces first**: the

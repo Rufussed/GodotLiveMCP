@@ -273,6 +273,8 @@ Writing a good spontaneous tour:
    "script_ok", …}`; after running the game, `output_contains`,
    `game_property` or `no_errors`. The card then reports the problem, and
    `get_tour_status` shows a `verify_failed` event you can act on.
+   Give a likely-to-fail verify an `on_fail` with a one-line `note` and 1–2
+   short fix-up steps; use `skip_if` for steps that may already be satisfied.
 8. **Give every step a `why`**: one plain sentence a beginner can follow.
    No jargon without a short gloss.
 9. **`dry_run` first** and fix every reported problem in one go.

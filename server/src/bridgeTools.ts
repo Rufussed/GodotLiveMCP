@@ -1295,6 +1295,9 @@ export const bridgeToolDefinitions = [
       '- verify (optional, any step): a check that the result WORKED, run after done_when passes — use it after code steps (script_ok) and ' +
       'after running the game (output_contains, game_property, no_errors). On failure the card says what is wrong and get_tour_status shows a ' +
       'verify_failed event; the step completes by itself once the learner fixes it. wait_sec? sets how long it waits before reporting.\n' +
+      '- on_fail (optional, with verify): {note?, steps?: [steps]} — if the verify fails, the card shows note and the steps are inserted as ' +
+      'fix-up steps (once per step, no nesting); then the original step is checked again. Keep fix-ups short.\n' +
+      '- skip_if (optional): a check; if already true when the step would start, the step is skipped without being shown.\n' +
       '- Anywhere a node path is accepted, "$name" or "$name/Child" refers to a var.\n' +
       '- The card gives the user Back, Skip, Why?, Show me and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
       'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +

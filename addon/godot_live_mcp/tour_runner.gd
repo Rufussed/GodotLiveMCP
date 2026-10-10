@@ -91,6 +91,12 @@ var _note_stuck := ""
 var _note_why := ""       # the step's why text, or "asked the agent"
 var _showing := false     # a Show me is running
 var _manual_done := false     # Next was pressed on a manual step
+var _onfail_done := {}        # steps whose on_fail already ran (once each)
+var _fixup_active := false    # inside the fix-up steps of an on_fail
+var _verify_only := false     # re-entered the original step just to re-verify it
+var _resume_origin := -1      # the step whose verify failed
+var _resume_next := -1        # where to continue once it verifies
+var _saved_v := {}            # verify baseline from when the fix-ups began
 var _verify_since := 0        # msec the step's verify started failing/waiting; 0 = not started
 var _script_err_cache := {}   # script text hash -> parse error ("" = ok)
 var _game_vals := {}          # "node|prop" -> {"v", "err", "t"}: last value read from the running game
@@ -160,6 +166,9 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	_steps = tour.steps
 	_events = []
 	_done = false
+	_onfail_done = {}
+	_fixup_active = false
+	_verify_only = false
 	_vars = {}
 	var initial: Dictionary = tour.get("vars", {})
 	for name in initial:
@@ -408,54 +417,72 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 					errors.append("vars.%s: node not found: %s" % [name, spec])
 			var_class[str(name)] = n.get_class() if n != null else ""
 	for i in (steps as Array).size():
-		var step = steps[i]
-		var where := "step %d" % (i + 1)
-		if typeof(step) != TYPE_DICTIONARY:
-			errors.append("%s: must be an object" % where)
-			continue
-		if str(step.get("id", "")) != "":
-			where += " (%s)" % step.id
-		if str(step.get("text", "")) == "":
-			errors.append("%s: text is required" % where)
-		var target = step.get("target", {})
-		if typeof(target) == TYPE_DICTIONARY and not (target as Dictionary).is_empty():
-			for v in _vars_used(target, var_class):
-				errors.append("%s: target uses %s before it is defined" % [where, v])
-			if target.has("property") and target.has("node_path"):
-				_check_property(str(target.node_path), str(target.property), var_class, where + ": target", errors)
-			elif not target.has("node_path") and not target.has("property"):
-				# An editor control: may legitimately appear later (a dialog),
-				# so only a warning when it can't be found right now.
-				var found = _bridge._ctl_find(target, "path", "text", "class")
-				if found is String:
-					warnings.append("%s: target not found right now (%s); fine if it only appears later" % [where, found])
-		var check = step.get("done_when", null)
-		if typeof(check) != TYPE_DICTIONARY:
-			errors.append("%s: done_when is required" % where)
-			continue
-		if not check.has("type"):
-			errors.append("%s: done_when needs a \"type\", e.g. {\"type\": \"node_added\", \"parent\": \"$root\", \"class\": \"StaticBody3D\"}" % where)
-			continue
-		_validate_check(check, step, where + ": done_when", var_class, errors)
-		if step.has("verify"):
-			if typeof(step.verify) != TYPE_DICTIONARY or not (step.verify as Dictionary).has("type"):
-				errors.append("%s: verify must be a check object with a \"type\" (e.g. {\"type\": \"script_ok\", \"node_path\": \"$ball\"})" % where)
-			else:
-				_validate_check(step.verify, step, where + ": verify", var_class, errors)
-		if step.has("why") and typeof(step.why) != TYPE_STRING:
-			errors.append("%s: why must be a string" % where)
-		if step.has("show_me"):
-			if typeof(step.show_me) != TYPE_ARRAY:
-				errors.append("%s: show_me must be an array of {command, ...params}" % where)
-			else:
-				for action in step.show_me:
-					if typeof(action) != TYPE_DICTIONARY or not str(action.get("command", "")) in SHOW_ME_COMMANDS:
-						errors.append("%s: show_me commands must be one of %s" % [where, ", ".join(SHOW_ME_COMMANDS)])
-						break
-					if str(action.command) == "attach_script" and not ResourceLoader.exists(str(action.get("script_path", ""))):
-						errors.append("%s: show_me can only attach a script that already exists in the project (%s)" % [where, action.get("script_path", "")])
+		_validate_step(steps[i], "step %d" % (i + 1), var_class, errors, warnings, false)
 	_validated = true
 	return errors
+
+## One step's checks. nested = a fix-up step from an on_fail (one level only).
+func _validate_step(step, where: String, var_class: Dictionary, errors: Array, warnings: Array, nested: bool) -> void:
+	if typeof(step) != TYPE_DICTIONARY:
+		errors.append("%s: must be an object" % where)
+		return
+	if str(step.get("id", "")) != "":
+		where += " (%s)" % step.id
+	if str(step.get("text", "")) == "":
+		errors.append("%s: text is required" % where)
+	var target = step.get("target", {})
+	if typeof(target) == TYPE_DICTIONARY and not (target as Dictionary).is_empty():
+		for v in _vars_used(target, var_class):
+			errors.append("%s: target uses %s before it is defined" % [where, v])
+		if target.has("property") and target.has("node_path"):
+			_check_property(str(target.node_path), str(target.property), var_class, where + ": target", errors)
+		elif not target.has("node_path") and not target.has("property"):
+			# An editor control: may legitimately appear later (a dialog),
+			# so only a warning when it can't be found right now.
+			var found = _bridge._ctl_find(target, "path", "text", "class")
+			if found is String:
+				warnings.append("%s: target not found right now (%s); fine if it only appears later" % [where, found])
+	var check = step.get("done_when", null)
+	if typeof(check) != TYPE_DICTIONARY:
+		errors.append("%s: done_when is required" % where)
+		return
+	if not check.has("type"):
+		errors.append("%s: done_when needs a \"type\", e.g. {\"type\": \"node_added\", \"parent\": \"$root\", \"class\": \"StaticBody3D\"}" % where)
+		return
+	_validate_check(check, step, where + ": done_when", var_class, errors)
+	for key in ["verify", "skip_if"]:
+		if step.has(key):
+			if typeof(step[key]) != TYPE_DICTIONARY or not (step[key] as Dictionary).has("type"):
+				errors.append("%s: %s must be a check object with a \"type\" (e.g. {\"type\": \"script_ok\", \"node_path\": \"$ball\"})" % [where, key])
+			else:
+				_validate_check(step[key], step, "%s: %s" % [where, key], var_class, errors)
+	if step.has("on_fail"):
+		if nested:
+			errors.append("%s: fix-up steps can't have their own on_fail" % where)
+		elif typeof(step.on_fail) != TYPE_DICTIONARY:
+			errors.append("%s: on_fail must be {note?, steps?}" % where)
+		else:
+			if not step.has("verify"):
+				errors.append("%s: on_fail only applies to a step that has a verify" % where)
+			var fixups = step.on_fail.get("steps", [])
+			if typeof(fixups) != TYPE_ARRAY:
+				errors.append("%s: on_fail.steps must be an array of steps" % where)
+			else:
+				var fixup_vars := var_class.duplicate()  # captures made by fix-ups don't leak past them
+				for j in (fixups as Array).size():
+					_validate_step(fixups[j], "%s, fix-up %d" % [where, j + 1], fixup_vars, errors, warnings, true)
+	if step.has("why") and typeof(step.why) != TYPE_STRING:
+		errors.append("%s: why must be a string" % where)
+	if step.has("show_me"):
+		if typeof(step.show_me) != TYPE_ARRAY:
+			errors.append("%s: show_me must be an array of {command, ...params}" % where)
+		else:
+			for action in step.show_me:
+				if typeof(action) != TYPE_DICTIONARY or not str(action.get("command", "")) in SHOW_ME_COMMANDS:
+					errors.append("%s: show_me commands must be one of %s" % [where, ", ".join(SHOW_ME_COMMANDS)])
+					break
+				if str(action.command) == "attach_script" and not ResourceLoader.exists(str(action.get("script_path", ""))):
+					errors.append("%s: show_me can only attach a script that already exists in the project (%s)" % [where, action.get("script_path", "")])
 
 func _validate_check(check: Dictionary, step: Dictionary, where: String, var_class: Dictionary, errors: Array) -> void:
 	var type := str(check.get("type", ""))
@@ -573,6 +600,33 @@ func _complete_step() -> void:
 		_refresh_card()
 		return
 	var why := _check_failure(v, "v")
+	var of = step.get("on_fail", null)
+	var key := str(step.get("text", "")).hash()
+	if typeof(of) == TYPE_DICTIONARY and not _onfail_done.has(key):
+		_onfail_done[key] = true
+		var note := str(of.get("note", "")) if str(of.get("note", "")) != "" else "That didn't work: " + why
+		_log("verify_failed", {"check": str(v.type), "saw": why})
+		var fixups = of.get("steps", [])
+		if typeof(fixups) == TYPE_ARRAY and not (fixups as Array).is_empty():
+			_log("on_fail", {"steps": (fixups as Array).size()})
+			_snapshot(v, "v")  # the check starts counting from here
+			_saved_v = _baseline.get("v", {})
+			var start := _index + 1
+			for j in (fixups as Array).size():
+				var fs: Dictionary = (fixups[j] as Dictionary).duplicate(true)
+				fs["_fixup"] = true
+				_steps.insert(start + j, fs)
+			_resume_origin = _index
+			_resume_next = start + (fixups as Array).size()
+			_fixup_active = true
+			await _enter_step(start)
+			_note_hint = "✗ " + note
+			_hint_hold_until = Time.get_ticks_msec() + 15000
+			_refresh_card()
+			return
+		_note_hint = "✗ " + note
+		_refresh_card()
+		return
 	var msg := "✗ That didn't work: " + why
 	if msg != _note_hint:
 		_note_hint = msg
@@ -811,8 +865,18 @@ func _enter_step(i: int, revisit := false) -> void:
 	_verify_since = 0
 	_snapshot(step.done_when, "c")
 	if typeof(step.get("verify")) == TYPE_DICTIONARY:
-		_snapshot(step.verify, "v")
-	_log("back_to_step" if revisit else "step_started")
+		if _verify_only:
+			_baseline["v"] = _saved_v  # what happened since the fix-ups began counts
+		else:
+			_snapshot(step.verify, "v")
+	# skip_if: already true, so don't show the step at all.
+	if typeof(step.get("skip_if")) == TYPE_DICTIONARY and not revisit and not _verify_only:
+		_snapshot(step.skip_if, "s")
+		if _passes(step.skip_if, "s"):
+			_log("skipped_if")
+			await _advance("step_done")
+			return
+	_log("back_to_step" if revisit else ("rechecking" if _verify_only else "step_started"))
 	if _needs_missing_var(step):
 		_note_target = "This step depends on an earlier one that was skipped — go Back, or Skip this one too."
 	_refresh_card()
@@ -826,7 +890,7 @@ func _enter_step(i: int, revisit := false) -> void:
 		return
 	# Already true before the user did anything (e.g. the node was selected
 	# anyway): still show the step for a moment so it isn't skipped unseen.
-	if str(step.done_when.type) != "manual" and _passes(step.done_when, "c"):
+	if not _verify_only and str(step.done_when.type) != "manual" and _passes(step.done_when, "c"):
 		_log("already_done")
 		_note_hint = "✓ Already done — moving on…"
 		_refresh_card()
@@ -918,10 +982,21 @@ func _repoint_if_lost() -> void:
 
 func _advance(event: String) -> void:
 	_log(event)
-	if _index + 1 >= _steps.size():
+	var nxt := _index + 1
+	if _fixup_active and _index == _resume_next - 1:
+		# The last fix-up is done: back to the step whose result failed, to
+		# check it again before going on.
+		_fixup_active = false
+		_verify_only = true
+		await _enter_step(_resume_origin)
+		return
+	if _verify_only and _index == _resume_origin:
+		nxt = _resume_next  # verified at last: continue after the fix-ups
+		_verify_only = false
+	if nxt >= _steps.size():
 		_finish()
 	else:
-		await _enter_step(_index + 1)
+		await _enter_step(nxt)
 
 func _finish() -> void:
 	_done = true
@@ -1304,7 +1379,7 @@ func _run_check() -> void:
 	if not is_running() or _done or _holding or _showing:
 		return
 	var check: Dictionary = _steps[_index].done_when
-	if _passes(check, "c"):
+	if _verify_only or _passes(check, "c"):
 		if _revisit:
 			if _note_hint != "✓ Already done — press Next to continue.":
 				_note_hint = "✓ Already done — press Next to continue."
@@ -1730,7 +1805,8 @@ func _refresh_card() -> void:
 	if _card == null or not is_instance_valid(_card) or _done or not is_running():
 		return
 	var step: Dictionary = _steps[_index]
-	_card_title.text = "%s  ·  Step %d/%d" % [str(_tour.get("title", "Tour")), _index + 1, _steps.size()]
+	_card_title.text = "%s  ·  Step %d/%d%s" % [str(_tour.get("title", "Tour")), _index + 1, _steps.size(),
+		"  ·  fix-up" if step.get("_fixup", false) else ("  ·  checking again" if _verify_only else "")]
 	var text := _markdown(_name_vars(str(step.text)))
 	if _note_why != "":
 		text += "\n[color=#8cc4ff]%s[/color]" % _markdown(_note_why)

@@ -44,6 +44,14 @@
 				"target": { "$ref": "#/$defs/target" },
 				"done_when": { "$ref": "#/$defs/check" },
 				"verify": { "$ref": "#/$defs/check" },
+				"skip_if": { "$ref": "#/$defs/check" },
+				"on_fail": {
+					"type": "object",
+					"properties": {
+						"note": { "type": "string" },
+						"steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+					}
+				},
 				"show_me": { "type": "array", "items": { "$ref": "#/$defs/action" } }
 			}
 		},
