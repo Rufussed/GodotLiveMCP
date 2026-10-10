@@ -1303,6 +1303,15 @@ func _cmd_set_nested_property(params: Dictionary):
 		obj = next
 
 	var last := parts[parts.size() - 1]
+	# A shader saved to a file: its text lives in the shader editor, which
+	# reverts a plain write to .code (seen: the write "succeeded" and the old
+	# code came back). Go through the editor's text box and save, the same way
+	# edit_script_text does.
+	if obj is Shader and last == "code" and str((obj as Shader).resource_path).begins_with("res://") and not str((obj as Shader).resource_path).contains("::"):
+		var written = await _cmd_edit_script_text({"path": (obj as Shader).resource_path, "text": str(_decode_value(value_str)), "save": true})
+		if typeof(written) == TYPE_DICTIONARY and written.has("__error__"):
+			return written
+		return {"value": var_to_str((obj as Shader).code)}
 	if obj is Object:
 		var apply_err := _apply_properties(obj, {last: value_str})
 		if apply_err != "":
@@ -1585,8 +1594,16 @@ func _cmd_edit_script_text(params: Dictionary):
 		code_edit.insert_text_at_caret(text)
 		code_edit.end_complex_operation()
 		code_edit.text_changed.emit()
-	# A brand-new file isn't "changed lines": just show it from the top.
-	_show_changed_lines(code_edit, changed if before_text != "" else [1, 1], before_text != "")
+	# A new file is all new: tint all of it, so a script that Show me or an
+	# agent just created visibly appears.
+	_show_changed_lines(code_edit, changed)
+	if bool(params.get("save", false)) and res is Shader:
+		(res as Shader).code = text  # the editor's text already matches, so this sticks
+		var shader_err := ResourceSaver.save(res, path)
+		if shader_err != OK:
+			return _fail("could not save %s (error %d)" % [path, shader_err])
+		return {"ok": true, "created": created, "unsaved": false, "lines": changed,
+			"verified": (res as Shader).code == text, "note": "Saved."}
 	# save: true (from tours' Show me) saves like Ctrl+S; with a game running
 	# it always does, and also reloads the script there.
 	if (EditorInterface.is_playing_scene() or bool(params.get("save", false))) and res is Script:
@@ -1626,7 +1643,7 @@ func _changed_lines(old_text: String, new_text: String) -> Array:
 	return [i + 1, maxi(jb, i) + 1]
 
 const SCRIPT_TINT := Color(0.3, 0.55, 1.0, 0.32)
-const SCRIPT_TINT_SEC := 4.0
+const SCRIPT_TINT_SEC := 6.0
 
 ## Shows an edit in the Script editor: switches to the Script screen,
 ## scrolls to the changed lines and tints them for a few seconds.
