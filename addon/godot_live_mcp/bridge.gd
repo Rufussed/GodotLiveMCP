@@ -1572,11 +1572,18 @@ func _cmd_edit_script_text(params: Dictionary):
 	var created := false
 	if not FileAccess.file_exists(path):
 		DirAccess.make_dir_recursive_absolute(path.get_base_dir())
-		var f := FileAccess.open(path, FileAccess.WRITE)
+		# Written to a temporary file and renamed into place, so a crash or a
+		# full disk can't leave half a script behind.
+		var tmp := path + ".tmp"
+		var f := FileAccess.open(tmp, FileAccess.WRITE)
 		if f == null:
 			return _fail("could not create %s (error %d)" % [path, FileAccess.get_open_error()])
 		f.store_string(text)
 		f.close()
+		var rename_err := DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(path))
+		if rename_err != OK:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+			return _fail("could not create %s (error %d)" % [path, rename_err])
 		EditorInterface.get_resource_filesystem().update_file(path)
 		created = true
 	var res := load(path)
@@ -1597,31 +1604,97 @@ func _cmd_edit_script_text(params: Dictionary):
 	# A new file is all new: tint all of it, so a script that Show me or an
 	# agent just created visibly appears.
 	_show_changed_lines(code_edit, changed)
-	if bool(params.get("save", false)) and res is Shader:
+	# save: true (agents, and tours' Show me) saves like Ctrl+S; with a game
+	# running a script is always saved, and reloaded there so it shows live.
+	var saved := created  # a new file is already on disk
+	if (bool(params.get("save", false)) or (EditorInterface.is_playing_scene() and res is Script)) and (res is Script or res is Shader):
+		var save_result := _save_text_resource(res, path, text, code_edit)
+		if save_result.error != "":
+			return _fail(save_result.error)
+		saved = true
+		if EditorInterface.is_playing_scene() and res is Script:
+			_reload_game_scripts()
+	return _edit_result(res, path, text, code_edit, created, saved, changed)
+
+## Equal ignoring line-ending style: Godot's editor stores "\n" whatever the
+## file had, so "\r\n" text must not read as a mismatch.
+func _same_text(a: String, b: String) -> bool:
+	return a.replace("\r\n", "\n") == b.replace("\r\n", "\n")
+
+## Text of a file as it is on disk right now ("" if missing).
+func _disk_text(path: String) -> String:
+	return FileAccess.get_file_as_string(path) if FileAccess.file_exists(path) else ""
+
+## Saves a script or shader the way Ctrl+S does, then checks the file on disk.
+## Returns {"error": "" or a message}. The editor's own save-time cleanup
+## (convert indentation, trim trailing whitespace, final newline — editor
+## settings) may legitimately change the text; that result is accepted, not
+## overwritten, so the tab and the file stay in agreement.
+func _save_text_resource(res: Resource, path: String, text: String, code_edit: CodeEdit) -> Dictionary:
+	if res is Script:
+		_press_script_editor_save()  # clears the tab's unsaved mark (edit_script made it current)
+		var written := _disk_text(path)
+		if not _same_text(written, text) and not _same_text(written, code_edit.text):
+			# Neither what we wrote nor the editor's cleaned-up version: the
+			# press didn't save (menu not found, other tab). Write it directly.
+			(res as Script).source_code = text
+			var err := ResourceSaver.save(res, path)
+			if err != OK:
+				return {"error": "could not save %s (error %d)" % [path, err]}
+	elif res is Shader:
 		(res as Shader).code = text  # the editor's text already matches, so this sticks
 		var shader_err := ResourceSaver.save(res, path)
 		if shader_err != OK:
-			return _fail("could not save %s (error %d)" % [path, shader_err])
-		return {"ok": true, "created": created, "unsaved": false, "lines": changed,
-			"verified": (res as Shader).code == text, "note": "Saved."}
-	# save: true (from tours' Show me) saves like Ctrl+S; with a game running
-	# it always does, and also reloads the script there.
-	if (EditorInterface.is_playing_scene() or bool(params.get("save", false))) and res is Script:
-		# With a game running, save straight away (like a person pressing
-		# Ctrl+S) and have the game reload it, so the change shows up live.
-		# edit_script() above made this script the current tab.
-		if not _press_script_editor_save():
-			var scr := res as Script
-			scr.source_code = text
-			var err := ResourceSaver.save(scr, path)
-			if err != OK:
-				return _fail("could not save %s (error %d)" % [path, err])
-		if EditorInterface.is_playing_scene():
-			_reload_game_scripts()
-		return {"ok": true, "created": created, "unsaved": false, "lines": changed,
-			"note": "Saved right away" + (" and reloaded in the running game." if EditorInterface.is_playing_scene() else ".")}
-	return {"ok": true, "created": created, "unsaved": not created, "lines": changed,
-		"note": _mac_keys("Saved on Ctrl+S or when the scene is played.") if not created else "New file written to disk."}
+			return {"error": "could not save %s (error %d)" % [path, shader_err]}
+	var final := _disk_text(path)
+	if not _same_text(final, text) and not _same_text(final, code_edit.text):
+		return {"error": "saved %s, but the file on disk doesn't hold what was written — is another program editing it?" % path}
+	return {"error": ""}
+
+## What an edit actually did, read back: whether the editor's text and the
+## file match what was written, whether it's saved, and (GDScript) any parse error.
+func _edit_result(res: Resource, path: String, text: String, code_edit: CodeEdit, created: bool, saved: bool, changed: Array) -> Dictionary:
+	var final := _disk_text(path) if saved else code_edit.text
+	var out := {"ok": true, "created": created, "saved": saved, "unsaved": not saved, "lines": changed,
+		"editor_matches": _same_text(code_edit.text, text), "disk_matches": _same_text(_disk_text(path), text) if saved else null}
+	if saved and not _same_text(final, text):
+		# The editor's own save cleanup (indent conversion, trimmed whitespace,
+		# final newline) changed what was written; the file and tab agree on that.
+		out["normalized"] = true
+		out["note_normalized"] = "the editor changed the text while saving (its indent/whitespace settings); the file holds the cleaned version"
+	elif not out.editor_matches:
+		out["warning"] = "the editor's text differs from what was written"
+	if res is GDScript:
+		var parse_error := _script_text_error(final)  # the text that is really there
+		if parse_error != "":
+			out["parse_error"] = parse_error
+	if not saved:
+		out["note"] = _mac_keys("Not saved yet: Ctrl+S, play the scene, or call edit_script_text/save_scripts with save: true.")
+	elif created:
+		out["note"] = "New file written to disk."
+	else:
+		out["note"] = "Saved."
+	return out
+
+## Saves every open script that has unsaved edits (the tabs showing "(*)"),
+## each the way Ctrl+S would, and checks the file really changed.
+func _cmd_save_scripts(_params: Dictionary):
+	var results := []
+	var se := EditorInterface.get_script_editor()
+	var scripts := se.get_open_scripts()
+	var editors := se.get_open_script_editors()
+	for i in scripts.size():
+		var scr: Script = scripts[i]
+		if scr.resource_path == "" or scr.resource_path.contains("::") or i >= editors.size():
+			continue
+		var code_edit := editors[i].get_base_editor() as CodeEdit
+		if code_edit == null or _same_text(code_edit.text, _disk_text(scr.resource_path)):
+			continue
+		EditorInterface.edit_script(scr)
+		await get_tree().process_frame
+		var saved_result := _save_text_resource(scr, scr.resource_path, code_edit.text, code_edit)
+		results.append({"path": scr.resource_path, "saved": saved_result.error == "", "error": saved_result.error})
+	return {"saved": results, "count": results.size()}
 
 ## The first and last changed line (1-based, in the new text) between two
 ## versions of a file, by trimming the lines they share at the start and end.
@@ -1684,11 +1757,12 @@ func _cmd_get_script_text(params: Dictionary):
 	var res := load(path)
 	var code_edit := _find_open_code_editor(res)
 	if code_edit:
-		return {"ok": true, "text": code_edit.text, "source": "editor"}
+		# dirty: the open tab holds edits that aren't in the file yet.
+		return {"ok": true, "text": code_edit.text, "source": "editor", "dirty": not _same_text(code_edit.text, _disk_text(path))}
 	if res is Script:
-		return {"ok": true, "text": (res as Script).source_code, "source": "file"}
+		return {"ok": true, "text": (res as Script).source_code, "source": "file", "dirty": false}
 	if res is Shader:
-		return {"ok": true, "text": (res as Shader).code, "source": "file"}
+		return {"ok": true, "text": (res as Shader).code, "source": "file", "dirty": false}
 	return _fail("%s is not a script or shader" % path)
 
 # Shader path -> the shader editor's CodeEdit for it. The shader editor has no

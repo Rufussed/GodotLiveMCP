@@ -65,6 +65,19 @@ running game (usually a brand-new material or other resource). Say so
 plainly — e.g. "this shows on the next Play; after that, colour changes to
 it will update live" — rather than implying it's visible now.
 
+## Script edits: save and read the result
+
+`edit_script_text` returns what really happened: `saved`, `editor_matches`,
+`disk_matches`, the changed `lines`, and for GDScript a `parse_error` if the
+new text has one — read it and fix it before moving on. Pass `save: true` to
+write the file (like Ctrl+S) and have it verified; without it the edit stays
+in the editor tab, marked (*). `normalized: true` means the editor's own
+save settings (indentation, trailing whitespace) cleaned the text; the file
+holds that version. `get_script_text` says `source` (editor or file) and
+`dirty` (unsaved edits in the tab). `save_scripts` saves every dirty tab.
+Never write a script that is open in the editor straight to disk: the editor
+keeps its own copy and can overwrite or revert it.
+
 ## Saving
 
 Every `set_property`/`add_node_live`/etc. call changes the editor's
