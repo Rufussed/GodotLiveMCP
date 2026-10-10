@@ -91,8 +91,9 @@
 			"required": ["command"],
 			"properties": {
 				"command": {
-					"enum": ["select_nodes", "add_node_live", "set_property", "rename_node", "reparent_node", "remove_node",
-						"connect_signal", "set_node_groups", "attach_script", "save_scene_live"]
+					"enum": ["select_nodes", "add_node_live", "set_property", "set_nested_property", "set_resource_property",
+						"rename_node", "reparent_node", "remove_node", "connect_signal", "set_node_groups", "attach_script",
+						"save_scene_live", "open_scene", "play_scene"]
 				}
 			}
 		}

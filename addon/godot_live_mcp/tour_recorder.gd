@@ -424,7 +424,8 @@ func _prop_step(s: Dictionary, exact: bool) -> Dictionary:
 			return {"text": "Set **$%s**'s %s to `%s` (drag it from the FileSystem dock)." % [v, label, file], "target": target,
 				"done_when": {"type": "property_equals", "node_path": "$" + v, "property": prop, "value": value}}
 		return {"text": "Set **$%s**'s %s, e.g. drag `%s` onto it from the FileSystem dock." % [v, label, file], "target": target,
-			"done_when": {"type": "property_class", "node_path": "$" + v, "property": prop, "class": String(s.res_class)}}
+			"done_when": {"type": "property_class", "node_path": "$" + v, "property": prop, "class": String(s.res_class)},
+			"show_me": [_set_action(v, prop, value)]}
 	var must_match := exact or bool(s.enum) or t in [TYPE_STRING, TYPE_STRING_NAME, TYPE_BOOL, TYPE_NODE_PATH]
 	var shown := value.trim_prefix("\"").trim_suffix("\"") if t == TYPE_STRING or t == TYPE_STRING_NAME else value
 	if t == TYPE_BOOL:
@@ -436,7 +437,14 @@ func _prop_step(s: Dictionary, exact: bool) -> Dictionary:
 			check["tolerance"] = 0.01
 		return {"text": "Set **$%s**'s %s to `%s`." % [v, label, shown], "target": target, "done_when": check}
 	return {"text": "Change **$%s**'s %s (we used `%s`)." % [v, label, shown], "target": target,
-		"done_when": {"type": "property_changed", "node_path": "$" + v, "property": prop}}
+		"done_when": {"type": "property_changed", "node_path": "$" + v, "property": prop},
+		"show_me": [_set_action(v, prop, value)]}
+
+## Show me for a recorded value: the value the recording used.
+func _set_action(v: String, prop: String, value: String) -> Dictionary:
+	if prop.contains(":"):
+		return {"command": "set_nested_property", "node_path": "$" + v, "property_path": prop, "value": value}
+	return {"command": "set_property", "node_path": "$" + v, "property_name": prop, "value": value}
 
 func _describe(s: Dictionary) -> String:
 	match String(s.kind):

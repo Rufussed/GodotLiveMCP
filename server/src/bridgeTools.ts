@@ -1260,28 +1260,14 @@ export const bridgeToolDefinitions = [
       'stuck_after_sec? (default 90; 0 = off), steps: [{id?, text, why?, target?, done_when, show_me?}]}.\n' +
       '- why: one or two sentences on why this step matters; shown by the card\'s Why? button (works with no agent). ' +
       'Pressed again, Why? sends the question to the in-editor agent panel.\n' +
-      '- show_me: actions the card\'s Show me button runs to do the step for the user (undoable). Usually omit it: it is ' +
-      'derived from done_when for node_selected, node_added (with class), node_removed/renamed/reparented, property_equals, ' +
-      'script_attached (with script), signal_connected (with method), in_group, scene_saved and all. Explicit form: ' +
-      '[{command, ...bridge params}], command one of select_nodes, add_node_live, set_property, rename_node, reparent_node, ' +
-      'remove_node, connect_signal, set_node_groups, attach_script, save_scene_live.\n' +
-      '- text: short instruction; **bold** and `code` are rendered. "$name" in text shows that var\'s CURRENT node name — refer to ' +
-      'nodes this way ("Select **$ball**"), not by typed-out names, so the card matches what the user actually called it.\n' +
-      '- target: what to outline — same fields as highlight_editor_control (node_path, property, path/root, text, tooltip, ' +
-      'class, index, label). A node target outlines its Scene dock row WITHOUT selecting it. Omit for a card-only step. If ' +
-      'it can\'t be found the step still runs, with a note on the card; a property row is re-found when the user selects ' +
-      'that node again.\n' +
-      '- done_when.type (state checks preferred): "node_selected" {node_path} | "node_exists" {node_path} | "node_added" ' +
-      '{parent, class?, name?, capture?} (a new child since the step began; capture binds it to a var, so later steps ' +
-      'follow it whatever it\'s called. With name, the step then asks the user to rename it — the card says "Now rename it to ' +
-      'X", the outline moves to the new node — and completes once it\'s named. Give main objects a name: the one from the ' +
-      'request ("a ball" → "Ball") or an obvious one (Floor, Player); leave helper children like CollisionShape3D unnamed) | "node_removed" {node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | ' +
-      '"property_equals" {node_path, property (sub-paths ok), value (var_to_str form or "load:res://…"), tolerance?} | ' +
-      '"property_changed" {node_path, property} | "property_class" {node_path, property, class} | "script_attached" ' +
-      '{node_path, script?} | "signal_connected" {source, signal, target, method?} | "in_group" {node_path, group} | ' +
-      '"scene_open" {path} | "scene_saved" | "file_exists" {path} | "control_pressed" (the step\'s target button was ' +
-      'pressed — fallback only, misses shortcuts) | "game_running" | "manual" (user clicks Next) | "all"/"any" {checks: [...]}.\n' +
-      '- Anywhere a node path is accepted, "$name" or "$name/Child" refers to a var.\n' +
+      '- show_me: actions the card\'s Show me button runs to do the step for the user (undoable). Derived automatically from ' +
+      'done_when for node_selected, node_added (with class), node_removed/renamed/reparented, property_equals, property_class ' +
+      '(new resource of that class, e.g. a BoxMesh), script_attached (with script), signal_connected (with method), in_group, ' +
+      'scene_open, scene_saved, game_running and all. property_changed has no value to derive — give it an explicit show_me ' +
+      'with a sensible value so Show me works on every step. Explicit form: [{command, ...bridge params}], command one of ' +
+      'select_nodes, add_node_live, set_property, set_nested_property {node_path, property_path, value}, set_resource_property ' +
+      '{node_path, property_name, resource_type}, rename_node, reparent_node, remove_node, connect_signal, set_node_groups, ' +
+      'attach_script, save_scene_live, open_scene {path}, play_scene.\n' +
       '- The card gives the user Back, Skip, Why?, Show me and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
       'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +
       'Validation checks property and signal names against the real classes; editor controls that can\'t be found yet are ' +

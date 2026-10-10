@@ -154,11 +154,14 @@ name, the card says what's different.
 ### Show me
 
 **Show me** does the current step for the user, undoably. It is derived
-automatically for `node_selected`, `node_added` (with `class`),
-`node_removed`, `node_renamed`, `node_reparented`, `property_equals`
-(without a sub-path), `script_attached` (with `script`),
-`signal_connected` (with `method`), `in_group`, `scene_saved`, and `all` of
-those. For anything else, give it explicitly:
+automatically for `node_selected`, `node_added` (with `class`; and `name`,
+if given), `node_removed`, `node_renamed`, `node_reparented`,
+`property_equals`, `property_class` (creates a new resource of that class,
+e.g. a `BoxMesh` for a mesh), `script_attached` (with `script`),
+`signal_connected` (with `method`), `in_group`, `scene_open`,
+`scene_saved`, `game_running`, and `all` of those. `property_changed`
+has no value to derive from, so give it one explicitly (recorded tours
+include the value you used):
 
 ```json
 "show_me": [
@@ -167,13 +170,16 @@ those. For anything else, give it explicitly:
 ```
 
 `command` is one of `select_nodes` (`node_paths`), `add_node_live`
-(`parent_path`, `node_type`, `node_name`), `set_property`
-(`node_path`, `property_name`, `value`), `rename_node` (`node_path`,
-`new_name`), `reparent_node` (`node_path`, `new_parent_path`),
-`remove_node` (`node_path`), `connect_signal` (`node_path`, `signal_name`,
-`target_node_path`, `method_name`), `set_node_groups` (`node_path`,
-`groups`), `attach_script` (`node_path`, `script_path`) or
-`save_scene_live`. Each action is one undo step.
+(`parent_path`, `node_type`, `node_name`), `set_property` (`node_path`,
+`property_name`, `value`), `set_nested_property` (`node_path`,
+`property_path` such as `"shape:size"`, `value`), `set_resource_property`
+(`node_path`, `property_name`, `resource_type`), `rename_node`
+(`node_path`, `new_name`), `reparent_node` (`node_path`,
+`new_parent_path`), `remove_node` (`node_path`), `connect_signal`
+(`node_path`, `signal_name`, `target_node_path`, `method_name`),
+`set_node_groups` (`node_path`, `groups`), `attach_script` (`node_path`,
+`script_path`), `save_scene_live`, `open_scene` (`path`) or `play_scene`.
+Each action is one undo step.
 
 ## Safety
 
