@@ -43,6 +43,7 @@
 				"why": { "type": "string" },
 				"target": { "$ref": "#/$defs/target" },
 				"done_when": { "$ref": "#/$defs/check" },
+				"verify": { "$ref": "#/$defs/check" },
 				"show_me": { "type": "array", "items": { "$ref": "#/$defs/action" } }
 			}
 		},
@@ -67,7 +68,7 @@
 				"type": {
 					"enum": ["node_selected", "node_exists", "node_added", "node_removed", "node_renamed", "node_reparented",
 						"property_equals", "property_changed", "property_class", "script_attached", "signal_connected",
-						"in_group", "script_contains", "scene_open", "scene_saved", "file_exists", "control_pressed", "game_running",
+						"in_group", "script_contains", "script_ok", "output_contains", "no_errors", "game_property", "scene_open", "scene_saved", "file_exists", "control_pressed", "game_running",
 						"manual", "all", "any"]
 				},
 				"checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } }
@@ -83,6 +84,8 @@
 				{ "if": { "properties": { "type": { "const": "signal_connected" } } }, "then": { "required": ["source", "signal", "target"] } },
 				{ "if": { "properties": { "type": { "const": "in_group" } } }, "then": { "required": ["node_path", "group"] } },
 				{ "if": { "properties": { "type": { "const": "script_contains" } } }, "then": { "required": ["text"] } },
+				{ "if": { "properties": { "type": { "const": "output_contains" } } }, "then": { "required": ["text"] } },
+				{ "if": { "properties": { "type": { "const": "game_property" } } }, "then": { "required": ["node_path", "property", "op", "value"] } },
 				{ "if": { "properties": { "type": { "enum": ["scene_open", "file_exists"] } } }, "then": { "required": ["path"] } },
 				{ "if": { "properties": { "type": { "enum": ["all", "any"] } } }, "then": { "required": ["checks"] } }
 			]

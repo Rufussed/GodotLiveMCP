@@ -1274,6 +1274,28 @@ export const bridgeToolDefinitions = [
       'setup_environment, edit_script_text {path, text | old_text+new_text, save}, attach_script, save_scene_live, open_scene {path}, play_scene.\n' +
       '- script_contains {script | node_path, text, extends?, replace?}: the script\'s text contains text (whitespace ignored) — use it for ' +
       '"type this code" steps; Show me writes it (replace: the snippet text replaces; extends: base class for a new file).\n' +
+      '- text: short instruction; **bold**, `code` and fenced ``` blocks are rendered. "$name" in text shows that var\'s CURRENT node name — ' +
+      'refer to nodes this way ("Select **$ball**"), never by a typed-out name, so the card matches what the user called it.\n' +
+      '- target: what to outline — node_path (its Scene dock row, WITHOUT selecting it), node_path + property (that Inspector row), or an ' +
+      'editor control: root ("scene_tree", "inspector", "filesystem", "bottom_panel", "editor") + tooltip / text / class / index / path, plus ' +
+      'an optional label. Icon-only buttons like the Scene dock\'s + have no text: use {"root": "scene_tree", "tooltip": "Add/Create a New Node"}. ' +
+      'Omit target for a card-only step. If it can\'t be found the step still runs, with a note on the card.\n' +
+      '- done_when ALWAYS has a "type" (state checks preferred): "node_selected" {node_path} | "node_exists" {node_path} | "node_added" ' +
+      '{parent, class?, name?, capture?} (a new child since the step began; capture binds it to a var so later steps follow it whatever it is ' +
+      'called; with name the step then asks the user to rename it — give main objects a name from the request, e.g. "Ball") | "node_removed" ' +
+      '{node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | "property_equals" {node_path, property ' +
+      '(sub-paths ok, e.g. "position:y"), value (var_to_str form, "load:res://…" or "#ff0000"), tolerance?} | "property_changed" {node_path, ' +
+      'property} | "property_class" {node_path, property, class} (a new resource of that class, e.g. a BoxMesh) | "script_attached" {node_path, ' +
+      'script?} | "script_contains" {script | node_path, text, extends?, replace?} (the script\'s text contains text, whitespace ignored — for ' +
+      '"type this code" steps) | "script_ok" {script | node_path} (parses with no errors) | "output_contains" {text} (Output panel / game ' +
+      'prints since the step began) | "no_errors" (no new errors since the step began) | "game_property" {node_path, property, op: > < >= <= ' +
+      '== ~=, value} (a property in the RUNNING game) | "signal_connected" {source, signal, target, method?} | "in_group" {node_path, group} | ' +
+      '"scene_open" {path} | "scene_saved" | "file_exists" {path} | "control_pressed" (the step\'s target button was pressed; fallback only) | ' +
+      '"game_running" | "manual" (user clicks Next) | "all"/"any" {checks: [...]}.\n' +
+      '- verify (optional, any step): a check that the result WORKED, run after done_when passes — use it after code steps (script_ok) and ' +
+      'after running the game (output_contains, game_property, no_errors). On failure the card says what is wrong and get_tour_status shows a ' +
+      'verify_failed event; the step completes by itself once the learner fixes it. wait_sec? sets how long it waits before reporting.\n' +
+      '- Anywhere a node path is accepted, "$name" or "$name/Child" refers to a var.\n' +
       '- The card gives the user Back, Skip, Why?, Show me and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong ' +
       'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +
       'Validation checks property and signal names against the real classes; editor controls that can\'t be found yet are ' +

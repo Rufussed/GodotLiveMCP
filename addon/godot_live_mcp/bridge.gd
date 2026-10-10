@@ -864,6 +864,14 @@ func _run_source(node: Node, source: String) -> Array:
 ## mistake with "code 43", leaving the caller to guess. The message goes to
 ## the Output panel instead, and only for a script that may run in the
 ## editor (@tool), so it's read back from the in-memory log capture.
+## The parse error (with line) for script source text, "" if it parses.
+## Used by tours' script_ok check, on text that may be unsaved.
+func _script_text_error(source: String) -> String:
+	var scr := GDScript.new()
+	var has_tool := RegEx.create_from_string("(?m)^@tool\\b").search(source) != null
+	scr.source_code = source if has_tool else "@tool\n" + source
+	return _compile_script(scr, 0 if has_tool else 1)
+
 func _compile_script(script: GDScript, line_offset: int) -> String:
 	var since: int = _output_capture.last_seq() if _output_capture else 0
 	var err := script.reload()

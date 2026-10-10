@@ -27,6 +27,7 @@ const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set
 	"set_material_3d", "set_physics_material", "setup_environment", "rename_node", "reparent_node", "remove_node",
 	"connect_signal", "set_node_groups", "attach_script", "edit_script_text", "save_scene_live", "open_scene",
 	"play_scene"]
+const GAME_OPS := [">", "<", ">=", "<=", "==", "~="]
 const SHOW_ME_ANNOUNCE_SEC := 1.6   # how long the card announces before Show me acts
 
 ## Required fields per done_when type ("@target" = the step itself must have
@@ -44,6 +45,10 @@ const CHECK_FIELDS := {
 	"property_class": ["node_path", "property", "class"],
 	"script_attached": ["node_path"],
 	"script_contains": ["text"],
+	"script_ok": [],
+	"output_contains": ["text"],
+	"no_errors": [],
+	"game_property": ["node_path", "property", "op", "value"],
 	"signal_connected": ["source", "signal", "target"],
 	"in_group": ["node_path", "group"],
 	"scene_open": ["path"],
@@ -85,6 +90,14 @@ var _note_hint := ""      # wrong-turn hint
 var _note_stuck := ""
 var _note_why := ""       # the step's why text, or "asked the agent"
 var _showing := false     # a Show me is running
+var _manual_done := false     # Next was pressed on a manual step
+var _verify_since := 0        # msec the step's verify started failing/waiting; 0 = not started
+var _script_err_cache := {}   # script text hash -> parse error ("" = ok)
+var _game_vals := {}          # "node|prop" -> {"v", "err", "t"}: last value read from the running game
+var _game_peer: StreamPeerTCP = null
+var _game_buf := ""
+var _game_key := ""
+var _game_started := 0
 var _hint_hold_until := 0 # msec: a Show me result/refusal note stays up until then
 var _pointed_at_new := false   # a node_added+name step moved its outline to the new node
 var _pointing_at_fold := false  # outlining a folded section until it's opened
@@ -424,6 +437,11 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 			errors.append("%s: done_when needs a \"type\", e.g. {\"type\": \"node_added\", \"parent\": \"$root\", \"class\": \"StaticBody3D\"}" % where)
 			continue
 		_validate_check(check, step, where + ": done_when", var_class, errors)
+		if step.has("verify"):
+			if typeof(step.verify) != TYPE_DICTIONARY or not (step.verify as Dictionary).has("type"):
+				errors.append("%s: verify must be a check object with a \"type\" (e.g. {\"type\": \"script_ok\", \"node_path\": \"$ball\"})" % where)
+			else:
+				_validate_check(step.verify, step, where + ": verify", var_class, errors)
 		if step.has("why") and typeof(step.why) != TYPE_STRING:
 			errors.append("%s: why must be a string" % where)
 		if step.has("show_me"):
@@ -452,6 +470,10 @@ func _validate_check(check: Dictionary, step: Dictionary, where: String, var_cla
 				errors.append("%s: type '%s' needs the step to have a target (the control to press)" % [where, type])
 		elif not check.has(field):
 			errors.append("%s: type '%s' needs '%s'" % [where, type, field])
+	if type == "script_ok" and not (check.has("script") or check.has("node_path")):
+		errors.append("%s: type 'script_ok' needs 'script' (a res:// path) or 'node_path' (a node that has the script)" % where)
+	if type == "game_property" and not str(check.get("op", "")) in GAME_OPS:
+		errors.append("%s: game_property op must be one of %s (got '%s')" % [where, " ".join(GAME_OPS), check.get("op", "")])
 	if type == "script_contains":
 		if not (check.has("script") or check.has("node_path")):
 			errors.append("%s: type 'script_contains' needs 'script' (a res:// path) or 'node_path' (a node that has the script)" % where)
@@ -528,6 +550,193 @@ func _resolve_var(spec) -> Node:
 		return null
 	return _bridge._resolve_node(str(spec))
 
+# ---- Verifying a step's result ----------------------------------------------
+
+## The step's done_when has passed. With a `verify`, the step only
+## completes once that passes too; if it still fails after its wait, the
+## card says what's wrong (and the event log records it) and keeps
+## re-checking, so it moves on by itself once the learner fixes things.
+func _complete_step() -> void:
+	var step: Dictionary = _steps[_index]
+	var v = step.get("verify", null)
+	if typeof(v) != TYPE_DICTIONARY:
+		await _advance("step_done")
+		return
+	if _verify_since == 0:
+		_verify_since = Time.get_ticks_msec()
+	if _passes(v, "v"):
+		await _advance("step_done")
+		return
+	var waited := (Time.get_ticks_msec() - _verify_since) / 1000.0
+	if waited < float(v.get("wait_sec", _default_verify_wait(str(v.type)))):
+		_note_hint = "Checking the result…"
+		_refresh_card()
+		return
+	var why := _check_failure(v, "v")
+	var msg := "✗ That didn't work: " + why
+	if msg != _note_hint:
+		_note_hint = msg
+		_log("verify_failed", {"check": str(v.type), "saw": why})
+		_refresh_card()
+
+func _default_verify_wait(type: String) -> float:
+	match type:
+		"script_ok": return 0.6
+		"output_contains", "game_property": return 4.0
+		"no_errors": return 3.0
+	return 0.5
+
+## What went wrong with a failing verify, in plain words.
+func _check_failure(check: Dictionary, key: String) -> String:
+	match str(check.type):
+		"script_ok":
+			var err := _script_error(check)
+			return "the script has an error — %s" % err if err != "" else "the script couldn't be checked"
+		"output_contains":
+			return "I haven't seen \"%s\" in the output yet" % str(check.text)
+		"no_errors":
+			var errs := _new_errors(key)
+			return "there's an error — %s" % str(errs[0]).left(160) if not errs.is_empty() else "there are errors"
+		"game_property":
+			if not EditorInterface.is_playing_scene():
+				return "the game isn't running"
+			var got = _game_vals.get(_game_cache_key(check), {})
+			if got.get("err", "") != "":
+				return "couldn't read %s from the game (%s)" % [check.property, got.err]
+			var who := str(_sub(str(check.node_path))).get_file()
+			if who == "." or who == "":
+				who = str(_bridge._get_scene_root().name)
+			return "%s · %s is %s, but should be %s %s" % [who, str(check.property).replace(":", " "),
+				_show(got.get("v")), check.op, _show(_bridge._decode_value(str(check.value)))]
+	return "the check didn't pass"
+
+func _script_error(check: Dictionary) -> String:
+	var path := _script_path_for(check)
+	if path == "":
+		return "no script on that node"
+	var got = _bridge._cmd_get_script_text({"path": path})  # includes unsaved edits
+	if typeof(got) != TYPE_DICTIONARY or got.has("__error__"):
+		return "couldn't read %s" % path
+	var src := str(got.text)
+	var h := src.hash()
+	if not _script_err_cache.has(h):
+		_script_err_cache[h] = _bridge._script_text_error(src)
+	return str(_script_err_cache[h])
+
+## Output since the step started: the editor's Output panel (which also
+## carries the running game's prints) after the line count at step start.
+func _editor_log_lines() -> PackedStringArray:
+	var logs := EditorInterface.get_base_control().find_children("*", "EditorLog", true, false)
+	if logs.is_empty():
+		return PackedStringArray()
+	var labels: Array = logs[0].find_children("*", "RichTextLabel", true, false)
+	if labels.is_empty():
+		return PackedStringArray()
+	return (labels[0] as RichTextLabel).get_parsed_text().strip_edges().split("\n")
+
+func _game_error_rows() -> Array:
+	var got = _bridge._cmd_get_output_log({"lines": 1})
+	return got.game_errors if typeof(got) == TYPE_DICTIONARY and got.has("game_errors") else []
+
+func _new_output(key: String) -> String:
+	var lines := _editor_log_lines()
+	var base: int = int(_baseline.get(key, {}).get("lines", 0))
+	if lines.size() < base:
+		base = 0  # the panel was cleared (e.g. the game restarted)
+	return "\n".join(lines.slice(base))
+
+## Error lines since the step started: the editor's captured errors plus
+## new rows in the debugger's Errors tab (errors in the running game).
+func _new_errors(key: String) -> Array:
+	var base: Dictionary = _baseline.get(key, {})
+	var out := []
+	if _bridge._output_capture != null:
+		for e in _bridge._output_capture.read(int(base.get("seq", 0)), true, 20).entries:
+			if str(e.get("kind", "")) in ["error", "script_error", "shader_error"]:
+				out.append(str(e.get("text", "")))
+	var game := _game_error_rows()
+	var gbase := int(base.get("game_errs", 0))
+	for i in range(gbase, game.size()):
+		var row = game[i]
+		out.append(str(row.get("error", row)) if typeof(row) == TYPE_DICTIONARY else str(row))
+	return out
+
+# ---- Reading the running game (game_property) -------------------------------
+#
+# The check can't wait for a network reply, so it answers from the last value
+# read; _game_pump() (every frame) keeps one request in flight to the game's
+# runtime bridge (the same port and token the MCP server uses).
+
+func _game_cache_key(check: Dictionary) -> String:
+	return "%s|%s" % [_sub(str(check.node_path)), check.property]
+
+func _game_property_ok(check: Dictionary) -> bool:
+	if not EditorInterface.is_playing_scene():
+		return false
+	var key := _game_cache_key(check)
+	var got: Dictionary = _game_vals.get(key, {})
+	if _game_peer == null and Time.get_ticks_msec() - int(got.get("t", 0)) > 400:
+		_game_request(key, _sub(str(check.node_path)), str(check.property).replace(":", "."))
+	if not got.has("v") or got.get("err", "") != "":
+		return false
+	return _compare(got.v, str(check.op), _bridge._decode_value(str(check.value)), float(check.get("tolerance", 0.05)))
+
+func _compare(a, op: String, b, tol: float) -> bool:
+	match op:
+		"==": return _matches(a, b, tol)
+		"~=": return _matches(a, b, maxf(tol, absf(float(b)) * 0.05 if typeof(b) in [TYPE_INT, TYPE_FLOAT] else tol))
+	if typeof(a) in [TYPE_INT, TYPE_FLOAT] and typeof(b) in [TYPE_INT, TYPE_FLOAT]:
+		match op:
+			">": return float(a) > float(b)
+			"<": return float(a) < float(b)
+			">=": return float(a) >= float(b)
+			"<=": return float(a) <= float(b)
+	return false
+
+func _game_request(key: String, node_path: String, expression: String) -> void:
+	_game_peer = StreamPeerTCP.new()
+	var port := int(OS.get_environment("GODOT_LIVE_MCP_RUNTIME_PORT")) if OS.get_environment("GODOT_LIVE_MCP_RUNTIME_PORT") != "" else 9090
+	if _game_peer.connect_to_host("127.0.0.1", port) != OK:
+		_game_vals[key] = {"err": "can't connect to the game", "t": Time.get_ticks_msec()}
+		_game_peer = null
+		return
+	_game_key = key
+	_game_buf = JSON.stringify({"id": 1, "token": _bridge._token, "command": "eval_expression",
+		"params": {"node_path": node_path, "expression": expression}}) + "\n"
+	_game_started = Time.get_ticks_msec()
+
+func _game_pump() -> void:
+	if _game_peer == null:
+		return
+	_game_peer.poll()
+	var status := _game_peer.get_status()
+	var fail := ""
+	if status == StreamPeerTCP.STATUS_CONNECTED:
+		if _game_buf.ends_with("\n") and _game_buf.begins_with("{"):
+			_game_peer.put_data(_game_buf.to_utf8_buffer())  # the request, sent once
+			_game_buf = "<sent>"
+		elif _game_peer.get_available_bytes() > 0:
+			var got := _game_peer.get_data(_game_peer.get_available_bytes())
+			_game_buf = (_game_buf if _game_buf != "<sent>" else "") + (got[1] as PackedByteArray).get_string_from_utf8()
+			if _game_buf.contains("\n"):
+				var reply = JSON.parse_string(_game_buf.get_slice("\n", 0))
+				if typeof(reply) == TYPE_DICTIONARY and reply.get("ok", false):
+					var val = reply.result.value if typeof(reply.result) == TYPE_DICTIONARY else null
+					_game_vals[_game_key] = {"v": str_to_var(str(val)), "t": Time.get_ticks_msec()}
+				else:
+					_game_vals[_game_key] = {"err": str(reply.get("error", "bad reply")) if typeof(reply) == TYPE_DICTIONARY else "bad reply", "t": Time.get_ticks_msec()}
+				_game_peer.disconnect_from_host()
+				_game_peer = null
+				return
+	elif status == StreamPeerTCP.STATUS_ERROR or status == StreamPeerTCP.STATUS_NONE:
+		fail = "can't reach the game"
+	if fail == "" and Time.get_ticks_msec() - _game_started > 2500:
+		fail = "the game didn't answer"
+	if fail != "":
+		_game_vals[_game_key] = {"err": fail, "t": Time.get_ticks_msec()}
+		_game_peer.disconnect_from_host()
+		_game_peer = null
+
 ## Names of $vars referenced in d's string values that aren't defined yet.
 func _vars_used(d, defined: Dictionary) -> Array:
 	var missing := []
@@ -598,7 +807,11 @@ func _enter_step(i: int, revisit := false) -> void:
 	_pointed_at_new = false
 	var step: Dictionary = _steps[i]
 	_baseline = {}
+	_manual_done = false
+	_verify_since = 0
 	_snapshot(step.done_when, "c")
+	if typeof(step.get("verify")) == TYPE_DICTIONARY:
+		_snapshot(step.verify, "v")
 	_log("back_to_step" if revisit else "step_started")
 	if _needs_missing_var(step):
 		_note_target = "This step depends on an earlier one that was skipped — go Back, or Skip this one too."
@@ -622,7 +835,7 @@ func _enter_step(i: int, revisit := false) -> void:
 		_holding = false
 		if gen != _gen:
 			return
-		await _advance("step_done")
+		_queue_check()
 		return
 	_queue_check()
 
@@ -736,8 +949,14 @@ func _on_skip_pressed() -> void:
 		await _advance("skipped")
 
 func _on_next_pressed() -> void:
-	if is_running() and not _done and (_revisit or str(_steps[_index].done_when.type) == "manual"):
+	if not is_running() or _done:
+		return
+	if _revisit:
 		await _advance("step_done")
+	elif str(_steps[_index].done_when.type) == "manual":
+		# Through the normal check, so a verify on the step still runs.
+		_manual_done = true
+		_queue_check()
 
 ## "Why?": the step's own why text first (works offline, in saved tours);
 ## pressed again, or when there is none, the question goes to the agent in
@@ -1091,8 +1310,9 @@ func _run_check() -> void:
 				_note_hint = "✓ Already done — press Next to continue."
 				_refresh_card()
 			return
-		await _advance("step_done")
+		await _complete_step()
 		return
+	_verify_since = 0
 	var hint := _hint(check, "c")
 	if hint.begins_with("✓ Added!") and not _pointed_at_new:
 		_pointed_at_new = true
@@ -1132,6 +1352,12 @@ func _snapshot(check: Dictionary, key: String) -> void:
 			if n != null:
 				_baseline[key] = n.get_indexed(NodePath(str(check.property)))
 				_baseline[key + ":node"] = weakref(n)
+		"output_contains", "no_errors":
+			_baseline[key] = {
+				"lines": _editor_log_lines().size(),
+				"seq": _bridge._output_capture.last_seq() if _bridge._output_capture != null else 0,
+				"game_errs": _game_error_rows().size(),
+			}
 		"all", "any":
 			for j in (check.checks as Array).size():
 				_snapshot(check.checks[j], "%s.%d" % [key, j])
@@ -1139,7 +1365,7 @@ func _snapshot(check: Dictionary, key: String) -> void:
 func _passes(check: Dictionary, key: String) -> bool:
 	match str(check.type):
 		"manual":
-			return false  # the card's Next button advances
+			return _manual_done  # the card's Next button
 		"node_selected":
 			var n := _node(str(check.node_path))
 			return n != null and n in EditorInterface.get_selection().get_selected_nodes()
@@ -1220,6 +1446,14 @@ func _passes(check: Dictionary, key: String) -> bool:
 			if typeof(got) != TYPE_DICTIONARY or got.has("__error__"):
 				return false
 			return _squash(str(got.text)).contains(_squash(str(check.text)))
+		"script_ok":
+			return _script_error(check) == ""
+		"output_contains":
+			return _new_output(key).contains(str(check.text))
+		"no_errors":
+			return _new_errors(key).is_empty()
+		"game_property":
+			return _game_property_ok(check)
 		"scene_open":
 			var root: Node = _bridge._get_scene_root()
 			return root != null and root.scene_file_path == str(check.path)
@@ -1366,6 +1600,7 @@ func _on_scene_changed(_root: Node) -> void:
 func _process(delta: float) -> void:
 	if not _overlay.is_empty():
 		_overlay.update()
+	_game_pump()
 	_place_card()
 	_poll += delta
 	if _poll >= POLL_SEC:
