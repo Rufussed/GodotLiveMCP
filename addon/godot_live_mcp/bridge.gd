@@ -1378,10 +1378,23 @@ func _cmd_set_resource_property(params: Dictionary):
 	if resource_type == "":
 		return _fail("resource_type is required")
 
+	# A nested property ("material_override:shader"): walk to the object that
+	# owns the last segment (the material), and set it there.
+	var target: Object = node
+	var prop_name := property_name
+	if property_name.contains(":"):
+		var parts := property_name.split(":")
+		for i in range(parts.size() - 1):
+			var next = target.get(parts[i])
+			if not (next is Object):
+				return _fail("%s has no object at '%s' (it is %s) — set that first" % [node_path, ":".join(parts.slice(0, i + 1)), "empty" if next == null else "not an object"])
+			target = next
+		prop_name = parts[-1]
+
 	var valid_names := {}
-	for p in node.get_property_list():
+	for p in target.get_property_list():
 		valid_names[p.name] = true
-	if not valid_names.has(property_name):
+	if not valid_names.has(prop_name):
 		return _fail("unknown property: %s" % property_name)
 	if not ClassDB.class_exists(resource_type) or not ClassDB.is_parent_class(resource_type, "Resource"):
 		return _fail("not a Resource subclass: %s" % resource_type)
@@ -1389,7 +1402,7 @@ func _cmd_set_resource_property(params: Dictionary):
 		return _fail("cannot instantiate resource type: %s" % resource_type)
 
 	var res: Resource
-	var current = node.get(property_name)
+	var current = target.get(prop_name)
 	var created_new := false
 	if reuse_existing and current != null and current.get_class() == resource_type:
 		res = current
@@ -1401,7 +1414,21 @@ func _cmd_set_resource_property(params: Dictionary):
 	if apply_err != "":
 		return _fail(apply_err)
 
-	_commit_properties(node, {property_name: res})
+	# save_path: also write it to that file (the way the editor's "Save as…"
+	# does), so the property holds a saved resource, not a loose one.
+	var save_path := String(params.get("save_path", ""))
+	if save_path != "":
+		if not save_path.begins_with("res://"):
+			return _fail("save_path must be a res:// path: %s" % save_path)
+		DirAccess.make_dir_recursive_absolute(save_path.get_base_dir())
+		var save_err := ResourceSaver.save(res, save_path)
+		if save_err != OK:
+			return _fail("could not save %s (error %d)" % [save_path, save_err])
+		res.take_over_path(save_path)
+
+	_commit_properties(target, {prop_name: res})
+	if bool(params.get("open", false)):
+		EditorInterface.edit_resource(res)  # e.g. a new shader, in the shader editor
 	return _with_live_note({"ok": true, "resource_type": res.get_class(), "resource": _read_back(res, resource_params.keys())}, created_new)
 
 func _cmd_set_transform(params: Dictionary):

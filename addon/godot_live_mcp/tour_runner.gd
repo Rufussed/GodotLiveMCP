@@ -1287,6 +1287,8 @@ func _on_show_me_pressed() -> void:
 			_maybe_auto_ask()
 			return
 	_showing = false
+	if str(step.done_when.type) == "manual":
+		_manual_done = true  # Show me did what the step says: carry on
 	_note_hint = "✓ Done for you — Ctrl+Z%s to undo." % (" %d times" % actions.size() if actions.size() > 1 else "")
 	_hint_hold_until = Time.get_ticks_msec() + 4000
 	_refresh_card()
@@ -1352,7 +1354,7 @@ func _describe_action(a: Dictionary) -> String:
 func _show_me_actions(step: Dictionary) -> Array:
 	var raw = step.get("show_me", null)
 	_derive_step_text = str(step.get("text", ""))
-	var actions: Array = raw if typeof(raw) == TYPE_ARRAY else _derive_show_me(step.done_when)
+	var actions: Array = raw if typeof(raw) == TYPE_ARRAY else _with_play_from_text(_derive_show_me(step.done_when), step)
 	if typeof(raw) != TYPE_ARRAY and str(step.done_when.type) == "control_pressed" and typeof(step.get("target")) == TYPE_DICTIONARY:
 		# Press the very control the step outlines.
 		var press: Dictionary = (step.target as Dictionary).duplicate()
@@ -1425,6 +1427,39 @@ func _script_path_from_text() -> String:
 	var found := RegEx.create_from_string("res://[A-Za-z0-9_/.\\-]+\\.gd").search(_derive_step_text)
 	return found.get_string() if found != null else ""
 
+## A step whose text says to press F5/F6 or to play/run the game has a play
+## in it even if its check is only "saved" (or nothing): add it after the
+## derived actions, so Show me does what the step says. F6 plays the open
+## scene, F5 the project's main scene.
+func _with_play_from_text(actions: Array, step: Dictionary) -> Array:
+	var text := str(step.get("text", ""))
+	var found := RegEx.create_from_string("(?i)\\b(F5|F6)\\b|\\b(play|run|start)\\s+(the\\s+)?(game|scene|project)\\b").search(text)
+	if found == null or str(step.done_when.get("type", "")) == "game_running":
+		return actions
+	for a in actions:
+		if str(a.get("command", "")) == "play_scene":
+			return actions
+	var play := {"command": "play_scene"}
+	var key := found.get_string().to_upper()
+	if key == "F6" or text.to_lower().contains("current scene"):
+		var root: Node = _bridge._get_scene_root()
+		if root != null and root.scene_file_path != "":
+			play["scene_path"] = root.scene_file_path
+	var out := actions.duplicate()
+	out.append(play)
+	return out
+
+## A minimal shader of the type the step names (Spatial by default).
+func _starter_shader_code(text: String) -> String:
+	var t := text.to_lower()
+	if t.contains("canvas"):
+		return "shader_type canvas_item;\n\nvoid fragment() {\n}\n"
+	if t.contains("particle"):
+		return "shader_type particles;\n\nvoid process() {\n}\n"
+	if t.contains("sky"):
+		return "shader_type sky;\n\nvoid sky() {\n}\n"
+	return "shader_type spatial;\n\nvoid fragment() {\n}\n"
+
 func _derive_show_me(check: Dictionary, key := "c") -> Array:
 	match str(check.type):
 		"script_contains":
@@ -1495,11 +1530,18 @@ func _derive_show_me(check: Dictionary, key := "c") -> Array:
 				return [{"command": "set_nested_property", "node_path": check.node_path, "property_path": check.property, "value": check.value}]
 			return [{"command": "set_property", "node_path": check.node_path, "property_name": check.property, "value": check.value}]
 		"property_class":
-			# A new resource of that class (mesh, shape, material…), undoably.
+			# A new resource of that class (mesh, shape, material, shader…),
+			# undoably — including inside another resource ("material_override:shader").
 			var cls := str(check["class"])
-			if not str(check.property).contains(":") and ClassDB.can_instantiate(cls):
-				return [{"command": "set_resource_property", "node_path": check.node_path, "property_name": check.property,
-					"resource_type": cls, "reuse_existing": false}]
+			if ClassDB.can_instantiate(cls):
+				var act := {"command": "set_resource_property", "node_path": check.node_path, "property_name": check.property,
+					"resource_type": cls, "reuse_existing": false, "open": cls == "Shader"}
+				var saved_as := RegEx.create_from_string("res://[A-Za-z0-9_/.\\-]+\\.(gdshader|tres|res)").search(_derive_step_text)
+				if saved_as != null:
+					act["save_path"] = saved_as.get_string()
+				if cls == "Shader":
+					act["resource_params"] = {"code": var_to_str(_starter_shader_code(_derive_step_text))}
+				return [act]
 		"scene_open":
 			return [{"command": "open_scene", "path": check.path}]
 		"game_running":

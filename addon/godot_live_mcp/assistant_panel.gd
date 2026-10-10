@@ -1352,6 +1352,10 @@ func _build_session_ui() -> void:
 	_style_button(_stop_button, Color(0.75, 0.2, 0.2))
 	_stop_button.pressed.connect(_on_stop_pressed)
 	input_row.add_child(_stop_button)
+	# The text box grows when the splitter is dragged; the buttons keep their
+	# normal height and stay in the bottom-right corner beside it.
+	for b in [_watch_button, _tutorial_button, _send_button, _stop_button]:
+		b.size_flags_vertical = Control.SIZE_SHRINK_END
 
 ## An icon from this addon's icons/ folder, rasterized from the SVG directly
 ## (no import step, so it works the moment a project links the addon).
