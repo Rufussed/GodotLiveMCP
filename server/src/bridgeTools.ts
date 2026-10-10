@@ -1248,8 +1248,8 @@ export const bridgeToolDefinitions = [
     description:
       'Start a guided tour: a chain of editor highlights, each with a step card, that advances BY ITSELF when the ' +
       'user completes each step (checked against real editor state). Use it — without asking first — when the user says ' +
-      '"show me", "teach me", "guide me", "walk me through" or "I want to learn", or when the message says tutorial mode ' +
-      'is on. Only for a bare "how do I…" that could mean either, offer both in one short line ("I can do it, or walk you ' +
+      '"show me", "teach me", "guide me", "walk me through" or "I want to learn", or when the message says teach mode ' +
+      'is on (the panel\'s Teach toggle). Only for a bare "how do I…" that could mean either, offer both in one short line ("I can do it, or walk you ' +
       'through it with a guided tour — which?") rather than an open question. Inspect the scene first and use the user\'s real node names. Unlike ' +
       'highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every ' +
       'problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\n' +

@@ -93,6 +93,7 @@ var _card_next: Button = null
 var _card_show: Button = null
 var _card_why: Button = null
 var _card_save: Button = null
+var _card_close: Button = null  # the Done card's main action
 var _card_pinned := false   # the user dragged the card: keep it where they put it
 var _card_drag := Vector2.ZERO  # grab offset while dragging
 var _card_dragging := false
@@ -675,6 +676,7 @@ func _finish() -> void:
 	_card_show.visible = false
 	_card_why.visible = false
 	_card_save.visible = _source_path == ""
+	_card_close.visible = true
 
 func _on_back_pressed() -> void:
 	if is_running() and not _done and _index > 0:
@@ -1210,6 +1212,25 @@ func _build_card() -> void:
 	_card_save = _card_button("Save tour", "Save this tour to res://tours/ so it can be replayed without the agent", _on_save_pressed)
 	_card_save.visible = false
 	buttons.add_child(_card_save)
+	# Done card: Close is the main (green) action, to the right of Save.
+	_card_close = _card_button("Close", "Close the tour", stop)
+	var green := StyleBoxFlat.new()
+	green.bg_color = Color(0.22, 0.6, 0.28)
+	green.set_corner_radius_all(4)
+	green.set_content_margin_all(6)
+	green.content_margin_left = 14
+	green.content_margin_right = 14
+	_card_close.add_theme_stylebox_override("normal", green)
+	var green_hover := green.duplicate()
+	green_hover.bg_color = green.bg_color.lightened(0.12)
+	_card_close.add_theme_stylebox_override("hover", green_hover)
+	var green_down := green.duplicate()
+	green_down.bg_color = green.bg_color.darkened(0.15)
+	_card_close.add_theme_stylebox_override("pressed", green_down)
+	_card_close.add_theme_color_override("font_color", Color.WHITE)
+	_card_close.add_theme_color_override("font_hover_color", Color.WHITE)
+	_card_close.visible = false
+	buttons.add_child(_card_close)
 	EditorInterface.get_base_control().add_child(_card)
 
 ## Drag the card anywhere (not on its buttons, which take their own
