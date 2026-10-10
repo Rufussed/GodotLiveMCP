@@ -169,7 +169,79 @@ func _get_scene_root() -> Node:
 ## sometimes repeatedly, before this resumes polling. Not fixable by a new
 ## tool; inherent to single-threaded GDScript. See README's "Known
 ## limitations".
+# ---- Performance probes ----------------------------------------------------
+#
+# Cheap rolling timings of the periodic work this addon does (per-frame bridge
+# polling, tour checks, Watch, record mode), read with get_perf_stats. Each
+# probe keeps a count, the total, the max, and the last value.
+
+var _perf := {}
+
+func _perf_add(name: String, usec: int) -> void:
+	var p: Dictionary = _perf.get(name, {"n": 0, "total": 0, "max": 0, "last": 0})
+	p.n += 1
+	p.total += usec
+	p.max = maxi(int(p.max), usec)
+	p.last = usec
+	_perf[name] = p
+
+## Per-probe stats in ms, plus the editor's own frame figures. reset: true
+## clears the probes (so a measurement starts from a clean slate).
+func _cmd_get_perf_stats(params: Dictionary):
+	var probes := {}
+	for name in _perf:
+		var p: Dictionary = _perf[name]
+		probes[name] = {"calls": p.n, "avg_ms": snappedf(float(p.total) / maxi(int(p.n), 1) / 1000.0, 0.001),
+			"max_ms": snappedf(float(p.max) / 1000.0, 0.001), "last_ms": snappedf(float(p.last) / 1000.0, 0.001)}
+	if bool(params.get("reset", false)):
+		_perf.clear()
+	return {
+		"probes": probes,
+		"fps": Engine.get_frames_per_second(),
+		"process_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.01),
+		"editor_nodes": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		"note": "Probes cover this addon's periodic work only. calls/avg_ms/max_ms since the last reset.",
+	}
+
+# ---- Cached editor controls ----------------------------------------------------
+#
+# The Output panel and the debuggers are found by searching the editor's whole UI
+# tree (~20,000 nodes, ~4 ms per search), which tour checks used to do twice a
+# second. They are found once and remembered until they go away.
+
+var _cached_log_label: WeakRef = null
+var _cached_debuggers: Array = []
+
+## The Output panel's text label, or null.
+func _editor_log_label() -> RichTextLabel:
+	var cached = _cached_log_label.get_ref() if _cached_log_label != null else null
+	if cached is RichTextLabel and (cached as RichTextLabel).is_inside_tree():
+		return cached
+	var logs := EditorInterface.get_base_control().find_children("*", "EditorLog", true, false)
+	if logs.is_empty():
+		return null
+	var labels: Array = logs[0].find_children("*", "RichTextLabel", true, false)
+	if labels.is_empty():
+		return null
+	_cached_log_label = weakref(labels[0])
+	return labels[0]
+
+## The editor's ScriptEditorDebugger controls.
+func _script_debuggers() -> Array:
+	var alive := true
+	for d in _cached_debuggers:
+		if not is_instance_valid(d) or not (d as Node).is_inside_tree():
+			alive = false
+	if _cached_debuggers.is_empty() or not alive:
+		_cached_debuggers = EditorInterface.get_base_control().find_children("*", "ScriptEditorDebugger", true, false)
+	return _cached_debuggers
+
 func _process(_delta: float) -> void:
+	var probe_t0 := Time.get_ticks_usec()
+	_process_inner()
+	_perf_add("bridge_process", Time.get_ticks_usec() - probe_t0)
+
+func _process_inner() -> void:
 	# null on an instance hot-reloaded from a version without it; an error
 	# here would stop the socket polling below.
 	if _hl != null and not _hl.is_empty():
@@ -407,15 +479,13 @@ func _mac_keys(text: String) -> String:
 func _cmd_get_output_log(params: Dictionary):
 	var lines := int(params.get("lines", 60))
 	var result := {"output": "", "game_errors": [], "game_paused_at": []}
-	var logs := EditorInterface.get_base_control().find_children("*", "EditorLog", true, false)
-	if not logs.is_empty():
-		var labels: Array = logs[0].find_children("*", "RichTextLabel", true, false)
-		if not labels.is_empty():
-			var text_lines: PackedStringArray = labels[0].get_parsed_text().strip_edges().split("\n")
-			result.output = "\n".join(text_lines.slice(maxi(0, text_lines.size() - lines)))
+	var log_label := _editor_log_label()
+	if log_label != null:
+		var text_lines: PackedStringArray = log_label.get_parsed_text().strip_edges().split("\n")
+		result.output = "\n".join(text_lines.slice(maxi(0, text_lines.size() - lines)))
 	# ScriptEditorDebugger's tabs are built in a fixed order: Stack Trace,
 	# then Errors. Found by position since tab titles are translated.
-	for dbg in EditorInterface.get_base_control().find_children("*", "ScriptEditorDebugger", true, false):
+	for dbg in _script_debuggers():
 		var tabs: Array = dbg.find_children("*", "TabContainer", false, false)
 		if tabs.is_empty() or tabs[0].get_child_count() < 2:
 			continue
