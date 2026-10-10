@@ -1214,7 +1214,7 @@ export const bridgeToolDefinitions = [
       'throwaway run_script. Targets: `property` (an Inspector property by name — opens the node first when ' +
       '`node_path` is given, else uses what the Inspector already shows), `node_path` alone (selects the node and ' +
       'outlines its Scene dock row), or any editor control by `path` (+ `root`, as in dump_control_tree) or by ' +
-      '`text`/`tooltip`/`class` (+ `index`) — icon-only buttons such as the Scene dock\'s + have no text, so use `tooltip` (e.g. root "scene_tree", tooltip "Add/Create a New Node"); `root` defaults to the Inspector — e.g. a menu button or the Animation editor\'s Edit menu. Tabs and the bottom ' +
+      '`text`/`tooltip`/`class` (+ `index`) — icon-only buttons such as the Scene dock\'s + have no text, so use `tooltip` (e.g. root "scene_tree", tooltip "Add/Create a New Node"); without `root` it searches the Inspector, then the other docks, then the whole editor — e.g. a menu button or the Animation editor\'s Edit menu. Tabs and the bottom ' +
       'panel are switched so the target is visible. The highlight is released by ANY Inspector property edit or undoable editor action ' +
       '(the user changing something: a gizmo drag, a Scene dock change, undo/redo), a scene switch, the timeout, or clear_editor_highlights; calling this again ' +
       'replaces it. Several controls at once: pass `targets` (an array of the same objects). Fails with a clear ' +
