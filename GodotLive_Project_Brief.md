@@ -459,3 +459,39 @@ An AI agent, given a running Godot project via this MCP server, can: list the
 current scene tree, select a node, change a physics-relevant property (e.g.
 friction) via `eval_expression`, and confirm via read-back that the value
 changed — all without the human touching the editor.
+
+## Roadmap: guided tours (added 2026-10-10)
+
+A second direction alongside the MCP tool set, which keeps growing as
+before. Where the tools let an agent *do* something in the editor, guided
+tours let it *show you how*: ask "how would I add a collision shape to my
+player?" and the agent prepares a short step-by-step tour against your own
+open project, then walks you through it, highlighting one editor control
+at a time.
+
+**Built on what exists:** `highlight_editor_control` already finds and
+marks an editor control with a note, and releases itself when the user
+makes an undoable change; `dump_control_tree` locates controls; the read
+tools can check scene state.
+
+**Design points:**
+- **Steps advance on verified state, not clicks.** Each step carries a
+  completion check, e.g. node exists, property equals, scene saved, script
+  attached, with "control pressed" only as a fallback. Keyboard shortcuts
+  and drag-and-drop then count too, and a wrong action doesn't advance.
+- **Two kinds of tour, one format.** *Spontaneous*: generated on request
+  for the user's own project and question. *Saved*: written to a plain,
+  documented file, so a teacher can edit it and anyone can share it.
+- **Saved tours play back without AI.** A deterministic player in the
+  addon, with no LLM account, network, or data leaving the machine, so
+  classrooms can use them.
+- **Robust targeting.** Docks move and Godot versions rename things, so
+  steps find their target with fallbacks and degrade to a plain-text
+  instruction ("open the Inspector, find Collision") instead of failing.
+- **Learner controls:** back, skip, "show me" (the agent does the step),
+  and "why?" (the agent explains it).
+
+**Rough order:** (1) a step-chain engine on top of the existing highlight,
+with completion checks, proven on a 3-step chain; (2) the tour file format
+and a no-AI player; (3) an agent tool that drafts a tour from a question;
+(4) a handful of beginner tours, tested with real learners.
