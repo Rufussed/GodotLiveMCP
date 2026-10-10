@@ -1356,6 +1356,19 @@ func _build_session_ui() -> void:
 	# normal height and stay in the bottom-right corner beside it.
 	for b in [_watch_button, _tutorial_button, _send_button, _stop_button]:
 		b.size_flags_vertical = Control.SIZE_SHRINK_END
+	_equalize_input_buttons.call_deferred()
+
+## All four buttons the same height: text buttons (Watch, Teach) are naturally
+## taller than icon-only ones (Send, Stop), so lift the others to the tallest.
+func _equalize_input_buttons() -> void:
+	var buttons := [_watch_button, _tutorial_button, _send_button, _stop_button]
+	var tallest := 0.0
+	for b in buttons:
+		if b != null:
+			tallest = maxf(tallest, b.get_combined_minimum_size().y)
+	for b in buttons:
+		if b != null:
+			b.custom_minimum_size.y = tallest
 
 ## An icon from this addon's icons/ folder, rasterized from the SVG directly
 ## (no import step, so it works the moment a project links the addon).
