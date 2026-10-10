@@ -1247,8 +1247,10 @@ export const bridgeToolDefinitions = [
     name: 'start_tour',
     description:
       'Start a guided tour: a chain of editor highlights, each with a step card, that advances BY ITSELF when the ' +
-      'user completes each step (checked against real editor state) — use when the user asks "how do I…" / "show me" / ' +
-      '"teach me" rather than "do it". Inspect the scene first and use the user\'s real node names. Unlike ' +
+      'user completes each step (checked against real editor state). Use it — without asking first — when the user says ' +
+      '"show me", "teach me", "guide me", "walk me through" or "I want to learn", or when the message says tutorial mode ' +
+      'is on. Only for a bare "how do I…" that could mean either, offer both in one short line ("I can do it, or walk you ' +
+      'through it with a guided tour — which?") rather than an open question. Inspect the scene first and use the user\'s real node names. Unlike ' +
       'highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every ' +
       'problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\n' +
       'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, requires?: {scene_open?, node_exists?: [paths]}, ' +
@@ -1260,14 +1262,17 @@ export const bridgeToolDefinitions = [
       'script_attached (with script), signal_connected (with method), in_group, scene_saved and all. Explicit form: ' +
       '[{command, ...bridge params}], command one of select_nodes, add_node_live, set_property, rename_node, reparent_node, ' +
       'remove_node, connect_signal, set_node_groups, attach_script, save_scene_live.\n' +
-      '- text: short instruction; **bold** and `code` are rendered.\n' +
+      '- text: short instruction; **bold** and `code` are rendered. "$name" in text shows that var\'s CURRENT node name — refer to ' +
+      'nodes this way ("Select **$ball**"), not by typed-out names, so the card matches what the user actually called it.\n' +
       '- target: what to outline — same fields as highlight_editor_control (node_path, property, path/root, text, tooltip, ' +
       'class, index, label). A node target outlines its Scene dock row WITHOUT selecting it. Omit for a card-only step. If ' +
       'it can\'t be found the step still runs, with a note on the card; a property row is re-found when the user selects ' +
       'that node again.\n' +
       '- done_when.type (state checks preferred): "node_selected" {node_path} | "node_exists" {node_path} | "node_added" ' +
-      '{parent, class?, capture?} (a new child since the step began; capture binds it to a var, so the user may name it ' +
-      'anything) | "node_removed" {node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | ' +
+      '{parent, class?, name?, capture?} (a new child since the step began; capture binds it to a var, so later steps ' +
+      'follow it whatever it\'s called. With name, the step then asks the user to rename it — the card says "Now rename it to ' +
+      'X", the outline moves to the new node — and completes once it\'s named. Give main objects a name: the one from the ' +
+      'request ("a ball" → "Ball") or an obvious one (Floor, Player); leave helper children like CollisionShape3D unnamed) | "node_removed" {node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | ' +
       '"property_equals" {node_path, property (sub-paths ok), value (var_to_str form or "load:res://…"), tolerance?} | ' +
       '"property_changed" {node_path, property} | "property_class" {node_path, property, class} | "script_attached" ' +
       '{node_path, script?} | "signal_connected" {source, signal, target, method?} | "in_group" {node_path, group} | ' +
