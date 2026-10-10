@@ -16,7 +16,7 @@ const NODE_PATH_PROPERTY = {
 
 const VALUE_ENCODING_NOTE =
   ' Values are Godot\'s var_to_str() string encoding (e.g. "5", "true", "\\"hello\\"", ' +
-  '"Vector2(1, 2)", "Color(1, 0, 0, 1)") — not plain JSON.';
+  '"Vector2(1, 2)", "Color(1, 0, 0, 1)"; colours may also be "#ff0000") — not plain JSON.';
 
 const PROPERTY_VALIDATION_NOTE =
   ' Unknown property names fail loudly rather than silently no-oping, and the response includes a ' +

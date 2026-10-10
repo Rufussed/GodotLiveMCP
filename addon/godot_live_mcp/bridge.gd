@@ -584,6 +584,10 @@ func _decode_value(raw_value):
 	var value_str := str(raw_value)
 	if value_str.begins_with("load:"):
 		return load(value_str.substr(5))
+	# "#ff0000" / "#f00" / "#ff0000cc": the way most people (and agents)
+	# write a colour; str_to_var() only knows Color(1, 0, 0, 1).
+	if value_str.begins_with("#") and Color.html_is_valid(value_str):
+		return Color.html(value_str)
 	var value = str_to_var(value_str)
 	# str_to_var only takes Godot's stored form, e.g. Color with all four
 	# components; a constructor call like "Color(0.2, 0.4, 0.9)" comes back
@@ -1329,26 +1333,51 @@ func _cmd_set_transform(params: Dictionary):
 		return _fail("node not found: %s" % node_path)
 	if not (node is Node2D or node is Node3D):
 		return _fail("node is not a Node2D or Node3D: %s" % node_path)
+	var dims := 3 if node is Node3D else 2
+	var example := "Vector3(0, 10, 0)" if dims == 3 else "Vector2(100, 50)"
 
+	# Used to set whatever it was given and answer ok: a position of
+	# "[0, 10, 0]" (a list, not a Vector3) silently did nothing while the
+	# agent reported the ball 10 m up — seen in real use. Now lists of
+	# numbers are converted, anything else fails, and the reply reads back.
 	var values := {}
-	if params.has("position"):
-		values["position"] = _decode_value(params["position"])
+	for key in ["position", "scale"]:
+		if params.has(key):
+			var v = _to_vector(_decode_value(params[key]), dims)
+			if v == null:
+				return _fail("%s must be a Vector%d for this %s, e.g. \"%s\" or [x, y%s] (got: %s)" % [
+					key, dims, node.get_class(), example, ", z" if dims == 3 else "", params[key]])
+			values[key] = v
 	if params.has("rotation"):
-		var rotation_value = _decode_value(params["rotation"])
-		if node is Node3D:
-			if rotation_value is Vector3:
-				values["rotation"] = rotation_value
-			else:
-				return _fail("rotation must be a Vector3 for a Node3D (got: %s)" % params["rotation"])
-		else:
-			if rotation_value is float or rotation_value is int:
-				values["rotation"] = float(rotation_value)
-			else:
-				return _fail("rotation must be a float for a Node2D (got: %s)" % params["rotation"])
-	if params.has("scale"):
-		values["scale"] = _decode_value(params["scale"])
+		var r = _decode_value(params["rotation"])
+		if dims == 3:
+			r = _to_vector(r, 3)
+			if r == null:
+				return _fail("rotation must be a Vector3 in radians for a Node3D, e.g. \"Vector3(0, 1.57, 0)\" (got: %s)" % params["rotation"])
+		elif not (r is float or r is int):
+			return _fail("rotation must be a number (radians) for a Node2D (got: %s)" % params["rotation"])
+		values["rotation"] = r if dims == 3 else float(r)
+	if values.is_empty():
+		return _fail("give position, rotation and/or scale")
 	_commit_properties(node, values)
-	return {"ok": true}
+	var out := {}
+	for key in ["position", "rotation", "scale"]:
+		out[key] = var_to_str(node.get(key))
+	return out
+
+## v as a Vector2/Vector3 of the given size: accepts the vector itself or a
+## list of numbers ("[0, 10, 0]" from an agent); null otherwise.
+func _to_vector(v, dims: int):
+	if dims == 3 and v is Vector3:
+		return v
+	if dims == 2 and v is Vector2:
+		return v
+	if v is Array and (v as Array).size() == dims:
+		for x in v:
+			if not (x is float or x is int):
+				return null
+		return Vector3(v[0], v[1], v[2]) if dims == 3 else Vector2(v[0], v[1])
+	return null
 
 func _cmd_attach_script(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))

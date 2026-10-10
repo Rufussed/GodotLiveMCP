@@ -153,6 +153,10 @@ func _rel_path(node: Node) -> String:
 func _decode_value(value_str: String):
 	if value_str.begins_with("load:"):
 		return load(value_str.substr(5))
+	# "#ff0000" / "#f00" / "#ff0000cc": the way most people (and agents)
+	# write a colour; str_to_var() only knows Color(1, 0, 0, 1).
+	if value_str.begins_with("#") and Color.html_is_valid(value_str):
+		return Color.html(value_str)
 	return str_to_var(value_str)
 
 ## Sets each property via Object.set(), validated against get_property_list()

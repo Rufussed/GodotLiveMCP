@@ -303,8 +303,9 @@ func _add_to_log(beat: Dictionary) -> Dictionary:
 	if _skipped > 0:
 		entries.push_front({"line": "[i]…%d skipped[/i]" % _skipped})
 		_skipped = 0
-	var line := "• " + _markdown(str(beat.caption))
-	var entry := {"line": line if not beat.get("failed", false) else "[color=#e08080]%s[/color]" % line}
+	var mark := "[color=#e08080]✗[/color] " if beat.get("failed", false) else "[color=#5aa0ff]▸[/color] "
+	var text := _markdown(str(beat.caption).trim_prefix("✗ "))
+	var entry := {"step": true, "line": mark + (text if not beat.get("failed", false) else "[color=#e08080]%s[/color]" % text)}
 	# A reference to the node itself, so a later rename or move doesn't
 	# break the link.
 	if beat.has("ref"):
@@ -329,7 +330,7 @@ func _refresh_panel() -> void:
 		var title := str(g.title)
 		if title.length() > 48:
 			title = title.left(48) + "…"
-		var n_steps := (g.entries as Array).filter(func(e): return str(e.line).begins_with("•") or str(e.line).contains("• ")).size()
+		var n_steps := (g.entries as Array).filter(func(e): return e.get("step", false)).size()
 		lines.append("[url=g:%d][color=#9ec3ff]%s %s[/color][color=#7a8aa0]  ·  %d step%s[/color][/url]" % [
 			gi, "▾" if g.expanded else "▸", _markdown(title).replace("[url", "[lb]url"), n_steps, "" if n_steps == 1 else "s"])
 		if not g.expanded:
@@ -430,7 +431,7 @@ func _ensure_panel() -> void:
 	_panel.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_panel.tooltip_text = "Watch mode: what the agent just did, newest first. Click a line to point at that node or setting; drag to move."
 	var scale := EditorInterface.get_editor_scale()  # sizes are pixels; HiDPI editors scale 2x
-	_panel.custom_minimum_size = Vector2(420 * scale, 0)
+	_panel.custom_minimum_size = Vector2(540 * scale, 0)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.1, 0.13, 0.18, 0.94)
 	sb.border_color = Color(0.35, 0.6, 1.0)
@@ -452,7 +453,8 @@ func _ensure_panel() -> void:
 	_panel_text.fit_content = false
 	_panel_text.scroll_active = true
 	_panel_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_panel_text.custom_minimum_size = Vector2(400 * scale, 220 * scale)
+	_panel_text.custom_minimum_size = Vector2(520 * scale, 360 * scale)
+	_panel_text.add_theme_constant_override("line_separation", int(7 * scale))  # air between actions
 	# PASS, not IGNORE: the lines are clickable links, and clicks elsewhere
 	# still reach the panel for dragging.
 	_panel_text.mouse_filter = Control.MOUSE_FILTER_PASS
