@@ -111,7 +111,7 @@ func _snapshot() -> Dictionary:
 	for n in _nodes():
 		var node := n as Node
 		var s := {
-			"name": String(node.name),
+			"name": str(node.name),
 			"class": node.get_class(),
 			"path": _bridge._rel_path(node),
 			"parent": node.get_parent().get_instance_id() if node != _root else 0,
@@ -132,8 +132,8 @@ func _script_key(n: Node) -> String:
 func _groups(n: Node) -> Array:
 	var out := []
 	for g in n.get_groups():
-		if not String(g).begins_with("_"):
-			out.append(String(g))
+		if not str(g).begins_with("_"):
+			out.append(str(g))
 	return out
 
 ## Persistent connections from this node, as "signal>target_id>method".
@@ -156,7 +156,7 @@ func _props(obj: Object, prefix := "") -> Dictionary:
 	for p in obj.get_property_list():
 		if not (int(p.usage) & PROPERTY_USAGE_STORAGE) or (int(p.usage) & (PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP)):
 			continue
-		var name := String(p.name)
+		var name := str(p.name)
 		if name in SKIP_PROPS or name.begins_with("metadata/_edit") or name.begins_with("_"):
 			continue
 		var v = obj.get(name)
@@ -183,7 +183,7 @@ func _on_property_edited(_property: String) -> void:
 
 func _on_saved(_path: String) -> void:
 	_on_change()
-	if not _order.is_empty() and String(_order[-1]).begins_with("save:"):
+	if not _order.is_empty() and str(_order[-1]).begins_with("save:"):
 		return
 	_saves += 1
 	_put("save:%d" % _saves, {"kind": "save"})
@@ -218,8 +218,8 @@ func _node_gone(id: int) -> void:
 	if _steps.has("add:%d" % id):
 		# Added and deleted again: as if it never happened.
 		for key in _order.duplicate():
-			var parts := String(key).split(":")
-			if (parts.size() > 1 and parts[1] == str(id)) or String(key).contains(">%d>" % id):
+			var parts := str(key).split(":")
+			if (parts.size() > 1 and parts[1] == str(id)) or str(key).contains(">%d>" % id):
 				_erase(key)
 		_baseline.erase(id)
 		return
@@ -271,7 +271,7 @@ func _node_changed(id: int, before: Dictionary, now: Dictionary) -> void:
 			continue
 		# Sub-properties of a resource that was just swapped are part of
 		# the new resource, not separate edits.
-		if String(key).contains(":") and not (old.has(key)):
+		if str(key).contains(":") and not (old.has(key)):
 			continue
 		_put(k, {"kind": "prop", "id": id, "prop": key, "value": props[key][0], "type": props[key][1],
 			"enum": props[key][2], "res_class": props[key][3]})
@@ -308,7 +308,7 @@ var _used_names := {}
 func _var(id: int) -> String:
 	if _var_of.has(id):
 		return _var_of[id]
-	var name := "root" if _start_paths.get(id, "") == "." else _unique(String(_last_name(id)).to_snake_case())
+	var name := "root" if _start_paths.get(id, "") == "." else _unique(str(_last_name(id)).to_snake_case())
 	_var_of[id] = name
 	if _start_paths.has(id):
 		_vars[name] = _start_paths[id]
@@ -339,7 +339,7 @@ func _build(title: String, exact: bool) -> Dictionary:
 		var s: Dictionary = _steps[key]
 		var step := _step_for(s, exact)
 		if not step.is_empty():
-			step["id"] = String(key).replace(":", "-").replace(">", "-")
+			step["id"] = str(key).replace(":", "-").replace(">", "-")
 			steps.append(step)
 	var tour := {"format": FORMAT, "title": title, "vars": _vars, "steps": steps}
 	if _root.scene_file_path != "":
@@ -347,14 +347,14 @@ func _build(title: String, exact: bool) -> Dictionary:
 	return tour
 
 func _step_for(s: Dictionary, exact: bool) -> Dictionary:
-	match String(s.kind):
+	match str(s.kind):
 		"add":
-			var cls := String(s["class"])
+			var cls := str(s["class"])
 			var parent := _var(int(s.parent))
-			var v := _var_for_new(int(s.id), String(s.name))
+			var v := _var_for_new(int(s.id), str(s.name))
 			var check := {"type": "node_added", "parent": "$" + parent, "class": cls, "capture": v}
 			var text := "Click **+**, search for `%s`, and add it under **$%s**." % [cls, parent]
-			if not _is_default_name(String(s.name), cls):
+			if not _is_default_name(str(s.name), cls):
 				check["name"] = s.name
 			return {"text": text, "target": {"root": "scene_tree", "tooltip": "Add/Create a New Node"}, "done_when": check}
 		"remove":
@@ -374,7 +374,7 @@ func _step_for(s: Dictionary, exact: bool) -> Dictionary:
 			var v := _var(int(s.id))
 			var check := {"type": "script_attached", "node_path": "$" + v}
 			var text := "Select **$%s** and click **Attach Script**." % v
-			if String(s.script) != "<built-in>":
+			if str(s.script) != "<built-in>":
 				text += " (We used `%s`.)" % s.script
 				if exact:
 					check["script"] = s.script
@@ -384,7 +384,7 @@ func _step_for(s: Dictionary, exact: bool) -> Dictionary:
 			return {"text": "Add **$%s** to the group `%s` (the **Groups** tab next to the Inspector)." % [v, s.group],
 				"done_when": {"type": "in_group", "node_path": "$" + v, "group": s.group}}
 		"signal":
-			var parts := String(s.conn).split(">")
+			var parts := str(s.conn).split(">")
 			var v := _var(int(s.id))
 			var t := _var(int(parts[1]))
 			return {"text": "In the **Signals** tab, connect **$%s**'s `%s` signal to **$%s** (method `%s`)." % [v, parts[0], t, parts[2]],
@@ -408,14 +408,14 @@ func _is_default_name(name: String, cls: String) -> bool:
 ## unless exact is on (the card still shows the value we used).
 func _prop_step(s: Dictionary, exact: bool) -> Dictionary:
 	var v := _var(int(s.id))
-	var prop := String(s.prop)
+	var prop := str(s.prop)
 	var base := prop.get_slice(":", 0)
-	var label := "**%s**" % " → ".join(Array(prop.split(":")).map(func(p): return String(p).capitalize()))
+	var label := "**%s**" % " → ".join(Array(prop.split(":")).map(func(p): return str(p).capitalize()))
 	var target := {"node_path": "$" + v, "property": base}
-	var value := String(s.value)
+	var value := str(s.value)
 	var t := int(s.type)
 	if value.begins_with("<new "):
-		var cls := String(s.res_class)
+		var cls := str(s.res_class)
 		return {"text": "Set **$%s**'s %s to a new **%s** (click the value, then **New %s**)." % [v, label, cls, cls], "target": target,
 			"done_when": {"type": "property_class", "node_path": "$" + v, "property": prop, "class": cls}}
 	if value.begins_with("load:"):
@@ -424,7 +424,7 @@ func _prop_step(s: Dictionary, exact: bool) -> Dictionary:
 			return {"text": "Set **$%s**'s %s to `%s` (drag it from the FileSystem dock)." % [v, label, file], "target": target,
 				"done_when": {"type": "property_equals", "node_path": "$" + v, "property": prop, "value": value}}
 		return {"text": "Set **$%s**'s %s, e.g. drag `%s` onto it from the FileSystem dock." % [v, label, file], "target": target,
-			"done_when": {"type": "property_class", "node_path": "$" + v, "property": prop, "class": String(s.res_class)},
+			"done_when": {"type": "property_class", "node_path": "$" + v, "property": prop, "class": str(s.res_class)},
 			"show_me": [_set_action(v, prop, value)]}
 	var must_match := exact or bool(s.enum) or t in [TYPE_STRING, TYPE_STRING_NAME, TYPE_BOOL, TYPE_NODE_PATH]
 	var shown := value.trim_prefix("\"").trim_suffix("\"") if t == TYPE_STRING or t == TYPE_STRING_NAME else value
@@ -447,17 +447,17 @@ func _set_action(v: String, prop: String, value: String) -> Dictionary:
 	return {"command": "set_property", "node_path": "$" + v, "property_name": prop, "value": value}
 
 func _describe(s: Dictionary) -> String:
-	match String(s.kind):
+	match str(s.kind):
 		"add": return "add %s '%s'" % [s["class"], s.name]
 		"remove": return "delete '%s'" % s.name
 		"rename": return "rename to '%s'" % s.name
 		"move": return "move node"
 		"script": return "attach script %s" % s.script
 		"group": return "add to group '%s'" % s.group
-		"signal": return "connect %s" % String(s.conn).get_slice(">", 0)
+		"signal": return "connect %s" % str(s.conn).get_slice(">", 0)
 		"save": return "save scene"
-		"prop": return "set %s = %s" % [s.prop, String(s.value).left(40)]
-	return String(s.kind)
+		"prop": return "set %s = %s" % [s.prop, str(s.value).left(40)]
+	return str(s.kind)
 
 # ---- Recording bar -----------------------------------------------------------
 
@@ -523,7 +523,7 @@ func _ask_title() -> void:
 	d.confirmed.connect(func() -> void:
 		var res := stop(name_edit.text.strip_edges(), exact.button_pressed)
 		if res.has("error"):
-			_runner._alert("Couldn't save the tour: " + String(res.error))
+			_runner._alert("Couldn't save the tour: " + str(res.error))
 		else:
 			_runner._alert("Saved %d steps to %s.\n\nPlay it from Project ▸ Tools ▸ Guided Tours…, edit the text in the file, or ask the agent to add Why? explanations." % [res.steps, res.path]))
 	d.visibility_changed.connect(func() -> void:

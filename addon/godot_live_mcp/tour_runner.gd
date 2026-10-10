@@ -54,6 +54,7 @@ const CHECK_FIELDS := {
 var _bridge: Node = null  # bridge.gd: target resolution and node paths
 
 var _tour := {}
+var _validated := false   # set when _validate runs to completion
 var _source_path := ""    # the file the running tour was loaded from ("" = from the agent)
 var _steps: Array = []
 var _index := -1
@@ -126,7 +127,13 @@ func is_running() -> bool:
 ## this one. Returns {"ok", "errors", "warnings"[, "steps", "title"]}.
 func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	var warnings := []
+	# A runtime error inside _validate (e.g. unexpected JSON types) aborts
+	# it and returns an empty list — which would read as "valid". Only
+	# trust the result if validation actually reached its end.
+	_validated = false
 	var errors := _validate(tour, warnings)
+	if not _validated:
+		errors = ["couldn't finish checking this tour (unexpected data — e.g. a value of the wrong type); compare it with the format in the start_tour description"]
 	if not errors.is_empty() or dry_run:
 		return {"ok": errors.is_empty(), "errors": errors, "warnings": warnings, "dry_run": dry_run}
 	stop()
@@ -138,7 +145,7 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	_vars = {}
 	var initial: Dictionary = tour.get("vars", {})
 	for name in initial:
-		_vars[String(name)] = weakref(_resolve_var(initial[name]))
+		_vars[str(name)] = weakref(_resolve_var(initial[name]))
 	_start_msec = Time.get_ticks_msec()
 	_connect_signals()
 	_build_card()
@@ -146,7 +153,7 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	# Not awaited: the reply shouldn't wait on target reveal or an
 	# already-done pause.
 	_enter_step(0)
-	return {"ok": true, "errors": [], "warnings": warnings, "steps": _steps.size(), "title": String(tour.get("title", ""))}
+	return {"ok": true, "errors": [], "warnings": warnings, "steps": _steps.size(), "title": str(tour.get("title", ""))}
 
 func stop() -> void:
 	if _index >= 0 and not _done:
@@ -172,7 +179,7 @@ func status() -> Dictionary:
 	var out := {
 		"running": is_running(),
 		"done": _done,
-		"title": String(_tour.get("title", "")),
+		"title": str(_tour.get("title", "")),
 		"steps": _steps.size(),
 		"source": _source_path if _source_path != "" else "agent",
 		"vars": vars,
@@ -180,7 +187,7 @@ func status() -> Dictionary:
 	}
 	if is_running() and not _done:
 		out["step"] = _index + 1
-		out["step_id"] = String(_steps[_index].get("id", ""))
+		out["step_id"] = str(_steps[_index].get("id", ""))
 		out["step_elapsed_sec"] = (Time.get_ticks_msec() - _step_start_msec) / 1000.0
 		for key in ["target", "hint", "stuck"]:
 			var note: String = {"target": _note_target, "hint": _note_hint, "stuck": _note_stuck}[key]
@@ -211,7 +218,7 @@ func save(path := "") -> Dictionary:
 	if _tour.is_empty():
 		return {"error": "no tour has been started in this editor session"}
 	if path == "":
-		var slug := String(_tour.get("title", "tour")).to_snake_case().validate_filename()
+		var slug := str(_tour.get("title", "tour")).to_snake_case().validate_filename()
 		path = "%s/%s%s" % [TOURS_DIR, slug if slug != "" else "tour", TOUR_EXT]
 	if not path.begins_with("res://") or not path.ends_with(TOUR_EXT):
 		return {"error": "path must be under res:// and end in %s" % TOUR_EXT}
@@ -247,11 +254,11 @@ func _scan_tours(dir: String, out: Array) -> void:
 			if res.has("error"):
 				entry["error"] = res.error
 			else:
-				entry["title"] = String(res.tour.get("title", file))
+				entry["title"] = str(res.tour.get("title", file))
 				entry["steps"] = (res.tour.get("steps", []) as Array).size() if typeof(res.tour.get("steps")) == TYPE_ARRAY else 0
 				var req = res.tour.get("requires", {})
 				if typeof(req) == TYPE_DICTIONARY and req.has("scene_open"):
-					entry["scene"] = String(req.scene_open)
+					entry["scene"] = str(req.scene_open)
 			out.append(entry)
 
 ## Plays a tour file. If it requires a scene that isn't the one open, opens
@@ -263,7 +270,7 @@ func play_file(path: String) -> Dictionary:
 	var tour: Dictionary = res.tour
 	var req = tour.get("requires", {})
 	if typeof(req) == TYPE_DICTIONARY and req.has("scene_open"):
-		var want := String(req.scene_open)
+		var want := str(req.scene_open)
 		var root: Node = _bridge._get_scene_root()
 		if (root == null or root.scene_file_path != want) and ResourceLoader.exists(want):
 			EditorInterface.open_scene_from_path(want)
@@ -284,20 +291,20 @@ func open_picker() -> void:
 			dialog.hide()
 			var res: Dictionary = recorder().start()
 			if res.has("error"):
-				_alert(String(res.error)))
+				_alert(str(res.error)))
 	var box := VBoxContainer.new()
 	dialog.add_child(box)
 	var tours := list_files()
 	var list := ItemList.new()
 	list.custom_minimum_size = Vector2(460, 240)
 	for entry in tours:
-		var label := String(entry.get("title", entry.path))
+		var label := str(entry.get("title", entry.path))
 		if entry.has("error"):
 			label += "  (unreadable)"
 		elif entry.has("steps"):
 			label += "  ·  %d steps" % entry.steps
 		list.add_item(label)
-		list.set_item_tooltip(list.item_count - 1, String(entry.path))
+		list.set_item_tooltip(list.item_count - 1, str(entry.path))
 	box.add_child(list)
 	var hint := Label.new()
 	hint.text = "Tours are *%s files in your project. Record one (do the task yourself while recording), or ask the agent for a tour and press Save on its last card." % TOUR_EXT if tours.is_empty() \
@@ -307,7 +314,7 @@ func open_picker() -> void:
 	box.add_child(hint)
 	var play := func(i: int) -> void:
 		dialog.hide()
-		var result: Dictionary = await play_file(String(tours[i].path))
+		var result: Dictionary = await play_file(str(tours[i].path))
 		if not result.get("ok", false):
 			_alert("This tour can't start here:\n\n• " + "\n• ".join(result.get("errors", [])))
 	list.item_activated.connect(play)
@@ -337,22 +344,26 @@ func _alert(text: String) -> void:
 
 func _validate(tour: Dictionary, warnings: Array) -> Array:
 	var errors := []
-	if String(tour.get("format", "")) != FORMAT:
+	if str(tour.get("format", "")) != FORMAT:
 		errors.append("format must be \"%s\"" % FORMAT)
 	var steps = tour.get("steps", null)
 	if typeof(steps) != TYPE_ARRAY or (steps as Array).is_empty():
 		errors.append("steps must be a non-empty array")
+		_validated = true
 		return errors
 	var root: Node = _bridge._get_scene_root()
 	if root == null:
 		errors.append("no scene is open in the editor")
+		_validated = true
 		return errors
 	var req = tour.get("requires", {})
 	if typeof(req) == TYPE_DICTIONARY:
-		if req.has("scene_open") and root.scene_file_path != String(req.scene_open):
+		if req.has("scene_open") and typeof(req.scene_open) != TYPE_STRING:
+			errors.append("requires.scene_open must be a res:// scene path (got %s)" % str(req.scene_open))
+		elif req.has("scene_open") and root.scene_file_path != str(req.scene_open):
 			errors.append("requires.scene_open: %s is not the scene open in the editor (%s)" % [req.scene_open, root.scene_file_path])
 		for p in req.get("node_exists", []):
-			if _bridge._resolve_node(String(p)) == null:
+			if _bridge._resolve_node(str(p)) == null:
 				errors.append("requires.node_exists: node not found: %s" % p)
 	# var name -> class name (initial vars: the node's class; captures: the
 	# node_added class, or "" when any class is accepted)
@@ -363,37 +374,37 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 	else:
 		for name in initial:
 			var spec = initial[name]
-			if typeof(spec) == TYPE_DICTIONARY and not ClassDB.class_exists(String(spec.get("class", ""))):
+			if typeof(spec) == TYPE_DICTIONARY and not ClassDB.class_exists(str(spec.get("class", ""))):
 				errors.append("vars.%s: unknown class '%s'" % [name, spec.get("class", "")])
 				continue
 			var n: Node = _resolve_var(spec)
 			if n == null:
 				if typeof(spec) == TYPE_DICTIONARY:
 					var msg := "vars.%s: this tour needs a %s in the scene" % [name, spec["class"]]
-					if String(spec.get("name", "")) != "":
+					if str(spec.get("name", "")) != "":
 						msg += " named '%s'" % spec.name
-					if String(spec.get("hint", "")) != "":
-						msg += " — " + String(spec.hint)
+					if str(spec.get("hint", "")) != "":
+						msg += " — " + str(spec.hint)
 					errors.append(msg)
 				else:
 					errors.append("vars.%s: node not found: %s" % [name, spec])
-			var_class[String(name)] = n.get_class() if n != null else ""
+			var_class[str(name)] = n.get_class() if n != null else ""
 	for i in (steps as Array).size():
 		var step = steps[i]
 		var where := "step %d" % (i + 1)
 		if typeof(step) != TYPE_DICTIONARY:
 			errors.append("%s: must be an object" % where)
 			continue
-		if String(step.get("id", "")) != "":
+		if str(step.get("id", "")) != "":
 			where += " (%s)" % step.id
-		if String(step.get("text", "")) == "":
+		if str(step.get("text", "")) == "":
 			errors.append("%s: text is required" % where)
 		var target = step.get("target", {})
 		if typeof(target) == TYPE_DICTIONARY and not (target as Dictionary).is_empty():
 			for v in _vars_used(target, var_class):
 				errors.append("%s: target uses %s before it is defined" % [where, v])
 			if target.has("property") and target.has("node_path"):
-				_check_property(String(target.node_path), String(target.property), var_class, where + ": target", errors)
+				_check_property(str(target.node_path), str(target.property), var_class, where + ": target", errors)
 			elif not target.has("node_path") and not target.has("property"):
 				# An editor control: may legitimately appear later (a dialog),
 				# so only a warning when it can't be found right now.
@@ -404,6 +415,9 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 		if typeof(check) != TYPE_DICTIONARY:
 			errors.append("%s: done_when is required" % where)
 			continue
+		if not check.has("type"):
+			errors.append("%s: done_when needs a \"type\", e.g. {\"type\": \"node_added\", \"parent\": \"$root\", \"class\": \"StaticBody3D\"}" % where)
+			continue
 		_validate_check(check, step, where + ": done_when", var_class, errors)
 		if step.has("why") and typeof(step.why) != TYPE_STRING:
 			errors.append("%s: why must be a string" % where)
@@ -412,15 +426,16 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 				errors.append("%s: show_me must be an array of {command, ...params}" % where)
 			else:
 				for action in step.show_me:
-					if typeof(action) != TYPE_DICTIONARY or not String(action.get("command", "")) in SHOW_ME_COMMANDS:
+					if typeof(action) != TYPE_DICTIONARY or not str(action.get("command", "")) in SHOW_ME_COMMANDS:
 						errors.append("%s: show_me commands must be one of %s" % [where, ", ".join(SHOW_ME_COMMANDS)])
 						break
-					if String(action.command) == "attach_script" and not ResourceLoader.exists(String(action.get("script_path", ""))):
+					if str(action.command) == "attach_script" and not ResourceLoader.exists(str(action.get("script_path", ""))):
 						errors.append("%s: show_me can only attach a script that already exists in the project (%s)" % [where, action.get("script_path", "")])
+	_validated = true
 	return errors
 
 func _validate_check(check: Dictionary, step: Dictionary, where: String, var_class: Dictionary, errors: Array) -> void:
-	var type := String(check.get("type", ""))
+	var type := str(check.get("type", ""))
 	if not CHECK_FIELDS.has(type):
 		errors.append("%s: unknown type '%s' (expected one of %s)" % [where, type, ", ".join(CHECK_FIELDS.keys())])
 		return
@@ -432,17 +447,17 @@ func _validate_check(check: Dictionary, step: Dictionary, where: String, var_cla
 				errors.append("%s: type '%s' needs the step to have a target (the control to press)" % [where, type])
 		elif not check.has(field):
 			errors.append("%s: type '%s' needs '%s'" % [where, type, field])
-	if type == "node_added" and check.has("name") and String(check.name).validate_node_name() != String(check.name):
+	if type == "node_added" and check.has("name") and str(check.name).validate_node_name() != str(check.name):
 		errors.append("%s: '%s' isn't a valid node name" % [where, check.name])
-	if check.has("class") and type in ["node_added", "property_class"] and not ClassDB.class_exists(String(check["class"])):
+	if check.has("class") and type in ["node_added", "property_class"] and not ClassDB.class_exists(str(check["class"])):
 		errors.append("%s: unknown class '%s'" % [where, check["class"]])
 	if type in ["property_equals", "property_changed", "property_class"] and check.has("node_path") and check.has("property"):
-		_check_property(String(check.node_path), String(check.property), var_class, where, errors)
+		_check_property(str(check.node_path), str(check.property), var_class, where, errors)
 	if type == "signal_connected" and check.has("source") and check.has("signal"):
-		var cls := _class_of(String(check.source), var_class)
-		if cls != "" and not ClassDB.class_has_signal(cls, String(check.signal)):
-			var n: Node = _bridge._resolve_node(String(check.source)) if not String(check.source).begins_with("$") else null
-			if n == null or not n.has_signal(String(check.signal)):
+		var cls := _class_of(str(check.source), var_class)
+		if cls != "" and not ClassDB.class_has_signal(cls, str(check.signal)):
+			var n: Node = _bridge._resolve_node(str(check.source)) if not str(check.source).begins_with("$") else null
+			if n == null or not n.has_signal(str(check.signal)):
 				errors.append("%s: %s has no signal '%s'" % [where, cls, check.signal])
 	if type in ["all", "any"]:
 		var subs = check.get("checks", [])
@@ -458,7 +473,7 @@ func _validate_check(check: Dictionary, step: Dictionary, where: String, var_cla
 		if type != "node_added":
 			errors.append("%s: capture only works with node_added" % where)
 		else:
-			var_class[String(check.capture)] = String(check.get("class", ""))
+			var_class[str(check.capture)] = str(check.get("class", ""))
 
 ## The class a node path will have: the node's own class for an existing
 ## node or initial var, the node_added class for a capture, "" if unknown.
@@ -467,7 +482,7 @@ func _class_of(path: String, var_class: Dictionary) -> String:
 		var name := path.substr(1).get_slice("/", 0)
 		if path.contains("/"):
 			return ""
-		return String(var_class.get(name, ""))
+		return str(var_class.get(name, ""))
 	var n: Node = _bridge._resolve_node(path)
 	return n.get_class() if n != null else ""
 
@@ -495,13 +510,13 @@ func _check_property(path: String, prop: String, var_class: Dictionary, where: S
 ## what an earlier tour made.
 func _resolve_var(spec) -> Node:
 	if typeof(spec) == TYPE_DICTIONARY:
-		var cls := String(spec.get("class", ""))
-		var want_name := String(spec.get("name", ""))
+		var cls := str(spec.get("class", ""))
+		var want_name := str(spec.get("name", ""))
 		for n in _all_nodes():
-			if n.is_class(cls) and (want_name == "" or String(n.name) == want_name):
+			if n.is_class(cls) and (want_name == "" or str(n.name) == want_name):
 				return n
 		return null
-	return _bridge._resolve_node(String(spec))
+	return _bridge._resolve_node(str(spec))
 
 ## Names of $vars referenced in d's string values that aren't defined yet.
 func _vars_used(d, defined: Dictionary) -> Array:
@@ -512,8 +527,8 @@ func _vars_used(d, defined: Dictionary) -> Array:
 		if key == "capture" or key == "checks":
 			continue
 		var v = d[key]
-		if typeof(v) == TYPE_STRING and String(v).begins_with("$"):
-			var name := String(v).substr(1).get_slice("/", 0)
+		if typeof(v) == TYPE_STRING and str(v).begins_with("$"):
+			var name := str(v).substr(1).get_slice("/", 0)
 			if not defined.has(name):
 				missing.append("$" + name)
 	return missing
@@ -538,7 +553,7 @@ func _node(path: String) -> Node:
 func _sub_all(d: Dictionary) -> Dictionary:
 	var out := {}
 	for key in d:
-		out[key] = _sub(String(d[key])) if typeof(d[key]) == TYPE_STRING else d[key]
+		out[key] = _sub(str(d[key])) if typeof(d[key]) == TYPE_STRING else d[key]
 	return out
 
 ## True if the step refers to a var that a skipped step should have set.
@@ -546,7 +561,7 @@ func _needs_missing_var(step: Dictionary) -> bool:
 	for d in [step.get("target", {}), step.done_when]:
 		if typeof(d) == TYPE_DICTIONARY:
 			for key in d:
-				if typeof(d[key]) == TYPE_STRING and _sub(String(d[key])).begins_with("<missing"):
+				if typeof(d[key]) == TYPE_STRING and _sub(str(d[key])).begins_with("<missing"):
 					return true
 	return false
 
@@ -587,7 +602,7 @@ func _enter_step(i: int, revisit := false) -> void:
 		return
 	# Already true before the user did anything (e.g. the node was selected
 	# anyway): still show the step for a moment so it isn't skipped unseen.
-	if String(step.done_when.type) != "manual" and _passes(step.done_when, "c"):
+	if str(step.done_when.type) != "manual" and _passes(step.done_when, "c"):
 		_log("already_done")
 		_note_hint = "✓ Already done — moving on…"
 		_refresh_card()
@@ -628,7 +643,7 @@ func _point(gen: int) -> void:
 		_note_target = "I can't point at this one (%s)." % res.error
 	else:
 		_note_target = ""
-		var label := String(target.get("label", ""))
+		var label := str(target.get("label", ""))
 		if res.has("tree"):
 			_overlay.add_tree_item(res.tree, res.item_path, label)
 		else:
@@ -655,12 +670,12 @@ func _repoint_if_lost() -> void:
 		return
 	if _pointing_at_fold:
 		# Once the section is opened, swap to the property row itself.
-		var prop := String(target.get("property", ""))
+		var prop := str(target.get("property", ""))
 		for ep in EditorInterface.get_inspector().find_children("*", "EditorProperty", true, false):
-			if String((ep as EditorProperty).get_edited_property()) == prop and (ep as Control).is_visible_in_tree():
+			if str((ep as EditorProperty).get_edited_property()) == prop and (ep as Control).is_visible_in_tree():
 				_pointing_at_fold = false
 				_overlay.clear()
-				_overlay.add_control(ep, String(target.get("label", "")))
+				_overlay.add_control(ep, str(target.get("label", "")))
 				_note_target = ""
 				_refresh_card()
 				return
@@ -668,7 +683,7 @@ func _repoint_if_lost() -> void:
 	if _overlay.first_target() != null:
 		return
 	if target.has("property") and target.has("node_path"):
-		var n := _node(String(target.node_path))
+		var n := _node(str(target.node_path))
 		if n != null and EditorInterface.get_inspector().get_edited_object() != n:
 			var note := "Select **%s** again to see this setting." % n.name
 			if _note_target != note:
@@ -690,7 +705,7 @@ func _finish() -> void:
 	_overlay.clear()
 	_log("tour_done")
 	_card_title.text = "Done!"
-	_card_text.text = "You finished [b]%s[/b]." % _escape(String(_tour.get("title", "the tour")))
+	_card_text.text = "You finished [b]%s[/b]." % _escape(str(_tour.get("title", "the tour")))
 	_card_back.visible = false
 	_card_skip.visible = false
 	_card_next.visible = false
@@ -710,7 +725,7 @@ func _on_skip_pressed() -> void:
 		await _advance("skipped")
 
 func _on_next_pressed() -> void:
-	if is_running() and not _done and (_revisit or String(_steps[_index].done_when.type) == "manual"):
+	if is_running() and not _done and (_revisit or str(_steps[_index].done_when.type) == "manual"):
 		await _advance("step_done")
 
 ## "Why?": the step's own why text first (works offline, in saved tours);
@@ -720,7 +735,7 @@ func _on_why_pressed() -> void:
 	if not is_running() or _done:
 		return
 	var step: Dictionary = _steps[_index]
-	var why := _name_vars(String(step.get("why", "")))
+	var why := _name_vars(str(step.get("why", "")))
 	if why != "" and _note_why != why:
 		_note_why = why
 		_log("why_shown")
@@ -730,7 +745,7 @@ func _on_why_pressed() -> void:
 	if panel == null:
 		return
 	var question := "[Guided tour \"%s\", step %d/%d: %s] Why do I do this step? Explain briefly in plain language — don't do it for me, and don't change the scene." % [
-		String(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(String(step.text))]
+		str(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(str(step.text))]
 	var err: String = panel.ask(question)
 	_log("why_asked", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
 	if err == "":
@@ -762,7 +777,7 @@ func _on_show_me_pressed() -> void:
 	_log("show_me")
 	for action in actions:
 		var params: Dictionary = action.duplicate()
-		var command := String(params.get("command", ""))
+		var command := str(params.get("command", ""))
 		params.erase("command")
 		var res = await _bridge.call("_cmd_" + command, params)
 		if gen != _gen:
@@ -793,20 +808,20 @@ func _show_me_actions(step: Dictionary) -> Array:
 		for key in action:
 			var v = action[key]
 			if typeof(v) == TYPE_STRING:
-				v = _sub(String(v))
-				if String(v).begins_with("<missing"):
+				v = _sub(str(v))
+				if str(v).begins_with("<missing"):
 					return []
 			elif typeof(v) == TYPE_ARRAY:
 				var arr := []
 				for item in v:
-					arr.append(_sub(String(item)) if typeof(item) == TYPE_STRING else item)
+					arr.append(_sub(str(item)) if typeof(item) == TYPE_STRING else item)
 				v = arr
 			a[key] = v
 		out.append(a)
 	return out
 
 func _derive_show_me(check: Dictionary) -> Array:
-	match String(check.type):
+	match str(check.type):
 		"node_selected":
 			return [{"command": "select_nodes", "node_paths": [check.node_path]}]
 		"node_added":
@@ -819,13 +834,13 @@ func _derive_show_me(check: Dictionary) -> Array:
 		"node_reparented":
 			return [{"command": "reparent_node", "node_path": check.node_path, "new_parent_path": check.parent}]
 		"property_equals":
-			if String(check.property).contains(":"):
+			if str(check.property).contains(":"):
 				return [{"command": "set_nested_property", "node_path": check.node_path, "property_path": check.property, "value": check.value}]
 			return [{"command": "set_property", "node_path": check.node_path, "property_name": check.property, "value": check.value}]
 		"property_class":
 			# A new resource of that class (mesh, shape, material…), undoably.
-			var cls := String(check["class"])
-			if not String(check.property).contains(":") and ClassDB.can_instantiate(cls):
+			var cls := str(check["class"])
+			if not str(check.property).contains(":") and ClassDB.can_instantiate(cls):
 				return [{"command": "set_resource_property", "node_path": check.node_path, "property_name": check.property,
 					"resource_type": cls, "reuse_existing": false}]
 		"scene_open":
@@ -839,13 +854,13 @@ func _derive_show_me(check: Dictionary) -> Array:
 			if check.has("method"):
 				return [{"command": "connect_signal", "node_path": check.source, "signal_name": check.signal, "target_node_path": check.target, "method_name": check.method}]
 		"in_group":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n != null:
 				var groups := []
 				for g in n.get_groups():
-					if not String(g).begins_with("_"):
-						groups.append(String(g))
-				groups.append(String(check.group))
+					if not str(g).begins_with("_"):
+						groups.append(str(g))
+				groups.append(str(check.group))
 				return [{"command": "set_node_groups", "node_path": check.node_path, "groups": groups}]
 		"scene_saved":
 			return [{"command": "save_scene_live"}]
@@ -862,15 +877,15 @@ func _derive_show_me(check: Dictionary) -> Array:
 func _on_save_pressed() -> void:
 	var res := save()
 	if res.has("error"):
-		_card_text.text += "\n[color=#e0b050]Couldn't save: %s[/color]" % _escape(String(res.error))
+		_card_text.text += "\n[color=#e0b050]Couldn't save: %s[/color]" % _escape(str(res.error))
 	else:
 		_card_save.visible = false
-		_card_text.text += "\n[color=#60e080]Saved to %s — replay it from Project ▸ Tools ▸ Guided Tours…[/color]" % _escape(String(res.path))
+		_card_text.text += "\n[color=#60e080]Saved to %s — replay it from Project ▸ Tools ▸ Guided Tours…[/color]" % _escape(str(res.path))
 
 ## The node_added step's new node now needs renaming: outline its Scene
 ## dock row instead of the + button.
 func _point_at_new_node(check: Dictionary) -> void:
-	var cap := String(check.get("capture", ""))
+	var cap := str(check.get("capture", ""))
 	var n = _vars[cap].get_ref() if cap != "" and _vars.has(cap) else null
 	if not n is Node:
 		return
@@ -935,111 +950,111 @@ func _run_check() -> void:
 ## Records what a change-based check compares against, at step start.
 ## Keys follow the check's position ("c", "c.0", "c.1"…) so all/any work.
 func _snapshot(check: Dictionary, key: String) -> void:
-	match String(check.type):
+	match str(check.type):
 		"node_added":
 			var ids := {}
-			var parent := _node(String(check.parent))
+			var parent := _node(str(check.parent))
 			if parent != null:
 				for c in parent.get_children():
 					ids[c.get_instance_id()] = true
 			_baseline[key] = ids
 			_baseline[key + ":all"] = _all_node_ids()
 		"node_removed", "node_renamed", "node_reparented":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			_baseline[key] = weakref(n) if n != null else null
 			if n != null:
-				_baseline[key + ":name"] = String(n.name)
+				_baseline[key + ":name"] = str(n.name)
 		"property_equals", "property_changed":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n != null:
-				_baseline[key] = n.get_indexed(NodePath(String(check.property)))
+				_baseline[key] = n.get_indexed(NodePath(str(check.property)))
 				_baseline[key + ":node"] = weakref(n)
 		"all", "any":
 			for j in (check.checks as Array).size():
 				_snapshot(check.checks[j], "%s.%d" % [key, j])
 
 func _passes(check: Dictionary, key: String) -> bool:
-	match String(check.type):
+	match str(check.type):
 		"manual":
 			return false  # the card's Next button advances
 		"node_selected":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			return n != null and n in EditorInterface.get_selection().get_selected_nodes()
 		"node_exists":
-			return _node(String(check.node_path)) != null
+			return _node(str(check.node_path)) != null
 		"node_added":
-			var parent := _node(String(check.parent))
+			var parent := _node(str(check.parent))
 			if parent == null:
 				return false
 			var known: Dictionary = _baseline.get(key, {})
 			for c in parent.get_children():
 				if known.has(c.get_instance_id()):
 					continue
-				if check.has("class") and not c.is_class(String(check["class"])):
+				if check.has("class") and not c.is_class(str(check["class"])):
 					continue
 				if check.has("capture"):
-					_vars[String(check.capture)] = weakref(c)
+					_vars[str(check.capture)] = weakref(c)
 				# With a name, the step goes on to "now rename it" (see
 				# _hint and _point_at_new_node) and completes once it's named.
-				return not check.has("name") or String(c.name) == String(check.name)
+				return not check.has("name") or str(c.name) == str(check.name)
 			return false
 		"node_removed":
 			var ref = _baseline.get(key, null)
 			if ref == null:
-				return _node(String(check.node_path)) == null
+				return _node(str(check.node_path)) == null
 			var n = ref.get_ref()
 			return not (n is Node) or not (n as Node).is_inside_tree()
 		"node_renamed":
 			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
-			return n is Node and String(n.name) == String(check.name)
+			return n is Node and str(n.name) == str(check.name)
 		"node_reparented":
 			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
-			var parent := _node(String(check.parent))
+			var parent := _node(str(check.parent))
 			return n is Node and parent != null and (n as Node).get_parent() == parent
 		"property_equals":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n == null:
 				return false
-			var actual = n.get_indexed(NodePath(String(check.property)))
-			var expected = _bridge._decode_value(String(check.value))
+			var actual = n.get_indexed(NodePath(str(check.property)))
+			var expected = _bridge._decode_value(str(check.value))
 			return _matches(actual, expected, float(check.get("tolerance", 0.0001)))
 		"property_changed":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n == null or not _baseline.has(key):
 				return false
-			var actual = n.get_indexed(NodePath(String(check.property)))
+			var actual = n.get_indexed(NodePath(str(check.property)))
 			return not _matches(actual, _baseline[key], float(check.get("tolerance", 0.0001)))
 		"property_class":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n == null:
 				return false
-			var v = n.get_indexed(NodePath(String(check.property)))
-			return v is Object and (v as Object).is_class(String(check["class"]))
+			var v = n.get_indexed(NodePath(str(check.property)))
+			return v is Object and (v as Object).is_class(str(check["class"]))
 		"script_attached":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n == null or n.get_script() == null:
 				return false
-			return not check.has("script") or (n.get_script() as Script).resource_path == String(check.script)
+			return not check.has("script") or (n.get_script() as Script).resource_path == str(check.script)
 		"signal_connected":
-			var src := _node(String(check.source))
-			var dst := _node(String(check.target))
-			if src == null or dst == null or not src.has_signal(String(check.signal)):
+			var src := _node(str(check.source))
+			var dst := _node(str(check.target))
+			if src == null or dst == null or not src.has_signal(str(check.signal)):
 				return false
-			for conn in src.get_signal_connection_list(String(check.signal)):
+			for conn in src.get_signal_connection_list(str(check.signal)):
 				var callable: Callable = conn.callable
-				if callable.get_object() == dst and (not check.has("method") or String(callable.get_method()) == String(check.method)):
+				if callable.get_object() == dst and (not check.has("method") or str(callable.get_method()) == str(check.method)):
 					return true
 			return false
 		"in_group":
-			var n := _node(String(check.node_path))
-			return n != null and n.is_in_group(String(check.group))
+			var n := _node(str(check.node_path))
+			return n != null and n.is_in_group(str(check.group))
 		"scene_open":
 			var root: Node = _bridge._get_scene_root()
-			return root != null and root.scene_file_path == String(check.path)
+			return root != null and root.scene_file_path == str(check.path)
 		"scene_saved":
 			return _saved_during_step
 		"file_exists":
-			var p := String(check.path)
+			var p := str(check.path)
 			return FileAccess.file_exists(p) or DirAccess.dir_exists_absolute(p)
 		"control_pressed":
 			return _pressed_during_step
@@ -1060,19 +1075,19 @@ func _passes(check: Dictionary, key: String) -> bool:
 ## A gentle note when the user changed the right kind of thing in the wrong
 ## way; "" when there's nothing specific to say.
 func _hint(check: Dictionary, key: String) -> String:
-	match String(check.type):
+	match str(check.type):
 		"node_added":
-			var parent := _node(String(check.parent))
+			var parent := _node(str(check.parent))
 			if parent == null:
 				return ""
-			var want := String(check.get("class", ""))
+			var want := str(check.get("class", ""))
 			var known: Dictionary = _baseline.get(key, {})
 			for c in parent.get_children():
 				if not known.has(c.get_instance_id()) and want != "" and not c.is_class(want):
 					return "That added a **%s**; this step wants a **%s**. Undo it with Ctrl+Z." % [c.get_class(), want]
 			if check.has("name"):
 				for c in parent.get_children():
-					if not known.has(c.get_instance_id()) and (want == "" or c.is_class(want)) and String(c.name) != String(check.name):
+					if not known.has(c.get_instance_id()) and (want == "" or c.is_class(want)) and str(c.name) != str(check.name):
 						return "✓ Added! Now rename it to **%s**: double-click it in the Scene dock (or press F2) and type `%s`." % [check.name, check.name]
 			if want != "":
 				var all_known: Dictionary = _baseline.get(key + ":all", {})
@@ -1080,22 +1095,22 @@ func _hint(check: Dictionary, key: String) -> String:
 					if not all_known.has(n.get_instance_id()) and n.is_class(want) and n.get_parent() != parent:
 						return "That **%s** went under **%s**; it needs to be a child of **%s**. Drag it onto %s in the Scene dock." % [want, n.get_parent().name, parent.name, parent.name]
 		"node_selected":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			var sel := EditorInterface.get_selection().get_selected_nodes()
 			if n != null and not sel.is_empty() and not n in sel:
 				return "You selected **%s**; this step wants **%s**." % [sel[0].name, n.name]
 		"node_renamed":
 			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
-			if n is Node and String(n.name) != String(_baseline.get(key + ":name", "")) and String(n.name) != String(check.name):
+			if n is Node and str(n.name) != str(_baseline.get(key + ":name", "")) and str(n.name) != str(check.name):
 				return "It's called **%s** now; this step wants **%s**." % [n.name, check.name]
 		"property_equals":
-			var n := _node(String(check.node_path))
+			var n := _node(str(check.node_path))
 			if n == null or not _baseline.has(key):
 				return ""
-			var actual = n.get_indexed(NodePath(String(check.property)))
+			var actual = n.get_indexed(NodePath(str(check.property)))
 			var tol := float(check.get("tolerance", 0.0001))
 			if not _matches(actual, _baseline[key], tol):
-				return "**%s** is now `%s`; this step wants `%s`." % [check.property, _show(actual), _show(_bridge._decode_value(String(check.value)))]
+				return "**%s** is now `%s`; this step wants `%s`." % [check.property, _show(actual), _show(_bridge._decode_value(str(check.value)))]
 		"all", "any":
 			for j in (check.checks as Array).size():
 				var h := _hint(check.checks[j], "%s.%d" % [key, j])
@@ -1104,7 +1119,7 @@ func _hint(check: Dictionary, key: String) -> String:
 	return ""
 
 func _show(v) -> String:
-	return String(v) if typeof(v) == TYPE_STRING else var_to_str(v).strip_edges()
+	return str(v) if typeof(v) == TYPE_STRING else var_to_str(v).strip_edges()
 
 func _all_nodes() -> Array:
 	var root: Node = _bridge._get_scene_root()
@@ -1298,8 +1313,8 @@ func _refresh_card() -> void:
 	if _card == null or not is_instance_valid(_card) or _done or not is_running():
 		return
 	var step: Dictionary = _steps[_index]
-	_card_title.text = "%s  ·  Step %d/%d" % [String(_tour.get("title", "Tour")), _index + 1, _steps.size()]
-	var text := _markdown(_name_vars(String(step.text)))
+	_card_title.text = "%s  ·  Step %d/%d" % [str(_tour.get("title", "Tour")), _index + 1, _steps.size()]
+	var text := _markdown(_name_vars(str(step.text)))
 	if _note_why != "":
 		text += "\n[color=#8cc4ff]%s[/color]" % _markdown(_note_why)
 	for note in [_note_target, _note_hint, _note_stuck]:
@@ -1308,10 +1323,10 @@ func _refresh_card() -> void:
 			text += "\n[i][color=%s]%s[/color][/i]" % [colour, _markdown(note)]
 	_card_text.text = text
 	_card_back.disabled = _index == 0
-	_card_next.visible = _revisit or String(step.done_when.type) == "manual"
+	_card_next.visible = _revisit or str(step.done_when.type) == "manual"
 	_card_show.visible = not _show_me_actions(step).is_empty() and not _revisit
 	_card_show.disabled = _showing
-	_card_why.visible = String(step.get("why", "")) != "" or _agent_panel() != null
+	_card_why.visible = str(step.get("why", "")) != "" or _agent_panel() != null
 
 ## Places the card where it doesn't cover what the user needs. When the
 ## outline is inside a narrow dock (Scene, Inspector, FileSystem), the card
@@ -1369,11 +1384,11 @@ func _dock_rect(c: Control, screen: Rect2) -> Rect2:
 ## user's own nodes (longest var names first, so $label2 beats $label).
 func _name_vars(text: String) -> String:
 	var names := _vars.keys()
-	names.sort_custom(func(a, b): return String(a).length() > String(b).length())
+	names.sort_custom(func(a, b): return str(a).length() > str(b).length())
 	for name in names:
 		var n = _vars[name].get_ref()
 		if n is Node:
-			text = text.replace("$" + String(name), String(n.name))
+			text = text.replace("$" + str(name), str(n.name))
 	return text
 
 ## **bold** and `code` only; everything else is literal text.
