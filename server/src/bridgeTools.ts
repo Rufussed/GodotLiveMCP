@@ -1283,7 +1283,7 @@ export const bridgeToolDefinitions = [
       'Omit target for a card-only step. If it can\'t be found the step still runs, with a note on the card.\n' +
       '- done_when ALWAYS has a "type" (state checks preferred): "node_selected" {node_path} | "node_exists" {node_path} | "node_added" ' +
       '{parent, class?, name?, capture?} (a new child since the step began; capture binds it to a var so later steps follow it whatever it is ' +
-      'called; with name the step then asks the user to rename it — give main objects a name from the request, e.g. "Ball") | "node_removed" ' +
+      'called; name is only a SUGGESTION: the step then asks the user to rename it, and completes once they give it any name of their own — later steps still work, whatever they chose — so give main objects a name from the request, e.g. "Ball") | "node_removed" ' +
       '{node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | "property_equals" {node_path, property ' +
       '(sub-paths ok, e.g. "position:y"), value (var_to_str form, "load:res://…" or "#ff0000"), tolerance?} | "property_changed" {node_path, ' +
       'property} | "property_class" {node_path, property, class} (a new resource of that class, e.g. a BoxMesh) | "script_attached" {node_path, ' +

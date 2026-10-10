@@ -124,6 +124,9 @@ var _card_next: Button = null
 var _card_show: Button = null
 var _card_why: Button = null
 var _card_ask: Button = null
+## The agent's suggested node names, mapped to what the learner actually
+## called them: {suggested: {"var": capture var or "", "name": the name they chose}}.
+var _aliases := {}
 var _auto_asked := {}         # steps the agent was already asked about automatically
 var _last_auto_msec := 0
 var _card_save: Button = null
@@ -174,6 +177,7 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	_events = []
 	_done = false
 	_onfail_done = {}
+	_aliases = {}
 	_auto_asked = {}
 	_last_auto_msec = 0
 	_fixup_active = false
@@ -828,9 +832,26 @@ func _vars_used(d, defined: Dictionary) -> Array:
 # ---- Variables -------------------------------------------------------------
 
 ## "$player" -> the node's current path; "$player/Sprite" -> child of it.
+## Godot names a new node after its class ("RigidBody3D", "RigidBody3D2").
+func _is_default_name(name: String, cls: String) -> bool:
+	return name == cls or (name.begins_with(cls) and name.substr(cls.length()).is_valid_int())
+
+## The learner's name for a name the agent suggested, if they chose another.
+func _alias_for(suggested: String) -> String:
+	if not _aliases.has(suggested):
+		return suggested
+	var a: Dictionary = _aliases[suggested]
+	var n = _vars[a.var].get_ref() if a.var != "" and _vars.has(a.var) else null
+	return str(n.name) if n is Node else str(a.name)
+
 func _sub(path: String) -> String:
 	if not path.begins_with("$"):
-		return path
+		if _aliases.is_empty():
+			return path
+		var parts := path.split("/")
+		for i in parts.size():
+			parts[i] = _alias_for(parts[i])
+		return "/".join(parts)
 	var name := path.substr(1).get_slice("/", 0)
 	var rest := path.substr(1 + name.length())
 	var n = _vars[name].get_ref() if _vars.has(name) else null
@@ -1361,10 +1382,13 @@ func _show_me_actions(step: Dictionary) -> Array:
 	# node's class first (a later script_contains step can fill in the code),
 	# and open it in the Script editor afterwards.
 	var final := []
+	var written := {}   # files an earlier action in this list already writes
 	for a in out:
+		if str(a.get("command", "")) == "edit_script_text":
+			written[str(a.get("path", ""))] = true
 		if str(a.get("command", "")) == "attach_script":
 			var sp := str(a.get("script_path", ""))
-			if sp != "" and not FileAccess.file_exists(sp):
+			if sp != "" and not FileAccess.file_exists(sp) and not written.has(sp):
 				var target: Node = _bridge._resolve_node(str(a.get("node_path", ".")))
 				final.append({"command": "edit_script_text", "path": sp, "save": true,
 					"text": "extends %s\n" % (target.get_class() if target != null else "Node")})
@@ -1399,21 +1423,48 @@ func _nudge(v):
 
 var _derive_step_text := ""   # the step being derived for (some derivations read its text)
 
+## A res://….gd path written in the step's text ("Save it as res://cube.gd"), or "".
+func _script_path_from_text() -> String:
+	var found := RegEx.create_from_string("res://[A-Za-z0-9_/.\\-]+\\.gd").search(_derive_step_text)
+	return found.get_string() if found != null else ""
+
 func _derive_show_me(check: Dictionary) -> Array:
 	match str(check.type):
 		"script_contains":
 			var path := _script_path_for(check)
+			var attach := false
+			if path == "" and check.has("node_path"):
+				# The node has no script yet: the step wants one made and
+				# attached — file from the step's text, else named after the node.
+				path = _script_path_from_text()
+				if path == "":
+					var owner := _node(str(check.node_path))
+					if owner == null:
+						return []
+					path = "res://%s.gd" % str(owner.name).to_snake_case()
+				attach = true
 			if path == "":
 				return []
 			var code := str(check.text)
-			if FileAccess.file_exists(path):
-				if check.has("replace"):
-					return [{"command": "edit_script_text", "path": path, "old_text": str(check.replace), "new_text": code, "save": true}]
+			var rep = check.get("replace", false)   # a snippet to replace, or true = the whole file
+			var actions := []
+			if FileAccess.file_exists(path) and typeof(rep) == TYPE_STRING and str(rep) != "":
+				actions = [{"command": "edit_script_text", "path": path, "old_text": str(rep), "new_text": code, "save": true}]
+			elif FileAccess.file_exists(path) and not (typeof(rep) == TYPE_BOOL and rep):
 				var cur = _bridge._cmd_get_script_text({"path": path})
 				var base: String = str(cur.text) if typeof(cur) == TYPE_DICTIONARY and not cur.has("__error__") else ""
-				return [{"command": "edit_script_text", "path": path, "text": base.rstrip("\n") + "\n" + code + "\n", "save": true}]
-			return [{"command": "edit_script_text", "path": path, "save": true,
-				"text": "extends %s\n\n%s\n" % [str(check.get("extends", "Node")), code]}]
+				actions = [{"command": "edit_script_text", "path": path, "text": base.rstrip("\n") + "\n" + code + "\n", "save": true}]
+			else:
+				# A new file, or replacing the whole file.
+				var base_class := str(check.get("extends", ""))
+				if base_class == "" and check.has("node_path"):
+					var target := _node(str(check.node_path))
+					base_class = target.get_class() if target != null else ""
+				var full := code if code.strip_edges().begins_with("extends") else "extends %s\n\n%s\n" % [base_class if base_class != "" else "Node", code]
+				actions = [{"command": "edit_script_text", "path": path, "text": full, "save": true}]
+			if attach:
+				actions.append({"command": "attach_script", "node_path": check.node_path, "script_path": path})
+			return actions
 		"property_changed":
 			var n := _node(str(check.node_path))
 			if n == null:
@@ -1428,6 +1479,13 @@ func _derive_show_me(check: Dictionary) -> Array:
 			return [{"command": "select_nodes", "node_paths": [check.node_path]}]
 		"node_added":
 			if check.has("class"):
+				# Already added but not renamed yet: rename it, don't add a second.
+				var parent := _node(str(check.parent))
+				var known: Dictionary = _baseline.get("c", {})
+				if parent != null and check.has("name"):
+					for c in parent.get_children():
+						if not known.has(c.get_instance_id()) and c.is_class(str(check["class"])) and _is_default_name(str(c.name), c.get_class()):
+							return [{"command": "rename_node", "node_path": _bridge._rel_path(c), "new_name": str(check.name)}]
 				return [{"command": "add_node_live", "parent_path": check.parent, "node_type": check["class"], "node_name": check.get("name", check["class"])}]
 		"node_removed":
 			return [{"command": "remove_node", "node_path": check.node_path}]
@@ -1455,10 +1513,8 @@ func _derive_show_me(check: Dictionary) -> Array:
 				# The check only says "has a script": take the file from the
 				# step's text ("Save it as res://cube.gd"), else name it after
 				# the node. A missing file is created, then attached.
-				var found := RegEx.create_from_string("res://[A-Za-z0-9_/.\\-]+\\.gd").search(_derive_step_text)
-				if found != null:
-					script_path = found.get_string()
-				else:
+				script_path = _script_path_from_text()
+				if script_path == "":
 					var target := _node(str(check.node_path))
 					if target == null:
 						return []
@@ -1617,9 +1673,15 @@ func _passes(check: Dictionary, key: String) -> bool:
 					continue
 				if check.has("capture"):
 					_vars[str(check.capture)] = weakref(c)
-				# With a name, the step goes on to "now rename it" (see
-				# _hint and _point_at_new_node) and completes once it's named.
-				return not check.has("name") or str(c.name) == str(check.name)
+				if not check.has("name"):
+					return true
+				# `name` is a suggestion: the step goes on to "now rename it" and
+				# completes once the learner has given the node a name — the
+				# suggested one, or any other of their own (not the default).
+				var chosen := str(c.name) == str(check.name) or not _is_default_name(str(c.name), c.get_class())
+				if chosen and str(c.name) != str(check.name):
+					_aliases[str(check.name)] = {"var": str(check.get("capture", "")), "name": str(c.name)}
+				return chosen
 			return false
 		"node_removed":
 			var ref = _baseline.get(key, null)
@@ -1727,8 +1789,8 @@ func _hint(check: Dictionary, key: String) -> String:
 					return "That added a **%s**; this step wants a **%s**. Undo it with Ctrl+Z." % [c.get_class(), want]
 			if check.has("name"):
 				for c in parent.get_children():
-					if not known.has(c.get_instance_id()) and (want == "" or c.is_class(want)) and str(c.name) != str(check.name):
-						return "✓ Added! Now rename it to **%s**: double-click it in the Scene dock (or press F2) and type `%s`." % [check.name, check.name]
+					if not known.has(c.get_instance_id()) and (want == "" or c.is_class(want)) and _is_default_name(str(c.name), c.get_class()):
+						return "✓ Added! Now rename it to **%s** or similar: double-click it in the Scene dock, or press F2." % check.name
 			if want != "":
 				var all_known: Dictionary = _baseline.get(key + ":all", {})
 				for n in _all_nodes():
@@ -2045,6 +2107,9 @@ func _name_vars(text: String) -> String:
 		var n = _vars[name].get_ref()
 		if n is Node:
 			text = text.replace("$" + str(name), str(n.name))
+	# A name the agent suggested for a node the learner named differently.
+	for suggested in _aliases:
+		text = RegEx.create_from_string("\\b" + RegEx.create_from_string("([\\[\\]\\\\.^$*+?(){}|])").sub(str(suggested), "\\\\$1", true) + "\\b").sub(text, _alias_for(str(suggested)), true)
 	return text
 
 ## **bold** and `code` only; everything else is literal text.
