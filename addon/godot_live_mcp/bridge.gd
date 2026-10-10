@@ -2342,16 +2342,22 @@ func _ctl_find(params: Dictionary, key_path := "path", key_text := "text", key_c
 	# as a case-insensitive substring since tooltips are long sentences.
 	var want_tip := String(params.get("tooltip", "")).to_lower()
 	var matches := _ctl_matches(ui, want_text, want_tip, want_class)
+	# No root given and nothing in the Inspector (the default): look in the
+	# other docks, then the whole editor, and use the first that has it —
+	# callers (and tours) shouldn't need to know which dock a button is in.
+	if matches.is_empty() and not params.has("root"):
+		for other in ["scene_tree", "filesystem", "bottom_panel", "editor"]:
+			var other_ui := _ui_root(other)
+			if other_ui == null:
+				continue
+			matches = _ctl_matches(other_ui, want_text, want_tip, want_class)
+			if not matches.is_empty():
+				root_name = other
+				break
 	var index := int(params.get("index", 0))
 	if matches.is_empty():
-		var msg := "no visible control matches text='%s' tooltip='%s' class='%s' under '%s'" % [want_text, want_tip, want_class, root_name]
-		# No root given: the default (inspector) may just be the wrong place.
-		if not params.has("root"):
-			for other in ["scene_tree", "filesystem", "bottom_panel", "editor"]:
-				var other_ui := _ui_root(other)
-				if other_ui != null and not _ctl_matches(other_ui, want_text, want_tip, want_class).is_empty():
-					msg += "; it is under root '%s' — pass root: \"%s\"" % [other, other]
-					break
+		var where := root_name if params.has("root") else "any dock or the editor"
+		var msg := "no visible control matches text='%s' tooltip='%s' class='%s' under %s" % [want_text, want_tip, want_class, where]
 		# Icon-only buttons (the Scene dock's +, Attach Script…) have no
 		# text, so a text match like "+" can never find them: list what's
 		# here by tooltip so the next call can match on that instead.
@@ -2366,7 +2372,7 @@ func _ctl_find(params: Dictionary, key_path := "path", key_text := "text", key_c
 				msg += ". Icon-only buttons have no text; match them by tooltip instead — " + "; ".join(parts)
 		return msg
 	if matches.size() > 1 and not params.has("index"):
-		return "%d controls match; pass index (0-%d) or use a path from dump_control_tree" % [matches.size(), matches.size() - 1]
+		return "%d controls match under '%s'; pass index (0-%d) or use a path from dump_control_tree" % [matches.size(), root_name, matches.size() - 1]
 	if index < 0 or index >= matches.size():
 		return "index %d out of range (%d matches)" % [index, matches.size()]
 	return matches[index]
