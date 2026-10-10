@@ -281,6 +281,10 @@ Writing a good spontaneous tour:
 10. Tell the user in chat that the tour has started and that they can press
    Why? or Show me at any point.
 
+In Teach mode a hard failure (a verify that won't pass, a Show me that errors)
+is sent to you automatically, once per step, as such a message — no need
+to wait for the learner to press the button.
+
 When a message starts with `[Guided tour "…", step N/M: …]` and says something
 isn't working (from the card's **Ask the agent** button), fix the **plan**:
 read it, call `get_tour_status` if needed (`problems` lists what went wrong),

@@ -30,6 +30,7 @@ const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set
 ## Event types that mean a step isn't going well: what the agent is shown
 ## (get_tour_status.problems) and what the Ask the agent button sends.
 const PROBLEM_TYPES := ["verify_failed", "show_me_failed", "show_me_refused", "wrong_action", "stuck", "target_missing"]
+const AUTO_ASK_GAP_SEC := 20.0   # minimum time between automatic hand-offs
 const GAME_OPS := [">", "<", ">=", "<=", "==", "~="]
 const SHOW_ME_ANNOUNCE_SEC := 1.6   # how long the card announces before Show me acts
 
@@ -123,6 +124,8 @@ var _card_next: Button = null
 var _card_show: Button = null
 var _card_why: Button = null
 var _card_ask: Button = null
+var _auto_asked := {}         # steps the agent was already asked about automatically
+var _last_auto_msec := 0
 var _card_save: Button = null
 var _card_close: Button = null  # the Done card's main action
 var _card_pinned := false   # the user dragged the card: keep it where they put it
@@ -171,6 +174,8 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	_events = []
 	_done = false
 	_onfail_done = {}
+	_auto_asked = {}
+	_last_auto_msec = 0
 	_fixup_active = false
 	_verify_only = false
 	_vars = {}
@@ -638,12 +643,14 @@ func _complete_step() -> void:
 			return
 		_note_hint = "✗ " + note
 		_refresh_card()
+		_maybe_auto_ask()
 		return
 	var msg := "✗ That didn't work: " + why
 	if msg != _note_hint:
 		_note_hint = msg
 		_log("verify_failed", {"check": str(v.type), "saw": why})
 		_refresh_card()
+	_maybe_auto_ask()
 
 func _default_verify_wait(type: String) -> float:
 	match type:
@@ -1081,6 +1088,35 @@ func _build_digest() -> String:
 		str(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(str(step.get("text", ""))),
 		"\n- ".join(uniq), JSON.stringify({"done_when": step.get("done_when"), "verify": step.get("verify")}).left(500), _index + 1]
 
+## Teach mode hands hard failures (a verify that won't pass, a Show me that
+## errors) to the agent by itself, so the learner doesn't have to notice and
+## press the button. Costs one short agent turn; so: Teach mode only, once
+## per step, never while the agent is busy, and with a gap between asks.
+func _maybe_auto_ask() -> void:
+	if not is_running() or _done:
+		return
+	if not bool(EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", "tutorial_mode", false)):
+		return
+	var key := str(_steps[_index].get("text", "")).hash()
+	if _auto_asked.has(key):
+		return
+	if (Time.get_ticks_msec() - _last_auto_msec) / 1000.0 < AUTO_ASK_GAP_SEC and _last_auto_msec != 0:
+		return
+	var panel := _agent_panel()
+	if panel == null:
+		return
+	var busy = panel.get("_busy")
+	if typeof(busy) == TYPE_DICTIONARY and bool(busy.get("chat", false)):
+		return  # try again at the next check
+	var err: String = panel.ask(_build_digest())
+	if err != "":
+		return
+	_auto_asked[key] = true
+	_last_auto_msec = Time.get_ticks_msec()
+	_log("asked_agent", {"sent": true, "auto": true})
+	_note_why = "Asked the agent automatically — see the AI Assistant panel."
+	_refresh_card()
+
 func _on_ask_pressed() -> void:
 	if not is_running() or _done:
 		return
@@ -1230,6 +1266,7 @@ func _on_show_me_pressed() -> void:
 			_note_hint = "Couldn't show this one: %s" % res["__error__"]
 			_hint_hold_until = Time.get_ticks_msec() + 8000
 			_refresh_card()
+			_maybe_auto_ask()
 			return
 	_showing = false
 	_note_hint = "✓ Done for you — Ctrl+Z%s to undo." % (" %d times" % actions.size() if actions.size() > 1 else "")
@@ -1296,6 +1333,7 @@ func _describe_action(a: Dictionary) -> String:
 ## done_when check; [] when the step can't be shown.
 func _show_me_actions(step: Dictionary) -> Array:
 	var raw = step.get("show_me", null)
+	_derive_step_text = str(step.get("text", ""))
 	var actions: Array = raw if typeof(raw) == TYPE_ARRAY else _derive_show_me(step.done_when)
 	if typeof(raw) != TYPE_ARRAY and str(step.done_when.type) == "control_pressed" and typeof(step.get("target")) == TYPE_DICTIONARY:
 		# Press the very control the step outlines.
@@ -1359,6 +1397,8 @@ func _nudge(v):
 		TYPE_STRING: return str(v) + "!"
 	return null
 
+var _derive_step_text := ""   # the step being derived for (some derivations read its text)
+
 func _derive_show_me(check: Dictionary) -> Array:
 	match str(check.type):
 		"script_contains":
@@ -1410,8 +1450,20 @@ func _derive_show_me(check: Dictionary) -> Array:
 		"game_running":
 			return [{"command": "play_scene"}]
 		"script_attached":
-			if check.has("script"):
-				return [{"command": "attach_script", "node_path": check.node_path, "script_path": check.script}]
+			var script_path := str(check.get("script", ""))
+			if script_path == "":
+				# The check only says "has a script": take the file from the
+				# step's text ("Save it as res://cube.gd"), else name it after
+				# the node. A missing file is created, then attached.
+				var found := RegEx.create_from_string("res://[A-Za-z0-9_/.\\-]+\\.gd").search(_derive_step_text)
+				if found != null:
+					script_path = found.get_string()
+				else:
+					var target := _node(str(check.node_path))
+					if target == null:
+						return []
+					script_path = "res://%s.gd" % str(target.name).to_snake_case()
+			return [{"command": "attach_script", "node_path": check.node_path, "script_path": script_path}]
 		"signal_connected":
 			if check.has("method"):
 				return [{"command": "connect_signal", "node_path": check.source, "signal_name": check.signal, "target_node_path": check.target, "method_name": check.method}]
