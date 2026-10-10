@@ -281,6 +281,13 @@ Writing a good spontaneous tour:
 10. Tell the user in chat that the tour has started and that they can press
    Why? or Show me at any point.
 
+When a message starts with `[Guided tour "…", step N/M: …]` and says something
+isn't working (from the card's **Ask the agent** button), fix the **plan**:
+read it, call `get_tour_status` if needed (`problems` lists what went wrong),
+then call `revise_tour` with new remaining steps and a one-line `note`. Don't
+change the scene yourself, and don't restart the tour — `revise_tour` keeps
+the learner's progress and their `$var` node names.
+
 During a tour: when the user comes back to chat, call `get_tour_status`
 first — the event log shows where they are, what they got wrong
 (`wrong_action`), whether they're `stuck`, and what they asked (`why_asked`).
