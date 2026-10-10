@@ -122,7 +122,7 @@ says it can't point at it.
 |---|---|---|
 | `node_selected` | `node_path` | The node is selected in the editor. |
 | `node_exists` | `node_path` | The node exists. |
-| `node_added` | `parent`, `class`?, `name`?, `capture`? | A new child appears under `parent` (of `class`, if given). `capture` binds it to a variable. With `name`, the step then asks the user to rename it (the card says "Now rename it to …" and the outline moves to the new node) and completes once it has that name. |
+| `node_added` | `parent`, `class`?, `name`?, `capture`? | A new child appears under `parent` (of `class`, if given). `capture` binds it to a variable. `name` is a *suggestion*: the step then asks the user to rename it (the card says "Now rename it to … or similar" and the outline moves to the new node) and completes once they give it a name of their own, the suggested one or another. Later text and node paths that use the suggested name are mapped to theirs. |
 | `node_removed` | `node_path` | The node is deleted. |
 | `node_renamed` | `node_path`, `name` | The node is renamed to `name`. |
 | `node_reparented` | `node_path`, `parent` | The node now sits under `parent`. |
