@@ -1,0 +1,87 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://github.com/Rufussed/GodotLiveMCP/docs/tours/tour.schema.json",
+	"title": "GodotLiveMCP guided tour",
+	"description": "A step-by-step in-editor walkthrough. See tour-format.md.",
+	"type": "object",
+	"required": ["format", "steps"],
+	"properties": {
+		"format": { "const": "godot-live-tour/1" },
+		"title": { "type": "string" },
+		"vars": { "type": "object", "additionalProperties": { "type": "string" } },
+		"requires": {
+			"type": "object",
+			"properties": {
+				"scene_open": { "type": "string", "pattern": "^res://" },
+				"node_exists": { "type": "array", "items": { "type": "string" } }
+			},
+			"additionalProperties": false
+		},
+		"stuck_after_sec": { "type": "number", "minimum": 0 },
+		"steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } }
+	},
+	"$defs": {
+		"step": {
+			"type": "object",
+			"required": ["text", "done_when"],
+			"properties": {
+				"id": { "type": "string" },
+				"text": { "type": "string", "minLength": 1 },
+				"why": { "type": "string" },
+				"target": { "$ref": "#/$defs/target" },
+				"done_when": { "$ref": "#/$defs/check" },
+				"show_me": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+			}
+		},
+		"target": {
+			"type": "object",
+			"properties": {
+				"node_path": { "type": "string" },
+				"property": { "type": "string" },
+				"root": { "type": "string" },
+				"path": { "type": "string" },
+				"text": { "type": "string" },
+				"tooltip": { "type": "string" },
+				"class": { "type": "string" },
+				"index": { "type": "integer", "minimum": 0 },
+				"label": { "type": "string" }
+			}
+		},
+		"check": {
+			"type": "object",
+			"required": ["type"],
+			"properties": {
+				"type": {
+					"enum": ["node_selected", "node_exists", "node_added", "node_removed", "node_renamed", "node_reparented",
+						"property_equals", "property_changed", "property_class", "script_attached", "signal_connected",
+						"in_group", "scene_open", "scene_saved", "file_exists", "control_pressed", "game_running",
+						"manual", "all", "any"]
+				},
+				"checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } }
+			},
+			"allOf": [
+				{ "if": { "properties": { "type": { "enum": ["node_selected", "node_exists", "node_removed", "script_attached"] } } }, "then": { "required": ["node_path"] } },
+				{ "if": { "properties": { "type": { "const": "node_added" } } }, "then": { "required": ["parent"] } },
+				{ "if": { "properties": { "type": { "const": "node_renamed" } } }, "then": { "required": ["node_path", "name"] } },
+				{ "if": { "properties": { "type": { "const": "node_reparented" } } }, "then": { "required": ["node_path", "parent"] } },
+				{ "if": { "properties": { "type": { "const": "property_equals" } } }, "then": { "required": ["node_path", "property", "value"] } },
+				{ "if": { "properties": { "type": { "const": "property_changed" } } }, "then": { "required": ["node_path", "property"] } },
+				{ "if": { "properties": { "type": { "const": "property_class" } } }, "then": { "required": ["node_path", "property", "class"] } },
+				{ "if": { "properties": { "type": { "const": "signal_connected" } } }, "then": { "required": ["source", "signal", "target"] } },
+				{ "if": { "properties": { "type": { "const": "in_group" } } }, "then": { "required": ["node_path", "group"] } },
+				{ "if": { "properties": { "type": { "enum": ["scene_open", "file_exists"] } } }, "then": { "required": ["path"] } },
+				{ "if": { "properties": { "type": { "enum": ["all", "any"] } } }, "then": { "required": ["checks"] } }
+			]
+		},
+		"action": {
+			"type": "object",
+			"required": ["command"],
+			"properties": {
+				"command": {
+					"enum": ["select_nodes", "add_node_live", "set_property", "rename_node", "reparent_node", "remove_node",
+						"connect_signal", "set_node_groups", "attach_script", "save_scene_live"]
+				}
+			}
+		}
+	}
+}

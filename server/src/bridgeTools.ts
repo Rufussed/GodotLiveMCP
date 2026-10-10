@@ -100,6 +100,8 @@ export const bridgeToolNames = new Set([
   'start_tour',
   'get_tour_status',
   'stop_tour',
+  'save_tour',
+  'list_tours',
   'refresh_editor_scripts',
   'get_material_info',
   'add_animation_state',
@@ -1281,9 +1283,10 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: {
         tour: { type: 'object', description: 'The tour (format above)' },
+        path: { type: 'string', description: 'Instead of tour: play a saved res://….tour.json file (opens its requires.scene_open scene first if needed)' },
         dry_run: { type: 'boolean', description: 'Validate only, don\'t start (default false)' },
       },
-      required: ['tour'],
+      required: [],
     },
   },
   {
@@ -1294,6 +1297,24 @@ export const bridgeToolDefinitions = [
       'why_asked, show_me, show_me_failed, stopped, ' +
       'tour_done), plus any note currently on the card (note_target / note_hint / note_stuck). Call this first when the user comes back ' +
       'to chat mid-tour.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'save_tour',
+    description:
+      'Save the running (or last) guided tour as a .tour.json file — default res://tours/<title>.tour.json — so it can be ' +
+      'replayed later with NO agent: from Project > Tools > Guided Tours… in the editor, or start_tour {path}. Offer this ' +
+      'after a tour went well. The user can also press Save on the tour\'s final card. Tours are plain data (no code), ' +
+      'safe to share.',
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'res:// path ending in .tour.json (optional)' } },
+      required: [],
+    },
+  },
+  {
+    name: 'list_tours',
+    description: 'List the saved .tour.json files in the project (path, title, step count, required scene).',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -1766,7 +1787,11 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'clear_editor_highlights':
       return textResult(await client.call('clear_editor_highlights', {}));
     case 'start_tour':
-      return textResult(await client.call('start_tour', { tour: params.tour, dry_run: params.dry_run ?? false }));
+      return textResult(await client.call('start_tour', { tour: params.tour, path: params.path ?? '', dry_run: params.dry_run ?? false }));
+    case 'save_tour':
+      return textResult(await client.call('save_tour', { path: params.path ?? '' }));
+    case 'list_tours':
+      return textResult(await client.call('list_tours', {}));
     case 'get_tour_status':
       return textResult(await client.call('get_tour_status', {}));
     case 'stop_tour':

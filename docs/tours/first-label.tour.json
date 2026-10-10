@@ -1,0 +1,43 @@
+{
+	"format": "godot-live-tour/1",
+	"title": "Your first Label",
+	"vars": { "root": "." },
+	"steps": [
+		{
+			"id": "select-root",
+			"text": "Select the top node of your scene, **$root**, in the Scene dock.",
+			"why": "New nodes are added as children of whatever node is selected, so we start at the top.",
+			"target": { "node_path": "$root" },
+			"done_when": { "type": "node_selected", "node_path": "$root" }
+		},
+		{
+			"id": "add-label",
+			"text": "Click **+** (Add Child Node), search for `Label`, and press **Create**.",
+			"why": "A Label is the simplest way to show text in a game.",
+			"target": { "root": "scene_tree", "tooltip": "Add/Create a New Node" },
+			"done_when": { "type": "node_added", "parent": "$root", "class": "Label", "capture": "label" }
+		},
+		{
+			"id": "set-text",
+			"text": "In the Inspector, type `Hello, Godot!` into **Text**.",
+			"why": "The Inspector shows every setting of the selected node; Text is what the Label displays.",
+			"target": { "node_path": "$label", "property": "text" },
+			"done_when": { "type": "property_equals", "node_path": "$label", "property": "text", "value": "\"Hello, Godot!\"" }
+		},
+		{
+			"id": "move",
+			"text": "Move the label: drag it in the 2D view, or change **Position** under Layout → Transform.",
+			"why": "Every 2D node has a position, measured in pixels from its parent's origin.",
+			"done_when": { "type": "property_changed", "node_path": "$label", "property": "position" },
+			"show_me": [
+				{ "command": "set_property", "node_path": "$label", "property_name": "position", "value": "Vector2(100, 80)" }
+			]
+		},
+		{
+			"id": "save",
+			"text": "Save the scene with **Ctrl+S**.",
+			"why": "Changes live only in the editor until you save them to the scene file.",
+			"done_when": { "type": "scene_saved" }
+		}
+	]
+}
