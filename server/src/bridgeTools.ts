@@ -1272,6 +1272,16 @@ export const bridgeToolDefinitions = [
       'parent, wrong value or name) and a "stuck?" note after stuck_after_sec.\n' +
       'Validation checks property and signal names against the real classes; editor controls that can\'t be found yet are ' +
       'warnings, not errors (they may appear later, e.g. in a dialog).\n' +
+      'Example (note done_when always has a "type" field, and node paths are "$var" or relative to the scene root):\n' +
+      '{"format": "godot-live-tour/1", "title": "A green floor", "requires": {"scene_open": "res://main.tscn"}, ' +
+      '"vars": {"root": "."}, "steps": [' +
+      '{"text": "Click **+** and add a `StaticBody3D` under **$root**.", "why": "A static body is solid but never moves.", ' +
+      '"target": {"root": "scene_tree", "tooltip": "Add/Create a New Node"}, ' +
+      '"done_when": {"type": "node_added", "parent": "$root", "class": "StaticBody3D", "name": "Floor", "capture": "floor"}}, ' +
+      '{"text": "Give **$floor** a `MeshInstance3D` child.", "target": {"root": "scene_tree", "tooltip": "Add/Create a New Node"}, ' +
+      '"done_when": {"type": "node_added", "parent": "$floor", "class": "MeshInstance3D", "capture": "mesh"}}, ' +
+      '{"text": "Set **$mesh**\'s **Mesh** to a new **PlaneMesh**.", "target": {"node_path": "$mesh", "property": "mesh"}, ' +
+      '"done_when": {"type": "property_class", "node_path": "$mesh", "property": "mesh", "class": "PlaneMesh"}}]}\n' +
       'Keep tours to 3–8 steps, one action each; prefer state checks over manual. Check progress with get_tour_status.',
     inputSchema: {
       type: 'object',
