@@ -76,6 +76,8 @@ func set_editor_plugin(plugin: EditorPlugin) -> void:
 var _debugger_plugin: EditorDebuggerPlugin = null
 
 func _exit_tree() -> void:
+	if _tour_runner != null and is_instance_valid(_tour_runner):
+		_tour_runner.stop()
 	if _hl != null and not _hl.is_empty():
 		_hl_clear()
 	if _editor_plugin and _debugger_plugin:
@@ -2539,7 +2541,9 @@ func _hl_reveal(control: Control) -> void:
 ## {"error": msg}, {"control", "entry"} or {"tree", "item_path", "entry"}.
 ## Targets: an Inspector property by name (opens the node first), a node
 ## (selected, its Scene dock row), or any editor control by path/text/class.
-func _hl_resolve_target(t: Dictionary) -> Dictionary:
+## With select=false a node target is only pointed at (its row revealed,
+## the editor selection untouched), for tours whose step is "select it".
+func _hl_resolve_target(t: Dictionary, select := true) -> Dictionary:
 	if t.has("property"):
 		var obj: Object = EditorInterface.get_inspector().get_edited_object()
 		if t.has("node_path"):
@@ -2570,11 +2574,12 @@ func _hl_resolve_target(t: Dictionary) -> Dictionary:
 		var node := _resolve_node(String(t.node_path))
 		if node == null:
 			return {"error": "node not found: %s" % t.node_path}
-		var sel := EditorInterface.get_selection()
-		sel.clear()
-		sel.add_node(node)
-		EditorInterface.edit_node(node)
-		await get_tree().process_frame
+		if select:
+			var sel := EditorInterface.get_selection()
+			sel.clear()
+			sel.add_node(node)
+			EditorInterface.edit_node(node)
+			await get_tree().process_frame
 		var dock := _ui_root("scene_tree")
 		var trees := dock.find_children("*", "Tree", true, false) if dock else []
 		var names := [(_get_scene_root() as Node).name]
@@ -2584,7 +2589,12 @@ func _hl_resolve_target(t: Dictionary) -> Dictionary:
 		if trees.is_empty() or HighlightOverlay.find_tree_item(trees[0], names) == null:
 			return {"error": "selected %s but couldn't find its row in the Scene dock (is the dock visible?)" % _rel_path(node)}
 		var tree: Tree = trees[0]
-		tree.scroll_to_item(HighlightOverlay.find_tree_item(tree, names))
+		var row := HighlightOverlay.find_tree_item(tree, names)
+		var up := row.get_parent()
+		while up != null:
+			up.collapsed = false
+			up = up.get_parent()
+		tree.scroll_to_item(row)
 		await get_tree().process_frame
 		return {"tree": tree, "item_path": names, "entry": {"kind": "node", "node_path": _rel_path(node)}}
 	var found = _ctl_find(t, "path", "text", "class")
@@ -2651,6 +2661,40 @@ func _cmd_highlight_editor_control(params: Dictionary):
 ## Removes every highlight drawn by highlight_editor_control.
 func _cmd_clear_editor_highlights(_params: Dictionary):
 	return {"cleared": _hl_clear()}
+
+# --- guided tours (tour_runner.gd) ------------------------------------------
+
+const TourRunner = preload("res://addons/godot_live_mcp/tour_runner.gd")
+var _tour_runner: Node = null
+
+## Created on first use rather than in _ready(), so a hot-reloaded bridge
+## (where new members start null) still gets one.
+func _tours() -> Node:
+	if _tour_runner == null or not is_instance_valid(_tour_runner):
+		_tour_runner = TourRunner.new()
+		_tour_runner.name = "TourRunner"
+		_tour_runner.setup(self)
+		add_child(_tour_runner)
+	return _tour_runner
+
+## Validates a tour and (unless dry_run) starts it, replacing any running
+## tour. All problems are reported at once.
+func _cmd_start_tour(params: Dictionary):
+	var tour = params.get("tour", null)
+	if typeof(tour) != TYPE_DICTIONARY:
+		return _fail("tour must be an object")
+	var res: Dictionary = await _tours().start(tour, bool(params.get("dry_run", false)))
+	if not res.ok:
+		return _fail("tour is invalid:\n- " + "\n- ".join(res.errors))
+	return res
+
+func _cmd_get_tour_status(_params: Dictionary):
+	return _tours().status()
+
+func _cmd_stop_tour(_params: Dictionary):
+	var was_running: bool = _tours().is_running()
+	_tours().stop()
+	return {"stopped": was_running}
 
 ## The reload dance after edit_script_text on @tool scripts, addons and
 ## resource scripts, in one call: save open scripts, re-parse (returning
