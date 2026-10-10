@@ -19,6 +19,8 @@ import { BridgeClient } from './bridgeClient.js';
 const API = 'https://godotengine.org/asset-library/api';
 const SITE = 'https://godotengine.org/asset-library/asset';
 const ALLOWED_HOSTS = ['github.com', 'codeload.github.com', 'gitlab.com', 'bitbucket.org'];
+// Used only when no editor is connected to ask; the library hides assets that need a newer engine.
+const DEFAULT_GODOT_VERSION = '4.7';
 const MAX_ZIP_BYTES = 100 * 1024 * 1024;
 
 async function getJson(url: string): Promise<any> {
@@ -57,11 +59,17 @@ export async function searchAssets(args: any, client: BridgeClient) {
   const query = String(args.query ?? '').trim();
   const max = Math.min(Math.max(Number(args.max_results ?? 8), 1), 20);
   const params = new URLSearchParams({ filter: query, max_results: String(max), type: String(args.type ?? 'addon') });
-  const version = String(args.godot_version ?? '') || (await editorVersion(client));
-  if (version) params.set('godot_version', version);
+  const notes: string[] = [];
+  // The API treats a missing version as a very old engine and returns nothing
+  // (every Godot 4 asset is hidden), so always send one.
+  let version = String(args.godot_version ?? '') || (await editorVersion(client));
+  if (!version) {
+    version = DEFAULT_GODOT_VERSION;
+    notes.push(`no editor connected, so results assume Godot ${version}; pass godot_version to search for another (an asset needing a newer Godot than that is hidden)`);
+  }
+  params.set('godot_version', version);
   if (args.sort) params.set('sort', String(args.sort));
   if (args.page) params.set('page', String(args.page));
-  const notes: string[] = [];
   if (args.category) {
     const id = await categoryId(String(args.category));
     if (id) params.set('category', id);
@@ -72,7 +80,7 @@ export async function searchAssets(args: any, client: BridgeClient) {
   if (args.support) results = results.filter(a => a.support_level === args.support);
   return {
     query,
-    godot_version: version ?? 'any',
+    godot_version: version,
     total_matches: data.total_items,
     page: data.page,
     pages: data.pages,
