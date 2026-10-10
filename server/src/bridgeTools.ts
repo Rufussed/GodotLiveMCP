@@ -97,6 +97,9 @@ export const bridgeToolNames = new Set([
   'interact_control',
   'highlight_editor_control',
   'clear_editor_highlights',
+  'start_tour',
+  'get_tour_status',
+  'stop_tour',
   'refresh_editor_scripts',
   'get_material_info',
   'add_animation_state',
@@ -1238,6 +1241,47 @@ export const bridgeToolDefinitions = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'start_tour',
+    description:
+      'Start a guided tour: a chain of editor highlights, each with a step card, that advances BY ITSELF when the ' +
+      'user completes each step (checked against real editor state) — use when the user asks "how do I…" / "show me" / ' +
+      '"teach me" rather than "do it". Inspect the scene first and use the user\'s real node names. Unlike ' +
+      'highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every ' +
+      'problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\n' +
+      'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, steps: [{id?, text, target?, done_when}]}.\n' +
+      '- text: short instruction; **bold** and `code` are rendered.\n' +
+      '- target: what to outline — same fields as highlight_editor_control (node_path, property, path/root, text, class, ' +
+      'index, label). A node target outlines its Scene dock row WITHOUT selecting it. Omit for a card-only step. If it ' +
+      'can\'t be found the step still runs, with a note on the card.\n' +
+      '- done_when.type: "node_selected" {node_path} | "node_exists" {node_path} | "node_added" {parent, class?, ' +
+      'capture?} (a new child since the step began; capture binds it to a var for later steps, so the user may name it ' +
+      'anything) | "property_equals" {node_path, property (sub-paths ok), value (var_to_str form or "load:res://…"), ' +
+      'tolerance?} | "scene_saved" | "manual" (user clicks Next — for explanation-only steps).\n' +
+      '- Anywhere a node path is accepted, "$name" or "$name/Child" refers to a var.\n' +
+      'Keep tours to 3–8 steps, one action each; prefer state checks over manual. Check progress with get_tour_status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tour: { type: 'object', description: 'The tour (format above)' },
+        dry_run: { type: 'boolean', description: 'Validate only, don\'t start (default false)' },
+      },
+      required: ['tour'],
+    },
+  },
+  {
+    name: 'get_tour_status',
+    description:
+      'Where the user is in the guided tour: current step, seconds on it, captured vars (as current node paths), and the ' +
+      'event log (step_started, step_done, target_missing, stopped, tour_done). Call this first when the user comes back ' +
+      'to chat mid-tour.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'stop_tour',
+    description: 'End the running guided tour and remove its outlines and card.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'interact_control',
     description:
       'Operate an editor UI control found with dump_control_tree, to test a custom UI end to end without asking ' +
@@ -1701,6 +1745,12 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('highlight_editor_control', { ...params }));
     case 'clear_editor_highlights':
       return textResult(await client.call('clear_editor_highlights', {}));
+    case 'start_tour':
+      return textResult(await client.call('start_tour', { tour: params.tour, dry_run: params.dry_run ?? false }));
+    case 'get_tour_status':
+      return textResult(await client.call('get_tour_status', {}));
+    case 'stop_tour':
+      return textResult(await client.call('stop_tour', {}));
     case 'interact_control':
       return textResult(await client.call('interact_control', { ...params }));
     case 'refresh_editor_scripts':

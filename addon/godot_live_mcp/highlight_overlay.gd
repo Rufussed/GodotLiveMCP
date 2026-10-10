@@ -28,6 +28,15 @@ func add_tree_item(tree: Tree, item_path: Array, label: String) -> void:
 	_ensure_layer().add_child(panel)
 	_items.append({"panel": panel, "tree": weakref(tree), "item_path": item_path})
 
+## Global rect of the first outline currently on screen (empty if none),
+## for placing UI next to it. Valid after update().
+func visible_rect() -> Rect2:
+	for item in _items:
+		var panel: Panel = item.panel
+		if panel.visible:
+			return panel.get_global_rect()
+	return Rect2()
+
 ## Removes every outline; returns how many there were.
 func clear() -> int:
 	var n := _items.size()

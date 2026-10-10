@@ -231,6 +231,18 @@ input.
   persisted to the scene file — they're ephemeral, live only as long as
   that game instance keeps running.
 
+## Teaching vs. doing: highlights and guided tours
+
+- "Where is X?" → `highlight_editor_control`: one outline that disappears as
+  soon as the user acts.
+- "How do I…?", "show me", "teach me" → a guided tour (`start_tour`) instead
+  of doing it yourself. If it's unclear whether they want it done or shown,
+  ask. Inspect the scene first, use the user's real node names (`vars`), keep
+  it to 3–8 steps of one action each, prefer state checks over `manual`, and
+  `dry_run` first. The tour advances by itself; when the user comes back to
+  chat, call `get_tour_status` before anything else, and don't edit what the
+  current step is about while a tour is running.
+
 ## Bracket steps with log_intent / log_result
 
 Only when the `log_intent` / `log_result` tools are available: they exist
