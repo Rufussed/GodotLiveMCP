@@ -102,6 +102,9 @@ export const bridgeToolNames = new Set([
   'stop_tour',
   'save_tour',
   'list_tours',
+  'start_recording',
+  'stop_recording',
+  'get_recording_status',
   'refresh_editor_scripts',
   'get_material_info',
   'add_animation_state',
@@ -1318,6 +1321,39 @@ export const bridgeToolDefinitions = [
     },
   },
   {
+    name: 'start_recording',
+    description:
+      'Record mode: start capturing changes to the open scene (nodes added/removed/renamed/moved, properties edited in the ' +
+      'Inspector or viewport, scripts, groups, signal connections, saves) to turn into a draft guided tour. The user does the ' +
+      'task themselves; undone changes drop out, repeated edits of one property become one step. A red bar in the editor ' +
+      'shows it is recording; the user can stop it there too. Finish with stop_recording.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'stop_recording',
+    description:
+      'Stop record mode and build the draft tour (returned, and saved to res://tours/<title>.tour.json unless save is false). ' +
+      'Text, switches, dropdowns and new resources must match; numbers, vectors and colours only have to change unless exact ' +
+      'is true (the step text shows the value used). Steps have no why text yet — offer to add plain-language why lines and ' +
+      'better wording, then save the improved tour (edit the file, or start_tour + save_tour).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Tour title (default "Recorded tour")' },
+        exact: { type: 'boolean', description: 'Require exact numbers/colours/sizes (default false)' },
+        save: { type: 'boolean', description: 'Save the file (default true)' },
+        path: { type: 'string', description: 'res://….tour.json path (default res://tours/<title>.tour.json)' },
+        discard: { type: 'boolean', description: 'Stop without building anything' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_recording_status',
+    description: 'Whether record mode is on, and the steps captured so far (one line each).',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'list_tours',
     description: 'List the saved .tour.json files in the project (path, title, step count, required scene).',
     inputSchema: { type: 'object', properties: {}, required: [] },
@@ -1795,6 +1831,13 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await client.call('start_tour', { tour: params.tour, path: params.path ?? '', dry_run: params.dry_run ?? false }));
     case 'save_tour':
       return textResult(await client.call('save_tour', { path: params.path ?? '' }));
+    case 'start_recording':
+      return textResult(await client.call('start_recording', {}));
+    case 'stop_recording':
+      return textResult(await client.call('stop_recording', { title: params.title ?? '', exact: params.exact ?? false,
+        save: params.save ?? true, path: params.path ?? '', discard: params.discard ?? false }));
+    case 'get_recording_status':
+      return textResult(await client.call('get_recording_status', {}));
     case 'list_tours':
       return textResult(await client.call('list_tours', {}));
     case 'get_tour_status':

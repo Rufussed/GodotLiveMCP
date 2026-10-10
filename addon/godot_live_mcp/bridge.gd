@@ -347,7 +347,8 @@ func _scene_edited_since(before: Dictionary) -> bool:
 func _differing_keys(a: Dictionary, b: Dictionary) -> Dictionary:
 	var keys := {}
 	for key in a:
-		if not b.has(key) or a[key] != b[key]:
+		# Type first: != between e.g. an int and a String is a runtime error.
+		if not b.has(key) or typeof(a[key]) != typeof(b[key]) or a[key] != b[key]:
 			keys[key] = true
 	for key in b:
 		if not a.has(key):
@@ -2796,6 +2797,23 @@ func _cmd_save_tour(params: Dictionary):
 	if res.has("error"):
 		return _fail(res.error)
 	return res
+
+## Record mode: the user (or agent) does a task; changes become a draft tour.
+func _cmd_start_recording(_params: Dictionary):
+	var res: Dictionary = _tours().recorder().start()
+	if res.has("error"):
+		return _fail(res.error)
+	return res
+
+func _cmd_stop_recording(params: Dictionary):
+	var res: Dictionary = _tours().recorder().stop(String(params.get("title", "")), bool(params.get("exact", false)),
+		bool(params.get("save", true)), String(params.get("path", "")), bool(params.get("discard", false)))
+	if res.has("error"):
+		return _fail(res.error)
+	return res
+
+func _cmd_get_recording_status(_params: Dictionary):
+	return _tours().recorder().status()
 
 func _cmd_list_tours(_params: Dictionary):
 	return {"tours": _tours().list_files()}
