@@ -10,6 +10,7 @@ extends Node
 ## they only change when the step does.
 
 const HighlightOverlay = preload("res://addons/godot_live_mcp/highlight_overlay.gd")
+const TourRecorder = preload("res://addons/godot_live_mcp/tour_recorder.gd")
 const FORMAT := "godot-live-tour/1"
 const TOURS_DIR := "res://tours"
 const TOUR_EXT := ".tour.json"
@@ -100,6 +101,17 @@ var _card_dragging := false
 
 func setup(bridge: Node) -> void:
 	_bridge = bridge
+
+var _recorder: Node = null
+
+## Record mode (tour_recorder.gd), created on first use.
+func recorder() -> Node:
+	if _recorder == null or not is_instance_valid(_recorder):
+		_recorder = TourRecorder.new()
+		_recorder.name = "TourRecorder"
+		_recorder.setup(_bridge, self)
+		add_child(_recorder)
+	return _recorder
 
 func _ready() -> void:
 	set_process(false)
@@ -264,6 +276,14 @@ func open_picker() -> void:
 	var dialog := ConfirmationDialog.new()
 	dialog.title = "Guided Tours"
 	dialog.ok_button_text = "Start tour"
+	# Record mode: do the task once yourself and get a draft tour.
+	dialog.add_button("Record new tour…", true, "record")
+	dialog.custom_action.connect(func(action: StringName) -> void:
+		if action == &"record":
+			dialog.hide()
+			var res: Dictionary = recorder().start()
+			if res.has("error"):
+				_alert(String(res.error)))
 	var box := VBoxContainer.new()
 	dialog.add_child(box)
 	var tours := list_files()
@@ -279,8 +299,8 @@ func open_picker() -> void:
 		list.set_item_tooltip(list.item_count - 1, String(entry.path))
 	box.add_child(list)
 	var hint := Label.new()
-	hint.text = "Tours are *%s files in your project. Ask the agent for a tour and press Save on its last card to add one." % TOUR_EXT if tours.is_empty() \
-		else "Double-click a tour, or select it and press Start tour."
+	hint.text = "Tours are *%s files in your project. Record one (do the task yourself while recording), or ask the agent for a tour and press Save on its last card." % TOUR_EXT if tours.is_empty() \
+		else "Double-click a tour, or select it and press Start tour. Record new tour… captures a task you do yourself."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.custom_minimum_size = Vector2(460, 0)
 	box.add_child(hint)

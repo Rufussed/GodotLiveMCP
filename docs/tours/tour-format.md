@@ -20,6 +20,27 @@ open, in this order: [`first-label`](first-label.tour.json),
 [`player-movement`](player-movement.tour.json),
 [`ui-button`](ui-button.tour.json), [`signals`](signals.tour.json).
 
+## Recording a tour
+
+Instead of writing JSON, do the task once yourself:
+
+1. **Project ▸ Tools ▸ Guided Tours… ▸ Record new tour…** (or the
+   `start_recording` tool). A red bar shows it's recording.
+2. Work normally in the open scene: add, rename, move and delete nodes,
+   edit properties in the Inspector or drag things in the viewport, attach
+   scripts, connect signals, and save.
+3. **Stop & save…**, give the tour a title, and choose whether values must
+   match exactly.
+
+The recorder compares the scene before and after each undoable change, so
+undone work disappears, 50 slider ticks become one step, and a node you add
+and then rename becomes one "add it and name it **Ball**" step. By default,
+text, switches, dropdowns and new resources must match, while numbers,
+vectors and colours only have to *change* (the card shows the value you
+used). Turn on **Require exact values** to make those match too.
+
+The draft has no `why` lines; add them by hand, or ask the agent to.
+
 ## File layout
 
 ```json
