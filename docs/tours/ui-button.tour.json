@@ -1,0 +1,137 @@
+{
+	"format": "godot-live-tour/1",
+	"title": "A button and a label",
+	"vars": {
+		"root": "."
+	},
+	"steps": [
+		{
+			"id": "select-root",
+			"text": "Select **$root**, the top node of your scene.",
+			"target": {
+				"node_path": "$root"
+			},
+			"done_when": {
+				"type": "node_selected",
+				"node_path": "$root"
+			}
+		},
+		{
+			"id": "add-button",
+			"text": "Click **+**, search for `Button`, and press **Create**.",
+			"why": "Button is one of Godot's UI nodes (the green ones). UI nodes are called Controls.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "Button",
+				"capture": "button"
+			}
+		},
+		{
+			"id": "button-text",
+			"text": "In the Inspector, set the button's **Text** to `Click me`.",
+			"target": {
+				"node_path": "$button",
+				"property": "text"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$button",
+				"property": "text",
+				"value": "\"Click me\""
+			}
+		},
+		{
+			"id": "button-move",
+			"text": "Move **$button** to where you want it: drag it in the 2D view.",
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$button",
+				"property": "position"
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$button",
+					"property_name": "position",
+					"value": "Vector2(100, 100)"
+				}
+			]
+		},
+		{
+			"id": "add-label",
+			"text": "Select **$root** again and add a `Label`.",
+			"why": "We'll use this label to show a message when the button is clicked.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "Label",
+				"capture": "message"
+			}
+		},
+		{
+			"id": "label-text",
+			"text": "Set the label's **Text** to `Not clicked yet`.",
+			"target": {
+				"node_path": "$message",
+				"property": "text"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$message",
+				"property": "text",
+				"value": "\"Not clicked yet\""
+			}
+		},
+		{
+			"id": "label-name",
+			"text": "Rename **$message** to `Message`: double-click it in the Scene dock (or press **F2**) and type the new name.",
+			"why": "Clear names make nodes easy to find from code. The Signals tour will look for a label called Message.",
+			"target": {
+				"node_path": "$message"
+			},
+			"done_when": {
+				"type": "node_renamed",
+				"node_path": "$message",
+				"name": "Message"
+			}
+		},
+		{
+			"id": "label-move",
+			"text": "Move **$message** just below the button.",
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$message",
+				"property": "position"
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$message",
+					"property_name": "position",
+					"value": "Vector2(100, 160)"
+				}
+			]
+		},
+		{
+			"id": "run",
+			"text": "Press **F6** to play and click the button. It lights up, but nothing else happens yet. The **Signals** tour makes it do something.",
+			"why": "A button only announces that it was pressed. Something else has to listen and react, and that's what signals are for.",
+			"target": {
+				"root": "editor",
+				"tooltip": "Play the currently edited scene"
+			},
+			"done_when": {
+				"type": "game_running"
+			}
+		}
+	]
+}

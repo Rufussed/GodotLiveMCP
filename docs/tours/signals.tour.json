@@ -1,0 +1,91 @@
+{
+	"format": "godot-live-tour/1",
+	"title": "Signals: make the button work",
+	"vars": {
+		"root": ".",
+		"button": {
+			"class": "Button",
+			"hint": "play “A button and a label” first"
+		},
+		"message": {
+			"class": "Label",
+			"name": "Message",
+			"hint": "play “A button and a label” first"
+		}
+	},
+	"steps": [
+		{
+			"id": "select-root",
+			"text": "Select **$root**, the top node of your scene.",
+			"target": {
+				"node_path": "$root"
+			},
+			"done_when": {
+				"type": "node_selected",
+				"node_path": "$root"
+			}
+		},
+		{
+			"id": "root-script",
+			"text": "Click **Attach Script**, keep the defaults, and press **Create**. The script editor opens; come back to the **2D** view afterwards.",
+			"why": "The code that reacts to the click will live in this script on **$root**.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Attach a new or existing script to the selected node"
+			},
+			"done_when": {
+				"type": "script_attached",
+				"node_path": "$root"
+			}
+		},
+		{
+			"id": "select-button",
+			"text": "Select **$button**.",
+			"target": {
+				"node_path": "$button"
+			},
+			"done_when": {
+				"type": "node_selected",
+				"node_path": "$button"
+			}
+		},
+		{
+			"id": "signals-tab",
+			"text": "Next to the **Inspector** tab, open the **Signals** tab, then press **Next**.",
+			"why": "The Signals tab lists everything the selected node can announce, such as a Button's `pressed()`.",
+			"done_when": {
+				"type": "manual"
+			}
+		},
+		{
+			"id": "connect",
+			"text": "Double-click **pressed()**, pick **$root** as the receiver, and press **Connect**.",
+			"why": "Connecting says: when $button is pressed, call a function on $root. Godot writes that function into the script for you.",
+			"done_when": {
+				"type": "signal_connected",
+				"source": "$button",
+				"signal": "pressed",
+				"target": "$root"
+			}
+		},
+		{
+			"id": "write-code",
+			"text": "In the new function, replace `pass` with `$$message.text = \"Clicked!\"`, then press **Next**.",
+			"why": "`$$message` finds the label by name, and setting its `text` changes what it shows.",
+			"done_when": {
+				"type": "manual"
+			}
+		},
+		{
+			"id": "run",
+			"text": "Press **F6** to play, then click the button. The label should change to **Clicked!**",
+			"target": {
+				"root": "editor",
+				"tooltip": "Play the currently edited scene"
+			},
+			"done_when": {
+				"type": "game_running"
+			}
+		}
+	]
+}

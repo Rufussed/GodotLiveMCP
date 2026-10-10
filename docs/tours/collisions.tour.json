@@ -1,0 +1,180 @@
+{
+	"format": "godot-live-tour/1",
+	"title": "Collisions: a crate lands on a floor",
+	"vars": {
+		"root": "."
+	},
+	"steps": [
+		{
+			"id": "select-root",
+			"text": "Select **$root**, the top node of your scene.",
+			"why": "New nodes are added under whatever node is selected.",
+			"target": {
+				"node_path": "$root"
+			},
+			"done_when": {
+				"type": "node_selected",
+				"node_path": "$root"
+			}
+		},
+		{
+			"id": "add-floor",
+			"text": "Click **+**, search for `StaticBody2D`, and press **Create**. This will be the floor.",
+			"why": "A StaticBody2D never moves by itself, but other bodies bump into it — perfect for floors and walls.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "StaticBody2D",
+				"capture": "floor"
+			}
+		},
+		{
+			"id": "floor-shape",
+			"text": "With **$floor** selected, add a `CollisionShape2D` as its child.",
+			"why": "A body has no size of its own. Its collision shape says what part of space it fills.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$floor",
+				"class": "CollisionShape2D",
+				"capture": "floor_shape"
+			}
+		},
+		{
+			"id": "floor-rect",
+			"text": "In the Inspector, click **<empty>** next to **Shape** and choose **New RectangleShape2D**.",
+			"why": "A rectangle is the simplest shape, and a good fit for a flat floor.",
+			"target": {
+				"node_path": "$floor_shape",
+				"property": "shape"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$floor_shape",
+				"property": "shape",
+				"class": "RectangleShape2D"
+			}
+		},
+		{
+			"id": "floor-size",
+			"text": "Click the new **RectangleShape2D** to open it, and make **Size** wide — for example x `600`, y `40`.",
+			"why": "The shape is still tiny. Making it wide gives the crate something to land on.",
+			"target": {
+				"node_path": "$floor_shape",
+				"property": "shape"
+			},
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$floor_shape",
+				"property": "shape:size"
+			}
+		},
+		{
+			"id": "floor-move",
+			"text": "Move **$floor** down the screen: select it and drag it in the 2D view, or set its **Position** (under Transform).",
+			"why": "Things fall downwards in Godot, so the floor needs to be below where the crate starts.",
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$floor",
+				"property": "position"
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$floor",
+					"property_name": "position",
+					"value": "Vector2(400, 450)"
+				}
+			]
+		},
+		{
+			"id": "add-crate",
+			"text": "Select **$root** again, then add a `RigidBody2D`. This will be the crate.",
+			"why": "A RigidBody2D is moved by physics: gravity pulls it down and it bounces off what it hits.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "RigidBody2D",
+				"capture": "crate"
+			}
+		},
+		{
+			"id": "crate-shape",
+			"text": "With **$crate** selected, add a `CollisionShape2D` as its child.",
+			"why": "Just like the floor, the crate needs a shape before it can collide with anything.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$crate",
+				"class": "CollisionShape2D",
+				"capture": "crate_shape"
+			}
+		},
+		{
+			"id": "crate-rect",
+			"text": "Give it a **New RectangleShape2D** in the Inspector, the same way as before.",
+			"target": {
+				"node_path": "$crate_shape",
+				"property": "shape"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$crate_shape",
+				"property": "shape",
+				"class": "RectangleShape2D"
+			}
+		},
+		{
+			"id": "crate-move",
+			"text": "Move **$crate** above the floor.",
+			"why": "It needs some room to fall.",
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$crate",
+				"property": "position"
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$crate",
+					"property_name": "position",
+					"value": "Vector2(400, 100)"
+				}
+			]
+		},
+		{
+			"id": "see-shapes",
+			"text": "Open the **Debug** menu in the top menu bar and tick **Visible Collision Shapes**, then press **Next**.",
+			"why": "Collision shapes are invisible in a running game. This setting draws them, so you can watch them work.",
+			"done_when": {
+				"type": "manual"
+			}
+		},
+		{
+			"id": "run",
+			"text": "Press **F6** (Play the currently edited scene) and watch the crate fall and land on the floor. Close the game window when you're done.",
+			"why": "F6 runs just this scene. Godot saves your work first.",
+			"target": {
+				"root": "editor",
+				"tooltip": "Play the currently edited scene"
+			},
+			"done_when": {
+				"type": "game_running"
+			}
+		}
+	]
+}
