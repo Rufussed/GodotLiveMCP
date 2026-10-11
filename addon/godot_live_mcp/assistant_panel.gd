@@ -77,6 +77,8 @@ var _term_agent := ""
 var _term_signature_started := ""   # the settings the running CLI was launched with
 var _installed: Dictionary = {}    # cli id -> found on PATH (see _detect_clis)
 var _new_session_button: Button
+const ConnectClients = preload("res://addons/godot_live_mcp/connect_clients.gd")
+var _endpoint: Node
 var _settings_button: Button
 var _settings_popup: PopupPanel
 var _sync_check: CheckBox
@@ -624,21 +626,9 @@ func _spec_claude() -> Dictionary:
 ## -c config overrides (values are TOML; JSON-quoted strings are valid TOML).
 func _spec_codex() -> Dictionary:
 	var args := _model_args("codex") + ["-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
-	var entry := _resolve_server_entry()
-	var token := _read_bridge_token()
-	if not entry.is_empty() and not token.is_empty():
-		args += [
-			"-c", 'mcp_servers.godot-live-mcp.command="node"',
-			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
-			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
-			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOOL_DATA=%s" % JSON.stringify(_server_env(token).GODOT_LIVE_MCP_TOOL_DATA),
-		]
-	else:
-		_append_transcript("[color=yellow]Couldn't find this project's server/token — Codex will use its own godot-live-mcp registration, if any.[/color]")
-	# Godot control is always granted in this panel (like Claude's
-	# mcp__godot-live-mcp__*); without this Codex asks per MCP tool call.
-	args += ["-c", 'mcp_servers.godot-live-mcp.default_tools_approval_mode="approve"']
-	return {"cli": "codex", "args": args, "env": {}}
+	var conn := _server_connection()
+	args += _codex_server_args(conn)
+	return {"cli": "codex", "args": args, "env": _codex_server_env(conn)}
 
 ## OpenCode reads AGENTS.md too, and takes its config as inline JSON in
 ## OPENCODE_CONFIG_CONTENT (merged over its own; confirmed live): this
@@ -649,13 +639,16 @@ func _spec_codex() -> Dictionary:
 ## own godot-live-mcp registration, if any).
 func _opencode_config(with_permissions: bool) -> String:
 	var cfg := {}
-	var entry := _resolve_server_entry()
-	var token := _read_bridge_token()
-	if entry.is_empty() or token.is_empty():
-		_append_transcript("[color=yellow]Couldn't find this project's server/token — OpenCode will use its own godot-live-mcp registration, if any.[/color]")
-	else:
-		cfg["mcp"] = {"godot-live-mcp": {
-			"type": "local", "command": ["node", entry], "environment": _server_env(token), "enabled": true}}
+	var conn := _server_connection()
+	match conn.mode:
+		"http":
+			cfg["mcp"] = {"godot-live-mcp": {
+				"type": "remote", "url": conn.url, "headers": {"Authorization": "Bearer " + conn.token}, "enabled": true}}
+		"node":
+			cfg["mcp"] = {"godot-live-mcp": {
+				"type": "local", "command": ["node", conn.entry], "environment": _server_env(conn.token), "enabled": true}}
+		_:
+			_append_transcript("[color=yellow]Couldn't find this project's server/token — OpenCode will use its own godot-live-mcp registration, if any.[/color]")
 	var instructions_path := ProjectSettings.globalize_path("user://godot_live_mcp_opencode_instructions.md")
 	var f := FileAccess.open(instructions_path, FileAccess.WRITE)
 	if f:
@@ -683,9 +676,8 @@ func _spec_opencode() -> Dictionary:
 ## disables project MCP servers in untrusted folders. Model and permission
 ## settings from this panel aren't mapped for it.
 func _spec_gemini() -> Dictionary:
-	var entry := _resolve_server_entry()
-	var token := _read_bridge_token()
-	if not entry.is_empty() and not token.is_empty():
+	var conn := _server_connection()
+	if conn.mode != "none":
 		var path := ProjectSettings.globalize_path("res://.gemini/settings.json")
 		var cfg = JSON.parse_string(FileAccess.get_file_as_string(path)) if FileAccess.file_exists(path) else {}
 		if not (cfg is Dictionary):
@@ -693,8 +685,12 @@ func _spec_gemini() -> Dictionary:
 		else:
 			if not (cfg.get("mcpServers") is Dictionary):
 				cfg["mcpServers"] = {}
-			cfg["mcpServers"]["godot-live-mcp"] = {
-				"command": "node", "args": [entry], "env": _server_env(token), "trust": true}
+			if conn.mode == "http":
+				cfg["mcpServers"]["godot-live-mcp"] = {
+					"httpUrl": conn.url, "headers": {"Authorization": "Bearer " + conn.token}, "trust": true}
+			else:
+				cfg["mcpServers"]["godot-live-mcp"] = {
+					"command": "node", "args": [conn.entry], "env": _server_env(conn.token), "trust": true}
 			DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 			var f := FileAccess.open(path, FileAccess.WRITE)
 			if f:
@@ -845,20 +841,85 @@ func _tool_data_enabled() -> bool:
 func _server_env(token: String) -> Dictionary:
 	return {"GODOT_LIVE_MCP_TOKEN": token, "GODOT_LIVE_MCP_TOOL_DATA": "on" if _tool_data_enabled() else "off"}
 
-func _mcp_config_args(report: Callable) -> Array:
-	var entry := _resolve_server_entry()
-	if entry.is_empty():
-		report.call("Couldn't find the GodotLiveMCP server (expected addons/godot_live_mcp to link to the cloned repo — run `npm run link-project -- <this project>` in the repo's server/ folder). Falling back to any manually registered godot-live-mcp server.")
-		return []
+## Which MCP server a launched agent is handed, as {mode, url, entry, token}.
+## "http": the editor's own endpoint (no Node needed) — the default.
+## "node": the Node server, when usage-data logging is on (that log lives only
+## in Node) or when the endpoint isn't serving. "none": nothing usable found.
+func _server_connection() -> Dictionary:
 	var token := _read_bridge_token()
 	if token.is_empty():
-		report.call("No bridge token found yet — is the GodotLive MCP Bridge plugin enabled? Falling back to any manually registered godot-live-mcp server.")
-		return []
-	var config := {"mcpServers": {"godot-live-mcp": {
-		"command": "node",
-		"args": [entry],
-		"env": _server_env(token),
-	}}}
+		return {"mode": "none"}
+	var url := _endpoint_url()
+	var entry := _resolve_server_entry()
+	if url != "" and (not _tool_data_enabled() or entry.is_empty()):
+		return {"mode": "http", "url": url, "token": token}
+	if entry != "":
+		return {"mode": "node", "entry": entry, "token": token}
+	return {"mode": "none"}
+
+func _endpoint_url() -> String:
+	return _endpoint.get_url() if _endpoint != null and is_instance_valid(_endpoint) else ""
+
+func set_endpoint(endpoint: Node) -> void:
+	_endpoint = endpoint
+	# The endpoint settles on its port after the panel is built; register again then.
+	if endpoint != null and not endpoint.availability_changed.is_connected(_ensure_local_registration):
+		endpoint.availability_changed.connect(_ensure_local_registration)
+
+## The name Codex knows the server by. Normally "godot-live-mcp", but a Codex
+## config that already registers a stdio server of that name (the Node setup from
+## the README) can't be turned into an HTTP one by overrides: Codex merges the
+## two and rejects a `url` on a stdio entry. Then the HTTP server gets its own name.
+func _codex_server_name(conn: Dictionary) -> String:
+	if conn.mode != "http":
+		return "godot-live-mcp"
+	var codex_home := OS.get_environment("CODEX_HOME")
+	var config_path := (codex_home if codex_home != "" else OS.get_environment("HOME").path_join(".codex")).path_join("config.toml")
+	if FileAccess.file_exists(config_path) and FileAccess.get_file_as_string(config_path).contains("[mcp_servers.godot-live-mcp"):
+		return "godot-live-mcp-editor"
+	return "godot-live-mcp"
+
+## `-c` overrides that register the server with Codex and grant its tools
+## (Godot control is always granted in this panel, like Claude's
+## mcp__godot-live-mcp__*; without it Codex asks per MCP tool call). The token
+## travels in the environment (_codex_server_env), not on the command line.
+func _codex_server_args(conn: Dictionary) -> Array:
+	var name := _codex_server_name(conn)
+	var args: Array = []
+	match conn.mode:
+		"http":
+			args = ["-c", "mcp_servers.%s.url=%s" % [name, JSON.stringify(conn.url)],
+				"-c", 'mcp_servers.%s.bearer_token_env_var="GODOT_LIVE_MCP_TOKEN"' % name]
+		"node":
+			args = [
+				"-c", 'mcp_servers.godot-live-mcp.command="node"',
+				"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(conn.entry),
+				"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(conn.token),
+				"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOOL_DATA=%s" % JSON.stringify(_server_env(conn.token).GODOT_LIVE_MCP_TOOL_DATA),
+			]
+		_:
+			_append_transcript("[color=yellow]Couldn't find this project's server/token — Codex will use its own godot-live-mcp registration, if any.[/color]")
+	return args + ["-c", 'mcp_servers.%s.default_tools_approval_mode="approve"' % name]
+
+func _codex_server_env(conn: Dictionary) -> Dictionary:
+	return {"GODOT_LIVE_MCP_TOKEN": conn.token} if conn.mode == "http" else {}
+
+func _mcp_config_args(report: Callable) -> Array:
+	var conn := _server_connection()
+	var config: Dictionary
+	match conn.mode:
+		"http":
+			config = {"mcpServers": {"godot-live-mcp": {
+				"type": "http", "url": conn.url, "headers": {"Authorization": "Bearer " + conn.token}}}}
+		"node":
+			config = {"mcpServers": {"godot-live-mcp": {
+				"command": "node", "args": [conn.entry], "env": _server_env(conn.token)}}}
+		_:
+			if _read_bridge_token().is_empty():
+				report.call("No bridge token found yet — is the GodotLive MCP Bridge plugin enabled? Falling back to any manually registered godot-live-mcp server.")
+			else:
+				report.call("Couldn't reach the editor's MCP endpoint or find the GodotLiveMCP server (expected addons/godot_live_mcp to link to the cloned repo — run `npm run link-project -- <this project>` in the repo's server/ folder). Falling back to any manually registered godot-live-mcp server.")
+			return []
 	return ["--mcp-config", JSON.stringify(config)]
 
 ## Registers this project's server + token with Claude Code at local scope
@@ -873,20 +934,25 @@ func _mcp_config_args(report: Callable) -> Array:
 func _ensure_local_registration() -> void:
 	if OS.get_name() == "Windows" or not _has_command("claude"):
 		return
-	var entry := _resolve_server_entry()
-	var token := _read_bridge_token()
-	if entry.is_empty() or token.is_empty():
+	var conn := _server_connection()
+	if conn.mode == "none":
 		return
-	var signature := "%s|%s|%s" % [entry, token, _tool_data_enabled()]
+	var signature := "%s|%s|%s|%s|%s" % [conn.mode, conn.get("url", conn.get("entry", "")), conn.token, _tool_data_enabled(), "v2"]
 	var editor_settings := EditorInterface.get_editor_settings()
 	if editor_settings.get_project_metadata("godot_live_mcp", "local_registration", "") == signature:
 		return
 
-	var add_cmd := "claude mcp add -s local godot-live-mcp -e %s -e %s -- node %s" % [
-		_shell_quote("GODOT_LIVE_MCP_TOKEN=" + token),
-		_shell_quote("GODOT_LIVE_MCP_TOOL_DATA=" + _server_env(token).GODOT_LIVE_MCP_TOOL_DATA),
-		_shell_quote(entry)
-	]
+	var add_cmd: String
+	if conn.mode == "http":
+		add_cmd = "claude"
+		for arg in ConnectClients.new().claude_add_args(conn.url, conn.token):
+			add_cmd += " " + _shell_quote(arg)
+	else:
+		add_cmd = "claude mcp add -s local godot-live-mcp -e %s -e %s -- node %s" % [
+			_shell_quote("GODOT_LIVE_MCP_TOKEN=" + conn.token),
+			_shell_quote("GODOT_LIVE_MCP_TOOL_DATA=" + _server_env(conn.token).GODOT_LIVE_MCP_TOOL_DATA),
+			_shell_quote(conn.entry)
+		]
 	var shell_cmd := "cd %s && { claude mcp remove -s local godot-live-mcp >/dev/null 2>&1; %s; }" % [
 		_shell_quote(ProjectSettings.globalize_path("res://")), add_cmd
 	]
@@ -2252,20 +2318,16 @@ func _start_codex_turn(text: String) -> bool:
 		"-c", "sandbox_workspace_write.network_access=%s" % ("true" if _web_toggle.button_pressed else "false"),
 		"-c", 'approval_policy="never"',
 		"-c", "developer_instructions=" + JSON.stringify(_behavior_text())]
-	var entry := _resolve_server_entry()
-	var token := _read_bridge_token()
-	if not entry.is_empty() and not token.is_empty():
-		args += [
-			"-c", 'mcp_servers.godot-live-mcp.command="node"',
-			"-c", "mcp_servers.godot-live-mcp.args=[%s]" % JSON.stringify(entry),
-			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOKEN=%s" % JSON.stringify(token),
-			"-c", "mcp_servers.godot-live-mcp.env.GODOT_LIVE_MCP_TOOL_DATA=%s" % JSON.stringify(_server_env(token).GODOT_LIVE_MCP_TOOL_DATA),
-		]
-	# Godot control is always granted in this panel (like Claude's
-	# mcp__godot-live-mcp__*); without this Codex asks per MCP tool call.
-	args += ["-c", 'mcp_servers.godot-live-mcp.default_tools_approval_mode="approve"']
+	var conn := _server_connection()
+	args += _codex_server_args(conn)
 	args.append(text)
 	var cmd := "exec codex"
+	var codex_env := _codex_server_env(conn)
+	if not codex_env.is_empty():
+		cmd = "exec env"
+		for k in codex_env:
+			cmd += " " + _shell_quote("%s=%s" % [k, codex_env[k]])
+		cmd += " codex"
 	for a in args:
 		cmd += " " + _shell_quote(a)
 	var shell_cmd := "cd %s && %s < /dev/null" % [_shell_quote(ProjectSettings.globalize_path("res://")), cmd]

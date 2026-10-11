@@ -8,6 +8,9 @@ extends Node
 ## GODOT_LIVE_MCP_HTTP_PORT, GODOT_LIVE_MCP_PROFILE (lite|full),
 ## GODOT_LIVE_MCP_HTTP=off.
 
+## The endpoint settled (or stopped): the URL from get_url() is now valid (or empty).
+signal availability_changed
+
 const Server = preload("res://addons/godot_live_mcp/mcp_http_server.gd")
 const Core = preload("res://addons/godot_live_mcp/mcp_core.gd")
 
@@ -48,6 +51,7 @@ func start(bridge: Node) -> void:
 		_server = null
 		_port = wanted
 		print("GodotLiveMCP: MCP endpoint already served by another editor on http://127.0.0.1:%d/mcp" % wanted)
+		availability_changed.emit()
 		return
 	var err: int = _server.start(port, _token, Callable(_core, "handle"), _plugin_version())
 	if err != OK:
@@ -61,6 +65,7 @@ func start(bridge: Node) -> void:
 		cfg.save(CONFIG_PATH)
 	print("GodotLiveMCP: MCP endpoint on http://127.0.0.1:%d/mcp (%s tool group)" % [port, _core.get_profile()])
 	set_process(true)
+	availability_changed.emit()
 
 
 func stop() -> void:
@@ -72,6 +77,14 @@ func stop() -> void:
 
 func get_port() -> int:
 	return _port
+
+
+## The endpoint's address while it is up (served here, or by another editor on
+## this project); "" otherwise.
+func get_url() -> String:
+	if _port > 0 and (is_serving() or _attached):
+		return "http://127.0.0.1:%d/mcp" % _port
+	return ""
 
 
 func is_serving() -> bool:
