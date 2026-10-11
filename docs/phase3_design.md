@@ -138,6 +138,20 @@ re-shows the card, not a second copy of the controls (the popup is tall
 enough); **Regenerate token is not built** (it needs the bridge, the endpoint
 and every written config to change together; worth its own step if wanted).
 
+**Clean-machine test (step 4, 2026-10-11): passed on Linux.** A brand-new project
+with the addon *copied* in (not linked) and the plugin enabled in
+`project.godot`, an editor with a fake `HOME`/XDG folders, no
+`GODOT_LIVE_MCP_*` variables, and a `PATH` with no `node`. Pressing **Claude
+Code** on the card and confirming registered the server; a real
+`claude -p` turn (also without Node on its `PATH`) then added a Label named
+Hello under the scene root and set its text, which the bridge confirmed. Pressing
+**Codex** and confirming wrote `~/.codex/config.toml`; a real `codex exec` turn
+changed that Label's text. The card showed
+"✓ codex-mcp-client 0.162.1 connected". The CLIs reused the real logins by
+linking their credential files into the fake `HOME`. Not covered: Windows,
+macOS, Godot versions before 4.7, Cursor and VS Code themselves (their files
+are checked through `cursor-agent`, and the VS Code format is assumed).
+
 ## 4. Code layout
 
 - `connect_clients.gd` (new, no UI): the table above as data, `build_entry()`,

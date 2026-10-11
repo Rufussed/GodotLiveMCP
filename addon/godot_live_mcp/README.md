@@ -6,6 +6,15 @@ live eval, scene tree inspection, node/property editing.
 
 ## Install
 
+**No Node needed.** Copy this `godot_live_mcp/` folder into your project as
+`addons/godot_live_mcp/`, enable the plugin (Project > Project Settings >
+Plugins), and press your AI app's button on the **Connect your AI app** card in
+the AI Assistant tab. The addon then serves MCP itself, over HTTP on
+`127.0.0.1`. The main [README](../../README.md#quick-start-three-steps-no-node)
+has the details: what each button writes, tool groups, security, and what still
+needs the Node server. The sections below describe the launcher and the Node
+server path.
+
 ### Easiest: the launcher app (recommended)
 
 Prerequisites: [Node.js](https://nodejs.org) 18+ (it runs the MCP server) and at
@@ -79,6 +88,9 @@ Both are optional; defaults shown.
 | `GODOT_LIVE_MCP_PORT` | `9080` | TCP port the editor bridge listens on |
 | `GODOT_LIVE_MCP_TOKEN` | (generated) | Overrides the auto-generated token (shared by both bridges) |
 | `GODOT_LIVE_MCP_RUNTIME_PORT` | `9090` | TCP port the runtime (game) bridge listens on |
+| `GODOT_LIVE_MCP_HTTP` | on | `off` stops the in-editor MCP server |
+| `GODOT_LIVE_MCP_HTTP_PORT` | (saved, picked per project) | Port of the in-editor MCP server |
+| `GODOT_LIVE_MCP_PROFILE` | (saved) | `lite` or `full`: which tools the in-editor server offers |
 
 The bridge only ever binds to `127.0.0.1` — it is not reachable from other
 machines, and every request must include the token.

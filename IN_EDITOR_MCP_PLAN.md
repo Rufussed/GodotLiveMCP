@@ -235,6 +235,15 @@ and token instead of the `node` entry.
 *Done when:* on a clean machine with no Node, someone installs the addon,
 presses Connect, and an agent controls the editor.
 
+*Status (2026-10-11):* built and tested on Linux. The panel's agents use the
+HTTP endpoint (Node only when usage logging is on); `connect_clients.gd` writes
+VS Code, Cursor, Codex, Gemini and opencode config files and registers Claude
+Code (confirmed against the real CLIs); the card, confirm dialogs, live
+"connected" line and Lite / Full switch are in the panel; the README has the
+three-step no-Node quick start. The clean-machine test passed with Claude Code
+and Codex (see `docs/phase3_design.md`). Not built: Regenerate token. Not
+tested: Windows, macOS.
+
 **4. Other systems (HTTP mode).** Windows and macOS runs of phases 1–3, and a
 check on the Godot versions we support (4.4+).
 *Done when:* the phase 3 clean-machine test passes on Windows and macOS.
