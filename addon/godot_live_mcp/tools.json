@@ -1,0 +1,3331 @@
+{
+  "tools": [
+    {
+      "name": "launch_editor",
+      "description": "Launch Godot editor for a specific project",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          }
+        },
+        "required": [
+          "projectPath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "run_project",
+      "description": "Run the Godot project and capture output",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "scene": {
+            "type": "string",
+            "description": "Optional: Specific scene to run"
+          }
+        },
+        "required": [
+          "projectPath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_debug_output",
+      "description": "Get the current debug output and errors",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "stop_project",
+      "description": "Stop the currently running Godot project",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_godot_version",
+      "description": "Get the installed Godot version",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List Godot projects in a directory",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "Directory to search for Godot projects"
+          },
+          "recursive": {
+            "type": "boolean",
+            "description": "Whether to search recursively (default: false)"
+          }
+        },
+        "required": [
+          "directory"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_project_info",
+      "description": "Retrieve metadata about a Godot project",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          }
+        },
+        "required": [
+          "projectPath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "create_scene",
+      "description": "Create a new Godot scene file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "scenePath": {
+            "type": "string",
+            "description": "Path where the scene file will be saved (relative to project)"
+          },
+          "rootNodeType": {
+            "type": "string",
+            "description": "Type of the root node (e.g., Node2D, Node3D)"
+          }
+        },
+        "required": [
+          "projectPath",
+          "scenePath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_node",
+      "description": "Add a node to an existing scene",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "scenePath": {
+            "type": "string",
+            "description": "Path to the scene file (relative to project)"
+          },
+          "parentNodePath": {
+            "type": "string",
+            "description": "Path to the parent node (e.g., \"root\" or \"root/Player\")"
+          },
+          "nodeType": {
+            "type": "string",
+            "description": "Type of node to add (e.g., Sprite2D, CollisionShape2D)"
+          },
+          "nodeName": {
+            "type": "string",
+            "description": "Name for the new node"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Optional properties to set on the node"
+          }
+        },
+        "required": [
+          "projectPath",
+          "scenePath",
+          "nodeType",
+          "nodeName"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "load_sprite",
+      "description": "Load a sprite into a Sprite2D node",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "scenePath": {
+            "type": "string",
+            "description": "Path to the scene file (relative to project)"
+          },
+          "nodePath": {
+            "type": "string",
+            "description": "Path to the Sprite2D node (e.g., \"root/Player/Sprite2D\")"
+          },
+          "texturePath": {
+            "type": "string",
+            "description": "Path to the texture file (relative to project)"
+          }
+        },
+        "required": [
+          "projectPath",
+          "scenePath",
+          "nodePath",
+          "texturePath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "export_mesh_library",
+      "description": "Export a scene as a MeshLibrary resource",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "scenePath": {
+            "type": "string",
+            "description": "Path to the scene file (.tscn) to export"
+          },
+          "outputPath": {
+            "type": "string",
+            "description": "Path where the mesh library (.res) will be saved"
+          },
+          "meshItemNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional: Names of specific mesh items to include (defaults to all)"
+          }
+        },
+        "required": [
+          "projectPath",
+          "scenePath",
+          "outputPath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "save_scene",
+      "description": "Resave a scene FILE via a separate headless Godot process, entirely independent of any running editor: it load()s the .tscn fresh from disk, instantiates it, and re-packs THAT — it never sees the live editor's in-memory scene state. If a bridge tool (add_node_live, set_property, set_transform, ...) has changed the live scene since the last save, those changes are NOT on disk yet and this tool will silently discard them while still reporting success. Confirmed live (2026-09-22): a real session hit exactly this. Use save_scene_live instead whenever an editor is open for this project — this file-based tool is only correct for scenes whose only edits came through file-based tools (create_scene, add_node) with no live editor session involved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "scenePath": {
+            "type": "string",
+            "description": "Path to the scene file (relative to project)"
+          },
+          "newPath": {
+            "type": "string",
+            "description": "Optional: New path to save the scene to (for creating variants)"
+          }
+        },
+        "required": [
+          "projectPath",
+          "scenePath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_uid",
+      "description": "Get the UID for a specific file in a Godot project (for Godot 4.4+)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Path to the file (relative to project) for which to get the UID"
+          }
+        },
+        "required": [
+          "projectPath",
+          "filePath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "update_project_uids",
+      "description": "Update UID references in a Godot project by resaving resources (for Godot 4.4+)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Path to the Godot project directory"
+          }
+        },
+        "required": [
+          "projectPath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "eval_expression",
+      "description": "Evaluate an arbitrary GDScript expression against a node in the live scene tree, running in the Godot editor, and return the result. Use this for anything the structured tools don't cover. The expression runs with the target node as `self`, and also has direct access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader (e.g. ResourceLoader.load(\"res://...\") — plain load() is not available), ResourceSaver, and (in-editor) EditorInterface, e.g. \"AudioServer.set_bus_volume_db(AudioServer.get_bus_index(\\\"Music\\\"), -6.0)\". Also has KEY_* constants (e.g. \"Input.is_key_pressed(KEY_A)\") — these are ordinary GDScript globals elsewhere, but Expression doesn't resolve them unless explicitly bound like this. Note: Expression syntax cannot parse assignment statements or loops — for those, use a structured tool. \"Invalid named index 'x' for base type Object\" means `.x` was read from a null (a find_child/get_node that found nothing, or an unset property), or x isn't in scope. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "expression": {
+            "type": "string",
+            "description": "GDScript expression to evaluate, e.g. \"position.x\" or \"$Sprite2D.modulate\""
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "run_script",
+      "description": "Run multi-statement GDScript source against a node in the live scene tree, running in the Godot editor. Use this instead of eval_expression whenever the logic needs a `var` declaration, a loop, or more than one statement — Expression (what eval_expression uses) can only parse a single expression. `source` becomes the body of a compiled `func _run(node):`, so it can reference the target node as `node` (not `self`) and MUST end with its own `return` statement — unlike eval_expression, there is no implicit return of a trailing expression. Also has access to ProjectSettings, ClassDB, Engine, Input, OS, Time, Performance, AudioServer, ResourceLoader (e.g. ResourceLoader.load(\"res://...\") — plain load() is not available), ResourceSaver, and (in-editor) EditorInterface as bare identifiers. Note: a runtime error partway through the script (as opposed to a compile error) is not caught — you get back null; check get_debug_output for what actually went wrong. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "source": {
+            "type": "string",
+            "description": "GDScript statements forming a function body, e.g. \"var root = EditorInterface.get_edited_scene_root()\\nvar total = 0\\nfor c in root.get_children():\\n\\ttotal += 1\\nreturn total\""
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "list_scene_tree",
+      "description": "List the live scene tree (name, type, path, children) starting at a node.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "get_node_properties",
+      "description": "Get the editor-visible properties of one or more live nodes and their current values. For a Node2D/Node3D, position/rotation/scale here are LOCAL (relative to the parent) — global_position/global_rotation/global_transform (world-space, what matters most under nested parents) are also included even though Godot doesn't flag them editor-visible, since they're real settable properties too. To inspect several nodes (e.g. every control in a panel), pass node_paths in ONE call rather than one call per node, and pass properties to get just the values you need instead of every property of every node. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "node_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Several nodes to read at once; returns {nodes: {path: {...}}, not_found?: [...]}. Replaces node_path."
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these property names (e.g. [\"size\", \"custom_minimum_size\"]). A node that lacks one just omits it."
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "open_scene",
+      "description": "Open a scene in the editor, or switch to its tab if it's already open, making it the scene every other tool edits. Use it when a node path that just worked reports \"node not found\" because the edited scene changed (the error names the scene being edited), or to work on a different scene. Returns the root and the list of open scenes. Prefer this over EditorInterface.open_scene_from_path() in eval_expression.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "res:// path of the scene, e.g. \"res://scenes/level01.tscn\""
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "set_property",
+      "description": "Set an arbitrary property on a live node. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "property_name": {
+            "type": "string",
+            "description": "Name of the property to set"
+          },
+          "value": {
+            "type": "string",
+            "description": "New value, var_to_str()-encoded"
+          }
+        },
+        "required": [
+          "property_name",
+          "value"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "set_properties",
+      "description": "Set multiple properties on a live node in one call. Prefer this over repeated set_property calls whenever configuring more than one property on the same node. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Map of property_name -> var_to_str()-encoded value"
+          }
+        },
+        "required": [
+          "properties"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "set_transform",
+      "description": "Set position/rotation/scale on a live Node2D or Node3D. Any subset of the three may be given. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "position": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2/Vector3, e.g. \"Vector2(10, 20)\""
+          },
+          "rotation": {
+            "type": "string",
+            "description": "var_to_str()-encoded radians: a float for a Node2D (e.g. \"1.57\"), or a Vector3 for a Node3D (e.g. \"Vector3(0, 1.57, 0)\")"
+          },
+          "scale": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2/Vector3, e.g. \"Vector2(2, 2)\""
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "attach_script",
+      "description": "Attach an existing script (by res:// path) to a live node.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "script_path": {
+            "type": "string",
+            "description": "res:// path to an existing .gd script"
+          }
+        },
+        "required": [
+          "script_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "remove_node",
+      "description": "Remove and free a live node (cannot remove the scene root).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "reparent_node",
+      "description": "Move a live node to a new parent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "new_parent_path": {
+            "type": "string",
+            "description": "Path to the new parent node"
+          }
+        },
+        "required": [
+          "node_path",
+          "new_parent_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "duplicate_node",
+      "description": "Duplicate a live node under the same parent and return the new node's path.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "add_node_live",
+      "description": "Instantiate a Godot class (e.g. \"Sprite2D\", \"RigidBody2D\") — or, with scene_path, an instance of a saved .tscn — and add it as a live child of parent_path. If a game is running from the editor, the new node also appears in it (like adding it in the Scene dock). Distinct from godot-mcp's file-based add_node, which edits a .tscn on disk rather than the live tree.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "parent_path": {
+            "type": "string",
+            "description": "Path to the parent node, relative to the scene root, or \".\" for the root"
+          },
+          "node_type": {
+            "type": "string",
+            "description": "Godot class name to instantiate, e.g. \"Sprite2D\" (not needed with scene_path)"
+          },
+          "scene_path": {
+            "type": "string",
+            "description": "res:// path of a .tscn to add an instance of, instead of node_type"
+          },
+          "node_name": {
+            "type": "string",
+            "description": "Optional name for the new node"
+          }
+        },
+        "required": [
+          "parent_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "rename_node",
+      "description": "Rename a live node.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New name for the node"
+          }
+        },
+        "required": [
+          "node_path",
+          "new_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "connect_signal",
+      "description": "Connect a live node's signal to a method on another live node.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "signal_name": {
+            "type": "string",
+            "description": "Name of the signal on node_path, e.g. \"pressed\""
+          },
+          "target_node_path": {
+            "type": "string",
+            "description": "Path to the node whose method should be called"
+          },
+          "method_name": {
+            "type": "string",
+            "description": "Name of the method on the target node"
+          }
+        },
+        "required": [
+          "node_path",
+          "signal_name",
+          "target_node_path",
+          "method_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "disconnect_signal",
+      "description": "Disconnect a previously connected live signal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "signal_name": {
+            "type": "string",
+            "description": "Name of the signal on node_path"
+          },
+          "target_node_path": {
+            "type": "string",
+            "description": "Path to the connected target node"
+          },
+          "method_name": {
+            "type": "string",
+            "description": "Name of the connected method"
+          }
+        },
+        "required": [
+          "node_path",
+          "signal_name",
+          "target_node_path",
+          "method_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_node_groups",
+      "description": "Get the groups a live node belongs to (internal editor groups are filtered out).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_node_groups",
+      "description": "Replace a live node's group membership with the given list.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Full list of groups the node should belong to"
+          }
+        },
+        "required": [
+          "groups"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_editor_selection",
+      "description": "Get the paths of nodes currently selected in the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "select_nodes",
+      "description": "Select the given live nodes in the editor (replaces the current selection).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths of nodes to select"
+          }
+        },
+        "required": [
+          "node_paths"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "clear_editor_selection",
+      "description": "Clear the editor's current node selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "validate_script",
+      "description": "Check a GDScript file for parse errors by reloading it as a GDScript resource. On failure, only an error code is returned — check the editor's Output panel for the actual message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "script_path": {
+            "type": "string",
+            "description": "res:// path to the script"
+          }
+        },
+        "required": [
+          "script_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "set_animation_track_path",
+      "description": "Point an existing animation track at a different node/property, e.g. \"LegLPivot:rotation\" (relative to the AnimationPlayer's root node), as one undoable edit. Use instead of track_set_path via run_script.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "AnimationPlayer path"
+          },
+          "anim_name": {
+            "type": "string"
+          },
+          "library_name": {
+            "type": "string",
+            "description": "Default \"\" (the default library)"
+          },
+          "track_index": {
+            "type": "integer"
+          },
+          "track_node_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_path",
+          "anim_name",
+          "track_index",
+          "track_node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_animation_keys",
+      "description": "Replace all keyframes of one animation track (and optionally the animation length) as ONE undoable edit. Use instead of eval_expression track_remove_key/track_insert_key calls, which can't be undone. Values use var_to_str() encoding, e.g. \"Quaternion(0, 0, 0, 1)\" or \"Vector3(1, 2, 3)\"; get_animation_info shows track indices and current keys.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "AnimationPlayer path"
+          },
+          "anim_name": {
+            "type": "string"
+          },
+          "library_name": {
+            "type": "string",
+            "description": "Default \"\" (the default library)"
+          },
+          "track_index": {
+            "type": "integer"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "time": {
+                  "type": "number"
+                },
+                "value": {},
+                "transition": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "time",
+                "value"
+              ]
+            }
+          },
+          "length": {
+            "type": "number",
+            "description": "Optional new animation length in seconds"
+          }
+        },
+        "required": [
+          "node_path",
+          "anim_name",
+          "track_index",
+          "keys"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_properties_multi",
+      "description": "Set different properties/values on many nodes as ONE undoable edit (one Ctrl+Z), live-synced to a running game. Everything is validated before anything changes. Use instead of run_script loops for edits like \"space these 100 nodes out\". Values use var_to_str() encoding (\"Vector3(1, 2, 3)\"), or \"load:res://...\" for files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "edits": {
+            "type": "array",
+            "description": "List of {node_path, properties: {name: value}}",
+            "items": {
+              "type": "object",
+              "properties": {
+                "node_path": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "node_path",
+                "properties"
+              ]
+            }
+          }
+        },
+        "required": [
+          "edits"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "save_resource_file",
+      "description": "Build an Image or Resource with a GDScript body (like run_script; must `return` it) and save it as a file: Image -> .png/.jpg/.webp, Resource (material, mesh, ...) -> .tres/.res. The file is registered with the editor. Then assign it with \"load:<path>\" (set_property / set_material_3d / ...) — unlike an in-memory resource, a file reaches a running game live. Use for generated textures etc.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "res:// path to save to"
+          },
+          "source": {
+            "type": "string",
+            "description": "GDScript body returning an Image or Resource"
+          }
+        },
+        "required": [
+          "path",
+          "source"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "save_scripts",
+      "description": "Save every open script that has unsaved edits (tabs marked (*)), like Ctrl+S on each, and check each file on disk. Returns what was saved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "edit_script_text",
+      "description": "Edit a GDScript (.gd) or shader (.gdshader) file the way a person would: opens it in Godot's script/shader editor and changes the text there as one undoable edit. Give either `text` (the whole new file) or `old_text` + `new_text` (replace one exact match in the current text, unsaved edits included — much cheaper for a small change; fails if old_text is missing or matches more than once). The tab is left unsaved — it reaches disk on Ctrl+S or when the scene is played — so there is no \"reload from disk?\" prompt. Use this instead of writing .gd/.gdshader files directly while the editor is open. A path that doesn't exist yet is created on disk (like the editor's New Script dialog); attach it with attach_script / set_shader_material.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "res:// path to the .gd or .gdshader file"
+          },
+          "text": {
+            "type": "string",
+            "description": "the complete new file contents (omit when using old_text/new_text)"
+          },
+          "old_text": {
+            "type": "string",
+            "description": "exact text to replace; must appear exactly once in the current file"
+          },
+          "new_text": {
+            "type": "string",
+            "description": "what to replace old_text with (may be empty to delete it)"
+          },
+          "save": {
+            "type": "boolean",
+            "description": "Also save the script/shader to disk (like Ctrl+S) and verify the file. Default false: the edit stays in the editor tab, marked (*). The result always says saved, editor_matches, disk_matches and, for GDScript, parse_error."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "get_script_text",
+      "description": "Read a script's or shader's current text, including unsaved edits in an open editor tab (the file on disk can be older than what the editor shows). \"source\" says which was read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "res:// path to the .gd or .gdshader file"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "setup_collision",
+      "description": "Add a CollisionShape2D/3D child (with a new shape resource) to a live CollisionObject2D/3D (Area2D, StaticBody2D, RigidBody3D, ...). One call instead of instantiate-shape + set-props + instantiate-collision-node + assign + add_child. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "shape_type": {
+            "type": "string",
+            "description": "Shape class to create, e.g. \"RectangleShape2D\", \"CircleShape2D\", \"BoxShape3D\", \"SphereShape3D\""
+          },
+          "shape_params": {
+            "type": "object",
+            "description": "Properties to set on the shape, var_to_str()-encoded, e.g. {\"size\": \"Vector2(32, 32)\"} or {\"radius\": \"16.0\"}"
+          }
+        },
+        "required": [
+          "node_path",
+          "shape_type"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_collision_info",
+      "description": "Read a live CollisionShape2D/3D's shape resource type and its own properties (radius, size, ...) - not reconstructable from get_node_properties, since var_to_str() doesn't round-trip in-memory resources.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_physics_layers",
+      "description": "Set a live CollisionObject2D/3D's collision_layer/collision_mask using human layer numbers (1-32) instead of raw bitmasks. Either or both of layers/mask may be given.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Layer numbers (1-32) this node occupies"
+          },
+          "mask": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Layer numbers (1-32) this node detects"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_physics_layers",
+      "description": "Get a live CollisionObject2D/3D's collision_layer/collision_mask as human layer numbers (1-32).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_mesh_instance",
+      "description": "Instantiate a primitive Mesh (e.g. \"BoxMesh\", \"SphereMesh\", \"CapsuleMesh\", \"PlaneMesh\") with the given properties, wrap it in a new MeshInstance3D, and add that as a live child. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "parent_path": {
+            "type": "string",
+            "description": "Path to the parent node, relative to the scene root, or \".\" for the root"
+          },
+          "mesh_type": {
+            "type": "string",
+            "description": "Mesh subclass to instantiate, e.g. \"BoxMesh\""
+          },
+          "mesh_params": {
+            "type": "object",
+            "description": "Properties to set on the mesh, var_to_str()-encoded, e.g. {\"size\": \"Vector3(1, 1, 1)\"}"
+          },
+          "node_name": {
+            "type": "string",
+            "description": "Optional name for the new MeshInstance3D"
+          }
+        },
+        "required": [
+          "parent_path",
+          "mesh_type"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "setup_environment",
+      "description": "Configure a live WorldEnvironment node's Environment resource (creating one if it has none). A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "environment_params": {
+            "type": "object",
+            "description": "Properties to set on the Environment resource, var_to_str()-encoded, e.g. {\"background_mode\": \"2\", \"ambient_light_color\": \"Color(0.2, 0.2, 0.3, 1)\"}"
+          }
+        },
+        "required": [
+          "node_path",
+          "environment_params"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_material_3d",
+      "description": "Configure a live GeometryInstance3D's (e.g. MeshInstance3D) material_override as a StandardMaterial3D, reusing one if already set. If a different material is already there (e.g. a ShaderMaterial), it refuses rather than replacing it, unless replace_existing is true. Pass surface_index to target one surface of a multi-surface MeshInstance3D (via set_surface_override_material) instead of the whole mesh. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "material_params": {
+            "type": "object",
+            "description": "Properties to set on the StandardMaterial3D, var_to_str()-encoded, e.g. {\"albedo_color\": \"Color(1, 0, 0, 1)\"}"
+          },
+          "surface_index": {
+            "type": "integer",
+            "description": "Optional: target this surface (MeshInstance3D only) instead of the whole mesh's material_override"
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "description": "Replace a non-StandardMaterial3D material (e.g. a ShaderMaterial) that is already there. Only when the user wants it replaced. Default false."
+          }
+        },
+        "required": [
+          "node_path",
+          "material_params"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_material_info",
+      "description": "Read a live GeometryInstance3D's material_override (or one surface's override, via surface_index) — the counterpart to set_material_3d. Prefer this over eval_expression for reading material properties: a chained call like \"get_surface_override_material(0).albedo_color\" fails, since Expression can't see past the method's generic Object return type to know the real property exists; reading material_override directly via eval_expression works but dumps all ~90 StandardMaterial3D properties at once. This returns only editor-visible properties, same as get_node_properties. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "surface_index": {
+            "type": "integer",
+            "description": "Optional: read this surface's override (MeshInstance3D only) instead of material_override"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "create_animation",
+      "description": "Create a new Animation on a live AnimationPlayer (in the given animation library, default \"\").",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "anim_name": {
+            "type": "string",
+            "description": "Name for the new animation"
+          },
+          "length": {
+            "type": "number",
+            "description": "Animation length in seconds (default 1.0)"
+          },
+          "library_name": {
+            "type": "string",
+            "description": "Animation library name (default \"\")"
+          }
+        },
+        "required": [
+          "node_path",
+          "anim_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_animation_track",
+      "description": "Add a track to an existing animation and return its track_index (needed for follow-up eval_expression calls like get_animation(name).track_insert_key(track_index, time, value)).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "anim_name": {
+            "type": "string",
+            "description": "Name of the existing animation"
+          },
+          "library_name": {
+            "type": "string",
+            "description": "Animation library name (default \"\")"
+          },
+          "track_type": {
+            "type": "string",
+            "enum": [
+              "value",
+              "position_3d",
+              "rotation_3d",
+              "scale_3d",
+              "blend_shape",
+              "method",
+              "bezier",
+              "audio",
+              "animation"
+            ],
+            "description": "Track type"
+          },
+          "track_node_path": {
+            "type": "string",
+            "description": "NodePath the track targets, e.g. \"Sprite2D:modulate\""
+          }
+        },
+        "required": [
+          "node_path",
+          "anim_name",
+          "track_type",
+          "track_node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_animation_info",
+      "description": "Get an animation's length and all tracks with every keyframe (time + value).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "anim_name": {
+            "type": "string",
+            "description": "Name of the animation"
+          },
+          "library_name": {
+            "type": "string",
+            "description": "Animation library name (default \"\")"
+          }
+        },
+        "required": [
+          "node_path",
+          "anim_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_animation_state",
+      "description": "Add a state to a live AnimationTree's state machine (AnimationNodeStateMachine.add_node()) — a method call, unreachable through set_property/set_resource_property. tree_root must already be an AnimationNodeStateMachine (set it first via set_resource_property with property_name \"tree_root\", resource_type \"AnimationNodeStateMachine\").",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "state_name": {
+            "type": "string",
+            "description": "Name for the new state"
+          },
+          "animation_name": {
+            "type": "string",
+            "description": "Name of the animation this state plays (optional)"
+          }
+        },
+        "required": [
+          "node_path",
+          "state_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_animation_transition",
+      "description": "Add a transition between two states in a live AnimationTree's state machine (AnimationNodeStateMachine.add_transition()) — a method call, unreachable through property tools. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "from_state": {
+            "type": "string",
+            "description": "Name of the source state (must already exist)"
+          },
+          "to_state": {
+            "type": "string",
+            "description": "Name of the target state (must already exist)"
+          },
+          "transition_params": {
+            "type": "object",
+            "description": "Properties to set on the AnimationNodeStateMachineTransition, var_to_str()-encoded, e.g. {\"xfade_time\": \"0.2\"}"
+          }
+        },
+        "required": [
+          "node_path",
+          "from_state",
+          "to_state"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_audio_bus",
+      "description": "Add a new audio bus (appended at the end) and name it. Returns its bus_index.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bus_name": {
+            "type": "string",
+            "description": "Name for the new bus"
+          }
+        },
+        "required": [
+          "bus_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "add_audio_bus_effect",
+      "description": "Instantiate an AudioEffect (e.g. \"AudioEffectReverb\") with the given properties and add it to an existing bus. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bus_name": {
+            "type": "string",
+            "description": "Name of the existing bus"
+          },
+          "effect_type": {
+            "type": "string",
+            "description": "AudioEffect subclass to instantiate, e.g. \"AudioEffectReverb\""
+          },
+          "effect_params": {
+            "type": "object",
+            "description": "Properties to set on the effect, var_to_str()-encoded"
+          }
+        },
+        "required": [
+          "bus_name",
+          "effect_type"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_audio_bus_layout",
+      "description": "List every audio bus with its volume/mute/solo/bypass/send settings and each attached effect's index, type, and properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_audio_bus_effect_params",
+      "description": "Adjust an existing audio bus effect's properties after creation — add_audio_bus_effect only covers setting properties at creation time. Find effect_index via get_audio_bus_layout. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bus_name": {
+            "type": "string",
+            "description": "Name of the existing bus"
+          },
+          "effect_index": {
+            "type": "integer",
+            "description": "Index of the effect on this bus, from get_audio_bus_layout"
+          },
+          "effect_params": {
+            "type": "object",
+            "description": "Properties to set on the effect, var_to_str()-encoded"
+          }
+        },
+        "required": [
+          "bus_name",
+          "effect_index",
+          "effect_params"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "remove_audio_bus_effect",
+      "description": "Remove an audio bus effect by index (AudioServer.remove_bus_effect()) — a method call with no property-tool equivalent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bus_name": {
+            "type": "string",
+            "description": "Name of the existing bus"
+          },
+          "effect_index": {
+            "type": "integer",
+            "description": "Index of the effect on this bus, from get_audio_bus_layout"
+          }
+        },
+        "required": [
+          "bus_name",
+          "effect_index"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "tilemap_fill_rect",
+      "description": "Fill a rectangular region of a live TileMapLayer with one tile, cell by cell.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "position": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2i top-left cell, e.g. \"Vector2i(0, 0)\""
+          },
+          "size": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2i cell count, e.g. \"Vector2i(5, 3)\""
+          },
+          "source_id": {
+            "type": "integer",
+            "description": "Tile set source id"
+          },
+          "atlas_coords": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2i atlas coordinates, e.g. \"Vector2i(0, 0)\""
+          },
+          "alternative_tile": {
+            "type": "integer",
+            "description": "Alternative tile id (default 0)"
+          }
+        },
+        "required": [
+          "node_path",
+          "position",
+          "size",
+          "source_id",
+          "atlas_coords"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "tilemap_get_info",
+      "description": "Get a live TileMapLayer's used rect, used cell count, and tile set source ids.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_particle_material",
+      "description": "Configure a live GPUParticles2D/3D's process_material as a ParticleProcessMaterial, reusing one if already set. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "material_params": {
+            "type": "object",
+            "description": "Properties to set on the ParticleProcessMaterial, var_to_str()-encoded"
+          }
+        },
+        "required": [
+          "node_path",
+          "material_params"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_particle_color_gradient",
+      "description": "Set a live GPUParticles2D/3D's color ramp from a list of gradient points.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "points": {
+            "type": "array",
+            "description": "Gradient points, e.g. [{\"offset\": 0, \"color\": \"Color(1, 1, 0, 1)\"}, {\"offset\": 1, \"color\": \"Color(1, 0, 0, 0)\"}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "offset": {
+                  "type": "number",
+                  "description": "Position along the gradient, 0.0-1.0"
+                },
+                "color": {
+                  "type": "string",
+                  "description": "var_to_str()-encoded Color"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "node_path",
+          "points"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_particle_info",
+      "description": "Get a live GPUParticles2D/3D's amount/lifetime/emitting and its process_material's own properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "save_scene_live",
+      "description": "Save the currently edited scene to disk from the running editor, persisting every live change made through this bridge (eval_expression, set_property, add_node_live, ...). Distinct from godot-mcp's file-based save_scene tool, which resaves a scene FILE via a headless CLI process and has no knowledge of live in-memory changes — it will NOT persist bridge edits. Bridge edits only exist in the running editor's memory until this is called (or the user manually saves); closing or reloading the editor without saving discards them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Optional res:// path to \"save as\". Omit to save to the scene's current path."
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "set_physics_material",
+      "description": "Configure a live PhysicsBody2D/3D's (RigidBody3D, StaticBody2D, ...) physics_material_override (bounce, friction, ...), creating one if it has none, reusing it if it already does. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "material_params": {
+            "type": "object",
+            "description": "Properties to set on the PhysicsMaterial, var_to_str()-encoded, e.g. {\"bounce\": \"0.9\", \"friction\": \"0.5\"}"
+          }
+        },
+        "required": [
+          "node_path",
+          "material_params"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_theme_stylebox_override",
+      "description": "Set a live Control's per-instance theme stylebox override (e.g. \"normal\"/\"hover\"/\"pressed\" on a Button, or \"panel\" on a Panel), creating a new StyleBox resource (default \"StyleBoxFlat\") with the given properties. For a color/constant/font-size override instead, use eval_expression's add_theme_color_override/add_theme_constant_override/add_theme_font_size_override — those take plain values, not a resource, and are single method calls. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "override_name": {
+            "type": "string",
+            "description": "Theme override slot name, e.g. \"normal\", \"panel\""
+          },
+          "style_type": {
+            "type": "string",
+            "description": "StyleBox subclass to instantiate (default \"StyleBoxFlat\")"
+          },
+          "style_params": {
+            "type": "object",
+            "description": "Properties to set on the StyleBox, var_to_str()-encoded, e.g. {\"bg_color\": \"Color(0.2, 0.2, 0.2, 1)\", \"corner_radius_top_left\": \"8\"}"
+          }
+        },
+        "required": [
+          "node_path",
+          "override_name"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_anchors_preset",
+      "description": "Apply a layout preset to a live Control (Control.set_anchors_preset()) — the standard way to lay out UI (e.g. \"make this fill its parent\") without hand-computing four anchor values. A method call, unreachable through property tools.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "preset": {
+            "type": "string",
+            "description": "Control.LayoutPreset constant name, e.g. \"PRESET_FULL_RECT\", \"PRESET_CENTER\", \"PRESET_TOP_WIDE\""
+          },
+          "keep_offsets": {
+            "type": "boolean",
+            "description": "Keep the control's current offsets instead of resetting them (default false)"
+          }
+        },
+        "required": [
+          "node_path",
+          "preset"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_node_bounds",
+      "description": "Get a node's bounding box — genuinely not reachable any other way. VisualInstance3D (MeshInstance3D, etc.) returns local and world-space AABB; Control returns local and global Rect2.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_shader_material",
+      "description": "Assign/configure a live ShaderMaterial on a GeometryInstance3D's material_override or a CanvasItem's material, setting shader uniforms via set_shader_parameter() — a method call, not a property, so shader uniforms are unreachable through set_property/set_properties or get_node_properties. Reuses the node's existing ShaderMaterial if it already has one. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "shader_path": {
+            "type": "string",
+            "description": "res:// path to a .gdshader file. Optional if the node already has a ShaderMaterial with a shader set."
+          },
+          "shader_params": {
+            "type": "object",
+            "description": "Map of uniform name -> var_to_str()-encoded value (or \"load:res://...\" for a sampler2D texture uniform)"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_shader_material_info",
+      "description": "Read a live node's ShaderMaterial: shader path and every uniform's current value.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_nested_property",
+      "description": "Set a property reached through a colon-separated path, e.g. \"material_override:albedo_color\" — the same path shape shown by the Godot inspector's own revert-arrow UI. set_property/set_properties treat a colon-path as one literal (unknown) property name, so use this instead whenever the target is a sub-property of a resource already assigned to the node (a material, a shape, a stylebox, ...). Every intermediate segment must already hold a non-null Resource/Object — this cannot create one along the way; use set_resource_property first if the intermediate resource does not exist yet. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "property_path": {
+            "type": "string",
+            "description": "Colon-separated property path, e.g. \"material_override:albedo_color\" or \"shape:radius\""
+          },
+          "value": {
+            "type": "string",
+            "description": "New value, var_to_str()-encoded (or \"load:res://...\" for a resource file)"
+          }
+        },
+        "required": [
+          "property_path",
+          "value"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_resource_property",
+      "description": "Set a node property to a freshly-constructed Resource of any class (e.g. property_name \"shape\", resource_type \"SphereShape3D\"), applying resource_params to it first. This is the generic form of set_theme_stylebox_override/set_shader_material/set_physics_material/setup_environment — those exist as convenience wrappers for common cases, but this works for any Resource subclass, closing the gap where a resource-typed property needs a brand-new (unsaved, path-less) resource that str_to_var()/\"load:\" can't construct. Reuses the node's existing resource in place if it is already the requested type (set reuse_existing to false to always replace it). Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "property_name": {
+            "type": "string",
+            "description": "Node property to assign the resource to, e.g. \"shape\", \"material_override\""
+          },
+          "resource_type": {
+            "type": "string",
+            "description": "Resource subclass to instantiate, e.g. \"SphereShape3D\", \"StyleBoxFlat\""
+          },
+          "resource_params": {
+            "type": "object",
+            "description": "Properties to set on the new resource, var_to_str()-encoded, e.g. {\"radius\": \"1.5\"}"
+          },
+          "reuse_existing": {
+            "type": "boolean",
+            "description": "Reuse the node's existing resource if it's already resource_type, instead of replacing it (default true)"
+          }
+        },
+        "required": [
+          "node_path",
+          "property_name",
+          "resource_type"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "reload_plugin",
+      "description": "Disable and re-enable the GodotLiveMCP editor plugin, the same effect as toggling it by hand in Project Settings > Plugins. Use this after any bridge.gd change so new/updated bridge commands take effect without manual intervention. The TCP connection drops as part of the reload — expect the next call to this server to reconnect automatically; a call issued immediately after this one may need a short retry if it lands before the new plugin instance is listening again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "restart_editor",
+      "description": "Restart the WHOLE Godot editor process (closes and reopens the same project), the same effect as manually quitting and relaunching Godot. Distinct from reload_plugin (which only re-toggles this one plugin without restarting the engine) — use this when a change needs a real boot, e.g. a boot-only project setting like debug/file_logging/enable_file_logging, or to clear stubborn cached editor state that a plugin reload alone doesn't reset. The connection drops immediately and stays down for several seconds while the editor relaunches — retry the next call rather than assuming failure.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "boolean",
+            "description": "Save the project before restarting (default true)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "play_scene",
+      "description": "Start the project running via the editor's OWN Play mechanism (EditorInterface.play_main_scene()/play_custom_scene()) — the same thing pressing the editor's Play button does. Prefer this over godot-mcp's run_project, which spawns a separate CLI process this MCP server owns directly; that path proved unreliable in practice (the process can vanish with no crash trace). After calling this, the runtime_bridge.gd autoload (if configured in the target project) becomes reachable on its own port for game_* tools once the game finishes booting (a few seconds).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scene_path": {
+            "type": "string",
+            "description": "Optional res:// path to a specific scene to run instead of the project's main scene"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "stop_scene",
+      "description": "Stop the currently playing scene (EditorInterface.stop_playing_scene()) — the same as pressing the editor's Stop button.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "is_playing_scene",
+      "description": "Check whether a scene is currently playing, and which one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "reload_project",
+      "description": "Rescan the project filesystem (EditorFileSystem.scan()) so the editor notices externally-edited files, e.g. a script edited on disk outside the editor. Cheaper than restart_editor and doesn't drop the connection — try this first; escalate to restart_editor only if a change still isn't recognized (e.g. a boot-only project setting, or a change to bridge.gd itself, which needs reload_plugin instead).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_signals",
+      "description": "List every signal a live node declares and every live connection on each (target + method). One call instead of get_signal_list() plus a get_signal_connection_list() call per signal via eval_expression, each returning a raw Dictionary that would need manual parsing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "find_nodes",
+      "description": "Recursively find nodes under node_path matching a type and/or name pattern, returning just the matching paths — not the whole subtree like list_scene_tree, which matters once a scene has more than a handful of nodes. type uses inheritance-aware matching (\"Control\" matches a Button). name_pattern uses glob syntax (\"*\" and \"?\"). Either or both may be given.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "type": {
+            "type": "string",
+            "description": "Class name to match, inheritance-aware, e.g. \"Button\" or \"Control\""
+          },
+          "name_pattern": {
+            "type": "string",
+            "description": "Glob pattern for node name, e.g. \"Enemy*\""
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "batch_set_properties",
+      "description": "Apply the same properties to every node matching a type/name_pattern filter (same matching as find_nodes) in one call — the alternative is a find_nodes round trip followed by one set_properties call per match, which doesn't scale as a scene grows. All matched nodes are batched into a single undo step, so one call is one Ctrl+Z regardless of how many nodes matched. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone. Unknown-property validation runs against every matched node before anything is applied, since matches under one type filter can be different concrete types with different property sets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "type": {
+            "type": "string",
+            "description": "Class name to match, inheritance-aware, e.g. \"Button\" or \"Control\""
+          },
+          "name_pattern": {
+            "type": "string",
+            "description": "Glob pattern for node name, e.g. \"Enemy*\""
+          },
+          "properties": {
+            "type": "object",
+            "description": "Map of property_name -> var_to_str()-encoded value, applied to every matched node"
+          }
+        },
+        "required": [
+          "properties"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_output_log",
+      "description": "Read what the user would see in Godot's Output and Debugger panels, to diagnose problems — especially after play_scene: the Output panel's last lines (includes the game's print() output), the Debugger's game errors/warnings with file:line and stack details, the stack the game is paused at after a script error (game_paused_at; stop_scene to end it), and the editor's own errors/warnings (tool scripts, plugins). Held in memory only. Pass editor_since=<editor_next_since from the last call> to get only newer editor errors.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "integer",
+            "description": "How many of the Output panel's last lines to return (default 60)"
+          },
+          "editor_since": {
+            "type": "integer",
+            "description": "Only editor errors newer than this (editor_next_since from a previous call)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "get_inspector_screenshot",
+      "description": "Screenshot an editor dock as a PNG, cropped to it at full resolution — for looking at a custom editor UI (an EditorInspectorPlugin, a dock) you are building. get_editor_screenshot only shows the 3D viewport. Pair with dump_control_tree when exact alignment matters. Returned as an image content block.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "\"inspector\" (default), \"scene_tree\", \"filesystem\", \"bottom_panel\", \"editor\" (the whole window), or a control's node path in the editor UI"
+          },
+          "max_height": {
+            "type": "integer",
+            "description": "Downscale so the image is at most this tall (default 1000); 0 for full resolution"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "editor",
+        "adapter": "image",
+        "group": "full"
+      }
+    },
+    {
+      "name": "dump_control_tree",
+      "description": "The live Control tree of an editor UI (default: the Inspector) as compact JSON: class, script, text, tooltip, global pos [x, y] and size [w, h] in UI units (editor_scale is reported — multiply fixed pixel sizes by it), visible/disabled/value/pressed, and a `path` that interact_control accepts. Use it to check a custom UI numerically (do these pickers share one x?) or to find the control to operate. Hidden controls are skipped unless include_hidden. With filter_script, returns only the subtrees whose control runs a script whose path contains that text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "\"inspector\" (default), \"scene_tree\", \"filesystem\", \"bottom_panel\", \"editor\", or a node path in the editor UI"
+          },
+          "max_depth": {
+            "type": "integer",
+            "description": "How deep to go (default 6)"
+          },
+          "filter_script": {
+            "type": "string",
+            "description": "Only subtrees whose control's script path contains this, e.g. \"building_blocks_editor.gd\""
+          },
+          "include_hidden": {
+            "type": "boolean",
+            "description": "Include invisible controls (default false)"
+          },
+          "max_nodes": {
+            "type": "integer",
+            "description": "Cap on controls returned (default 400); truncated:true when hit"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "highlight_editor_control",
+      "description": "Point at part of the Godot editor UI: draws a pulsing green outline (and optional caption) over it, to show the user where something is while you explain it. Prefer this over describing a location in words, or writing a throwaway run_script. Targets: `property` (an Inspector property by name — opens the node first when `node_path` is given, else uses what the Inspector already shows), `node_path` alone (selects the node and outlines its Scene dock row), or any editor control by `path` (+ `root`, as in dump_control_tree) or by `text`/`tooltip`/`class` (+ `index`) — icon-only buttons such as the Scene dock's + have no text, so use `tooltip` (e.g. root \"scene_tree\", tooltip \"Add/Create a New Node\"); without `root` it searches the Inspector, then the other docks, then the whole editor — e.g. a menu button or the Animation editor's Edit menu. Tabs and the bottom panel are switched so the target is visible. The highlight is released by ANY Inspector property edit or undoable editor action (the user changing something: a gizmo drag, a Scene dock change, undo/redo), a scene switch, the timeout, or clear_editor_highlights; calling this again replaces it. Several controls at once: pass `targets` (an array of the same objects). Fails with a clear message when the target can't be found or isn't visible.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "property": {
+            "type": "string",
+            "description": "Inspector property name, e.g. \"speed_scale\""
+          },
+          "node_path": {
+            "type": "string",
+            "description": "Node path in the edited scene: the node to inspect (with property) or to select and outline in the Scene dock"
+          },
+          "root": {
+            "type": "string",
+            "description": "For path matching: \"inspector\" (default), \"scene_tree\", \"filesystem\", \"bottom_panel\", \"editor\", or a node path in the editor UI"
+          },
+          "path": {
+            "type": "string",
+            "description": "Control path from dump_control_tree"
+          },
+          "text": {
+            "type": "string",
+            "description": "Match a visible control by its exact text, e.g. \"Edit\""
+          },
+          "tooltip": {
+            "type": "string",
+            "description": "Match by tooltip (case-insensitive substring) — for icon-only buttons, e.g. \"Add/Create a New Node\""
+          },
+          "class": {
+            "type": "string",
+            "description": "Match by class (alone or with text)"
+          },
+          "index": {
+            "type": "integer",
+            "description": "Which match, when text/class matches several"
+          },
+          "label": {
+            "type": "string",
+            "description": "Short caption shown under the outline, e.g. \"Speed Scale: 1.0 = normal\""
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Highlight several things at once; each item takes the same fields as above"
+          },
+          "release_on_edit": {
+            "type": "boolean",
+            "description": "Release when the user edits any property or makes any undoable change (default true)"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Seconds before it releases itself (default 120; 0 = never)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "clear_editor_highlights",
+      "description": "Remove every outline drawn by highlight_editor_control. Returns how many were cleared.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "start_tour",
+      "description": "Start a guided tour: a chain of editor highlights, each with a step card, that advances BY ITSELF when the user completes each step (checked against real editor state). Use it — without asking first — when the user says \"show me\", \"teach me\", \"guide me\", \"walk me through\" or \"I want to learn\", or when the message says teach mode is on (the panel's Teach toggle). Only for a bare \"how do I…\" that could mean either, offer both in one short line (\"I can do it, or walk you through it with a guided tour — which?\") rather than an open question. Inspect the scene first and use the user's real node names. Unlike highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\nTour: {format: \"godot-live-tour/1\", title, vars?: {name: node_path}, requires?: {scene_open?, node_exists?: [paths]}, stuck_after_sec? (default 90; 0 = off), steps: [{id?, text, why?, target?, done_when, show_me?}]}.\n- why: one or two sentences on why this step matters; shown by the card's Why? button (works with no agent). Pressed again, Why? sends the question to the in-editor agent panel.\n- show_me: actions the card's Show me button runs to do the step for the user (undoable). Derived automatically from done_when for node_selected, node_added (with class), node_removed/renamed/reparented, property_equals, property_class (new resource of that class, e.g. a BoxMesh), script_attached (with script), signal_connected (with method), in_group, scene_open, scene_saved, game_running, script_contains (creates/edits the script with your code, opens and saves it), property_changed (nudges the current value), control_pressed (presses the outlined button), manual (just moves on) and all. Show me announces what it is about to do, then does it; it refuses @tool scripts and anything under addons/. Give an explicit show_me only when the derived one wouldn't fit. Explicit form: [{command, ...bridge params}], command one of select_nodes, add_node_live, set_property, set_nested_property {node_path, property_path, value}, set_resource_property {node_path, property_name, resource_type}, rename_node, reparent_node, remove_node, connect_signal, set_node_groups, set_properties, set_transform, duplicate_node, add_mesh_instance, setup_collision, set_material_3d, set_physics_material, setup_environment, edit_script_text {path, text | old_text+new_text, save}, attach_script, save_scene_live, open_scene {path}, play_scene.\n- script_contains {script | node_path, text, extends?, replace?}: the script's text contains text (whitespace ignored) — use it for \"type this code\" steps; Show me writes it (replace: the snippet text replaces; extends: base class for a new file).\n- text: short instruction; **bold**, `code` and fenced ``` blocks are rendered. \"$name\" in text shows that var's CURRENT node name — refer to nodes this way (\"Select **$ball**\"), never by a typed-out name, so the card matches what the user called it.\n- target: what to outline — node_path (its Scene dock row, WITHOUT selecting it), node_path + property (that Inspector row), or an editor control: root (\"scene_tree\", \"inspector\", \"filesystem\", \"bottom_panel\", \"editor\") + tooltip / text / class / index / path, plus an optional label. Icon-only buttons like the Scene dock's + have no text: use {\"root\": \"scene_tree\", \"tooltip\": \"Add/Create a New Node\"}. Omit target for a card-only step. If it can't be found the step still runs, with a note on the card.\n- done_when ALWAYS has a \"type\" (state checks preferred): \"node_selected\" {node_path} | \"node_exists\" {node_path} | \"node_added\" {parent, class?, name?, capture?} (a new child since the step began; capture binds it to a var so later steps follow it whatever it is called; name is only a SUGGESTION: the step then asks the user to rename it, and completes once they give it any name of their own — later steps still work, whatever they chose — so give main objects a name from the request, e.g. \"Ball\") | \"node_removed\" {node_path} | \"node_renamed\" {node_path, name} | \"node_reparented\" {node_path, parent} | \"property_equals\" {node_path, property (sub-paths ok, e.g. \"position:y\"), value (var_to_str form, \"load:res://…\" or \"#ff0000\"), tolerance?} | \"property_changed\" {node_path, property} | \"property_class\" {node_path, property, class} (a new resource of that class, e.g. a BoxMesh) | \"script_attached\" {node_path, script?} | \"script_contains\" {script | node_path, text, extends?, replace?} (the script's text contains text, whitespace ignored — for \"type this code\" steps) | \"script_ok\" {script | node_path} (parses with no errors) | \"output_contains\" {text} (Output panel / game prints since the step began) | \"no_errors\" (no new errors since the step began) | \"game_property\" {node_path, property, op: > < >= <= == ~=, value} (a property in the RUNNING game) | \"signal_connected\" {source, signal, target, method?} | \"in_group\" {node_path, group} | \"scene_open\" {path} | \"scene_saved\" | \"file_exists\" {path} | \"control_pressed\" (the step's target button was pressed; fallback only) | \"game_running\" | \"manual\" (user clicks Next) | \"all\"/\"any\" {checks: [...]}.\n- verify (optional, any step): a check that the result WORKED, run after done_when passes — use it after code steps (script_ok) and after running the game (output_contains, game_property, no_errors). On failure the card says what is wrong and get_tour_status shows a verify_failed event; the step completes by itself once the learner fixes it. wait_sec? sets how long it waits before reporting.\n- on_fail (optional, with verify): {note?, steps?: [steps]} — if the verify fails, the card shows note and the steps are inserted as fix-up steps (once per step, no nesting); then the original step is checked again. Keep fix-ups short.\n- skip_if (optional): a check; if already true when the step would start, the step is skipped without being shown.\n- Anywhere a node path is accepted, \"$name\" or \"$name/Child\" refers to a var.\n- The card gives the user Back, Skip, Why?, Show me and ✕; it shows a gentle hint when they do the wrong thing (wrong class, wrong parent, wrong value or name) and a \"stuck?\" note after stuck_after_sec.\nValidation checks property and signal names against the real classes; editor controls that can't be found yet are warnings, not errors (they may appear later, e.g. in a dialog).\nExample (note done_when always has a \"type\" field, and node paths are \"$var\" or relative to the scene root):\n{\"format\": \"godot-live-tour/1\", \"title\": \"A green floor\", \"requires\": {\"scene_open\": \"res://main.tscn\"}, \"vars\": {\"root\": \".\"}, \"steps\": [{\"text\": \"Click **+** and add a `StaticBody3D` under **$root**.\", \"why\": \"A static body is solid but never moves.\", \"target\": {\"root\": \"scene_tree\", \"tooltip\": \"Add/Create a New Node\"}, \"done_when\": {\"type\": \"node_added\", \"parent\": \"$root\", \"class\": \"StaticBody3D\", \"name\": \"Floor\", \"capture\": \"floor\"}}, {\"text\": \"Give **$floor** a `MeshInstance3D` child.\", \"target\": {\"root\": \"scene_tree\", \"tooltip\": \"Add/Create a New Node\"}, \"done_when\": {\"type\": \"node_added\", \"parent\": \"$floor\", \"class\": \"MeshInstance3D\", \"capture\": \"mesh\"}}, {\"text\": \"Set **$mesh**'s **Mesh** to a new **PlaneMesh**.\", \"target\": {\"node_path\": \"$mesh\", \"property\": \"mesh\"}, \"done_when\": {\"type\": \"property_class\", \"node_path\": \"$mesh\", \"property\": \"mesh\", \"class\": \"PlaneMesh\"}}]}\nKeep tours to 3–8 steps, one action each; prefer state checks over manual. Check progress with get_tour_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tour": {
+            "type": "object",
+            "description": "The tour (format above)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Instead of tour: play a saved res://….tour.json file (opens its requires.scene_open scene first if needed)"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Validate only, don't start (default false)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "revise_tour",
+      "description": "Change course in the running guided tour when something went wrong (a verify_failed event, a failed Show me, a learner who is stuck, or an \"Ask the agent\" message): replaces the steps from from_step (1-based; default the current step) with new ones, keeping progress, variables ($ball etc.) and the log. The card tells the learner the plan changed (show note). Use this INSTEAD of changing the scene yourself. Steps use the same format as start_tour; validated first, all problems at once; dry_run to check only. from_step may be the step after the current one (to keep the current step and change what follows).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The new steps (start_tour step format)"
+          },
+          "from_step": {
+            "type": "integer",
+            "description": "First step to replace (1-based; default: the current step)"
+          },
+          "note": {
+            "type": "string",
+            "description": "One line for the learner: why the plan changed"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Validate only (default false)"
+          }
+        },
+        "required": [
+          "steps"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "search_assets",
+      "description": "Search the OFFICIAL Godot Asset Library (godotengine.org/asset-library) for addons. When the user asks for an addon, plugin or tool for Godot, search here FIRST, before suggesting GitHub or the web. Results fit the open editor's Godot version and show title, author, license, support level (official / community / testing), rating, version and last update. Tell the user what you found and ask which to install, unless they already named one. The newer store.godotengine.org has no public API, so it is not searched.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What to search for, e.g. \"dialogue\", \"state machine\", \"terrain\""
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional category name (e.g. \"Tools\", \"Scripts\", \"Shaders\") or id"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "rating",
+              "cost",
+              "name",
+              "updated"
+            ],
+            "description": "Order (default: the library's own)"
+          },
+          "support": {
+            "type": "string",
+            "enum": [
+              "official",
+              "community",
+              "testing"
+            ],
+            "description": "Only this support level"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "How many (default 8, max 20)"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Result page, from 0"
+          },
+          "godot_version": {
+            "type": "string",
+            "description": "e.g. \"4.7\"; default: the open editor's version"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "editor",
+        "adapter": "search_assets",
+        "group": "full"
+      }
+    },
+    {
+      "name": "install_asset",
+      "description": "Install an Asset Library asset (the asset_id from search_assets) into the open project: downloads the exact published version from its official source, verifies the checksum when the library gives one, and extracts its addons/ folder into res://addons/. Never overwrites existing files unless overwrite is true, and does NOT enable the plugin — a plugin runs code inside the editor. Always tell the user the title, author and license first, and enable the plugin (Project > Project Settings > Plugins) only when they agree. Assets without an addons/ folder (templates, demos) need include: \"all\", which puts everything in res://<name>/.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "The asset_id from search_assets"
+          },
+          "include": {
+            "type": "string",
+            "enum": [
+              "addons",
+              "all"
+            ],
+            "description": "addons (default): only the addons/ folder. all: everything, into res://<name>/"
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "Replace files that already exist (default false)"
+          }
+        },
+        "required": [
+          "asset_id"
+        ]
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "editor",
+        "adapter": "install_asset",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_perf_stats",
+      "description": "How much time the GodotLiveMCP addon itself spends in its periodic work, in ms: the per-frame bridge polling, running tours (tour_process per frame, tour_check each ~0.5 s), Watch (watch_process), and record mode (recorder_diff per change), plus the editor's frame rate and node count. Use it to check the addon is not slowing the editor: reset the probes, do the work you want to measure, then read them. Probes show calls, avg_ms, max_ms and last_ms.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reset": {
+            "type": "boolean",
+            "description": "Clear the probes after reading (default false)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_tour_status",
+      "description": "Where the user is in the guided tour: current step, seconds on it, captured vars (as current node paths), and the problems (the recent things that went wrong on the current step: verify_failed, show_me_failed, wrong_action, stuck…), current_step, and the event log (step_started, step_done, already_done, wrong_action, stuck, target_missing, skipped, back_to_step, why_shown, why_asked, show_me, show_me_failed, stopped, tour_done), plus any note currently on the card (note_target / note_hint / note_stuck). Call this first when the user comes back to chat mid-tour.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "save_tour",
+      "description": "Save the running (or last) guided tour as a .tour.json file — default res://tours/<title>.tour.json — so it can be replayed later with NO agent: from Project > Tools > Guided Tours… in the editor, or start_tour {path}. Offer this after a tour went well. The user can also press Save on the tour's final card. Tours are plain data (no code), safe to share.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "res:// path ending in .tour.json (optional)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "start_recording",
+      "description": "Record mode: start capturing changes to the open scene (nodes added/removed/renamed/moved, properties edited in the Inspector or viewport, scripts, groups, signal connections, saves) to turn into a draft guided tour. The user does the task themselves; undone changes drop out, repeated edits of one property become one step. A red bar in the editor shows it is recording; the user can stop it there too. Finish with stop_recording.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "stop_recording",
+      "description": "Stop record mode and build the draft tour (returned, and saved to res://tours/<title>.tour.json unless save is false). Text, switches, dropdowns and new resources must match; numbers, vectors and colours only have to change unless exact is true (the step text shows the value used). Steps have no why text yet — offer to add plain-language why lines and better wording, then save the improved tour (edit the file, or start_tour + save_tour).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Tour title (default \"Recorded tour\")"
+          },
+          "exact": {
+            "type": "boolean",
+            "description": "Require exact numbers/colours/sizes (default false)"
+          },
+          "save": {
+            "type": "boolean",
+            "description": "Save the file (default true)"
+          },
+          "path": {
+            "type": "string",
+            "description": "res://….tour.json path (default res://tours/<title>.tour.json)"
+          },
+          "discard": {
+            "type": "boolean",
+            "description": "Stop without building anything"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_recording_status",
+      "description": "Whether record mode is on, and the steps captured so far (one line each).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "set_watch_mode",
+      "description": "Turn Watch mode on or off in the editor. While on, each change you make through these tools is shown to the user as it happens: the node or property you touched is briefly outlined and a small log lists what you did (\"added Ball (RigidBody3D)\", \"Ball · Mass → 2\"). It never slows you down. Turn it on when the user says \"let me watch\", \"show me what you're doing\" or wants to follow along without doing it themselves (for \"teach me\", use a guided tour instead). The user can also toggle it with the panel's Watch button.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "true to turn Watch on (default), false to turn it off"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "list_tours",
+      "description": "List the saved .tour.json files in the project (path, title, step count, required scene).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "stop_tour",
+      "description": "End the running guided tour and remove its outlines and card.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "interact_control",
+      "description": "Operate an editor UI control found with dump_control_tree, to test a custom UI end to end without asking the user to click. Actions: press (buttons; toggles flip), set_value (SpinBox/sliders, CheckBox, OptionButton by index or text, LineEdit, TextEdit, ColorPickerButton), select_menu_item (MenuButton / OptionButton by id or item_text), drop_files (a FileSystem-dock drop of res:// paths onto a scripted control via its _can_drop_data/_drop_data), drag_drop (from one scripted control's _get_drag_data to another's _drop_data). Returns the control's state afterwards and `undo.added` — whether the editor's undo history gained an action. Identify the control by `path` (+ the same `root` as the dump), or by `text` and/or `class` (+ `index` if several match). Actions run through the control's signals/methods, not real mouse events, so native-only drag-and-drop (e.g. the Tree dock) is not covered.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "press",
+              "set_value",
+              "select_menu_item",
+              "drop_files",
+              "drag_drop"
+            ]
+          },
+          "root": {
+            "type": "string",
+            "description": "Same root as the dump_control_tree call the path came from (default \"inspector\")"
+          },
+          "path": {
+            "type": "string",
+            "description": "Control path from dump_control_tree"
+          },
+          "text": {
+            "type": "string",
+            "description": "Match a visible control by its exact text instead of a path"
+          },
+          "class": {
+            "type": "string",
+            "description": "Match by class (alone or with text), e.g. \"Button\""
+          },
+          "index": {
+            "type": "integer",
+            "description": "Which match, when text/class matches several"
+          },
+          "value": {
+            "description": "set_value: number, boolean, string, option index/text, or a color string"
+          },
+          "id": {
+            "type": "integer",
+            "description": "select_menu_item: menu item id"
+          },
+          "item_text": {
+            "type": "string",
+            "description": "select_menu_item: menu item text"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "drop_files: res:// paths"
+          },
+          "at_position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "drop_files: [x, y] inside the control (default its centre)"
+          },
+          "from": {
+            "type": "string",
+            "description": "drag_drop: path of the control to drag from"
+          },
+          "to": {
+            "type": "string",
+            "description": "drag_drop: path of the control to drop on"
+          },
+          "from_position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "drag_drop: [x, y] inside the source (default centre)"
+          },
+          "to_position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "drag_drop: [x, y] inside the target (default centre)"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "refresh_editor_scripts",
+      "description": "Do the reload dance after edit_script_text on @tool scripts, addon plugins and resource scripts, in one call: saves the open scripts (edit_script_text leaves them unsaved, so the editor keeps running the old file on disk), re-parses them and returns the parse errors (a plugin enabled against a broken script silently does nothing), toggles the enabled addon plugin each script belongs to, re-selects the inspected object so the Inspector rebuilds, and lists typed members that read null on live nodes (a hot-reloaded script that gained a member leaves it unset on existing instances — set it with set_property). Superset of reload_plugin for this purpose. Without `paths`, refreshes every script open in the script editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "res:// script paths to refresh (default: all open scripts)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_editor_screenshot",
+      "description": "Capture the live editor's 3D viewport as a PNG image — the only way to get visual state, since nothing else exposes rendered pixels through get_node_properties or eval_expression. Returned as an image content block, not JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "max_dimension": {
+            "type": "integer",
+            "description": "Downscale so neither dimension exceeds this (default 800); pass 0 for full resolution"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "editor",
+        "adapter": "image",
+        "group": "lite"
+      }
+    },
+    {
+      "name": "setup_navigation",
+      "description": "Configure and bake a live NavigationRegion2D/3D's nav polygon/mesh in one call — creating the resource, applying properties, and baking are three separate steps otherwise, and baking specifically is a method call (bake_navigation_mesh()/bake_navigation_polygon()), unreachable through property tools. Bakes synchronously (blocks briefly) so the response reflects the finished result, rather than the default threaded bake this bridge has no way to await. Bakes from whatever geometry already exists under the region node in the scene, same as the editor's manual bake button. A value of the form \"load:res://path/to/file\" is resolved via load() instead of var_to_str() decoding — use this to assign an existing texture or other resource file, e.g. {\"albedo_texture\": \"load:res://icon.svg\"}. Nested colon-path property names like \"material_override:albedo_texture\" are NOT supported here — use set_nested_property for those instead. Unknown property names fail loudly rather than silently no-oping, and the response includes a readback of every value actually applied — trust that over assuming success from ok:true alone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "nav_params": {
+            "type": "object",
+            "description": "Properties to set on the NavigationMesh (3D) or NavigationPolygon (2D), var_to_str()-encoded, e.g. {\"cell_size\": \"0.25\"}"
+          },
+          "bake": {
+            "type": "boolean",
+            "description": "Bake after configuring (default true)"
+          }
+        },
+        "required": [
+          "node_path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_resource_dependencies",
+      "description": "List a resource file's dependencies (other files it references) via ResourceLoader.get_dependencies() — a genuine capability gap, nothing else exposes a project's resource dependency graph. Useful before deleting or moving a file, to see what would break.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "res:// path to the resource file, e.g. \"res://level1.tscn\""
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "game_eval_expression",
+      "description": "Evaluate a GDScript expression against a node in a RUNNING GAME instance (not the editor) and return the result. The game-side counterpart to eval_expression. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "expression": {
+            "type": "string",
+            "description": "GDScript expression to evaluate, e.g. \"position.x\" or \"health\""
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "command": "eval_expression",
+        "group": "full"
+      }
+    },
+    {
+      "name": "game_list_scene_tree",
+      "description": "List the scene tree of a RUNNING GAME instance, starting at a node. The game-side counterpart to list_scene_tree. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "command": "list_scene_tree",
+        "group": "full"
+      }
+    },
+    {
+      "name": "game_get_node_properties",
+      "description": "Get all editor-visible properties (plus global transform for spatial nodes) of a node in a RUNNING GAME instance. The game-side counterpart to get_node_properties. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "command": "get_node_properties",
+        "group": "full"
+      }
+    },
+    {
+      "name": "game_set_property",
+      "description": "Set a property on a node in a RUNNING GAME instance. The game-side counterpart to set_property — no undo/redo at runtime, a direct assignment. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "property_name": {
+            "type": "string",
+            "description": "Name of the property to set"
+          },
+          "value": {
+            "type": "string",
+            "description": "New value, var_to_str()-encoded"
+          }
+        },
+        "required": [
+          "property_name",
+          "value"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "command": "set_property",
+        "group": "full"
+      }
+    },
+    {
+      "name": "game_set_properties",
+      "description": "Set multiple properties on a node in a RUNNING GAME instance in one call. The game-side counterpart to set_properties. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Map of property_name -> var_to_str()-encoded value"
+          }
+        },
+        "required": [
+          "properties"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "command": "set_properties",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_game_screenshot",
+      "description": "Capture a RUNNING GAME instance's main viewport as a PNG image — actual gameplay, distinct from get_editor_screenshot which only sees the editor's 3D gizmo viewport. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor. Returned as an image content block, not JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "max_dimension": {
+            "type": "integer",
+            "description": "Downscale so neither dimension exceeds this (default 800); pass 0 for full resolution"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "game",
+        "adapter": "image",
+        "group": "full"
+      }
+    },
+    {
+      "name": "simulate_key",
+      "description": "Simulate a keyboard key press/release in a RUNNING GAME instance via Input.parse_input_event() — a real event fed into the engine's input pipeline (reaches _input()/_unhandled_input()/Input.is_action_pressed() the same way an actual keypress would), not just an internal flag flip. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keycode": {
+            "type": "string",
+            "description": "A single character (e.g. \"a\", \"5\", \" \") or a special key name: \"KEY_SPACE\", \"KEY_ENTER\", \"KEY_ESCAPE\", \"KEY_TAB\", \"KEY_BACKSPACE\", \"KEY_DELETE\", \"KEY_HOME\", \"KEY_END\", \"KEY_LEFT\", \"KEY_RIGHT\", \"KEY_UP\", \"KEY_DOWN\", \"KEY_SHIFT\", \"KEY_CTRL\", \"KEY_ALT\", \"KEY_F1\"..\"KEY_F12\""
+          },
+          "pressed": {
+            "type": "boolean",
+            "description": "true for key-down, false for key-up (default true)"
+          }
+        },
+        "required": [
+          "keycode"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "group": "full"
+      }
+    },
+    {
+      "name": "simulate_mouse_button",
+      "description": "Simulate a mouse button press/release at a viewport position in a RUNNING GAME instance. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "button": {
+            "type": "string",
+            "enum": [
+              "MOUSE_BUTTON_LEFT",
+              "MOUSE_BUTTON_RIGHT",
+              "MOUSE_BUTTON_MIDDLE",
+              "MOUSE_BUTTON_WHEEL_UP",
+              "MOUSE_BUTTON_WHEEL_DOWN"
+            ],
+            "description": "Which button (default MOUSE_BUTTON_LEFT)"
+          },
+          "pressed": {
+            "type": "boolean",
+            "description": "true for press, false for release (default true)"
+          },
+          "position": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2 viewport position, e.g. \"Vector2(100, 200)\""
+          }
+        },
+        "required": [
+          "position"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "group": "full"
+      }
+    },
+    {
+      "name": "simulate_mouse_motion",
+      "description": "Simulate mouse movement to a viewport position in a RUNNING GAME instance. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "description": "var_to_str()-encoded Vector2 viewport position, e.g. \"Vector2(100, 200)\""
+          }
+        },
+        "required": [
+          "position"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "group": "full"
+      }
+    },
+    {
+      "name": "wait_for_game_condition",
+      "description": "Poll a boolean GDScript expression against a node in a RUNNING GAME instance once per frame until it's true or timeout_sec elapses (capped at 4s) — use this instead of repeatedly calling game_eval_expression in a loop yourself, which would be one bridge round trip per frame. Useful for assertions/tests that depend on game state settling over a few frames (e.g. waiting for a scene transition or an animation to finish) rather than a framework of dedicated assertion tools — reading state and judging pass/fail is something you can already do yourself with the read tools. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_path": {
+            "type": "string",
+            "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+          },
+          "expression": {
+            "type": "string",
+            "description": "GDScript boolean expression, e.g. \"health <= 0\" or \"get_node(\\\"Player\\\").position.y > 100\""
+          },
+          "timeout_sec": {
+            "type": "number",
+            "description": "Max seconds to wait, capped at 4 (default 2)"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "x_godot": {
+        "route": "generic",
+        "target": "game",
+        "command": "wait_for_condition",
+        "group": "full"
+      }
+    },
+    {
+      "name": "capture_game_frames",
+      "description": "Capture several screenshots of a RUNNING GAME spaced interval_sec apart (real time), returned as consecutive image blocks labelled with their timestamp — for judging motion, animation, or anything a single get_game_screenshot can't show. Total span (count-1)*interval_sec is capped at 10s. Pair with simulate_key etc. by sending the input first, then capturing. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Number of frames, 1-8 (default 4)"
+          },
+          "interval_sec": {
+            "type": "number",
+            "description": "Seconds between frames (default 0.25; 0 = consecutive rendered frames)"
+          },
+          "max_dimension": {
+            "type": "integer",
+            "description": "Downscale so neither dimension exceeds this (default 400; 0 = full resolution)"
+          }
+        },
+        "required": []
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "game",
+        "adapter": "capture_game_frames",
+        "group": "full"
+      }
+    },
+    {
+      "name": "monitor_game_properties",
+      "description": "Sample node properties and/or expressions in a RUNNING GAME every interval_sec for duration_sec (max 10s) and return the time series as {columns, rows} — one call instead of polling game_eval_expression yourself. Use for \"does the player actually fall / does health drain / does the velocity settle\". Every watch entry is validated before sampling starts, so a misspelled property errors immediately. Values are Godot's var_to_str() string encoding (e.g. \"5\", \"true\", \"\\\"hello\\\"\", \"Vector2(1, 2)\", \"Color(1, 0, 0, 1)\"; colours may also be \"#ff0000\") — not plain JSON. Requires runtime_bridge.gd to be added as a Project Settings > Autoload singleton in the target project, and the game to actually be running (e.g. via run_project) — this has no effect on the editor itself, only a live running game instance, a separate OS process from the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "watch": {
+            "type": "array",
+            "description": "What to sample. Each entry: {node_path, property} or {node_path, expression}, plus optional label.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "node_path": {
+                  "type": "string",
+                  "description": "Path to the node, relative to the running scene root (e.g. \"Player/Sprite2D\"), or \".\" for the root"
+                },
+                "property": {
+                  "type": "string",
+                  "description": "Property name; sub-paths like \"position:y\" or \"velocity:x\" are allowed"
+                },
+                "expression": {
+                  "type": "string",
+                  "description": "GDScript expression evaluated with the node as self, e.g. \"global_position.distance_to(get_node(\"../Goal\").global_position)\""
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Column name (defaults to node_path.property)"
+                }
+              }
+            }
+          },
+          "duration_sec": {
+            "type": "number",
+            "description": "How long to sample, max 10 (default 2)"
+          },
+          "interval_sec": {
+            "type": "number",
+            "description": "Seconds between samples (default 0.1; 0 = every rendered frame)"
+          },
+          "max_samples": {
+            "type": "integer",
+            "description": "Stop early after this many rows (default 200, max 1000)"
+          }
+        },
+        "required": [
+          "watch"
+        ]
+      },
+      "x_godot": {
+        "route": "adapter",
+        "target": "game",
+        "command": "monitor_properties",
+        "adapter": "monitor_game_properties",
+        "group": "full"
+      }
+    },
+    {
+      "name": "log_intent",
+      "description": "Log a short (one sentence) summary of what you're about to do, before making the tool calls for it. Call this once per conceptually distinct step — including each sub-step of a larger prompt that naturally decomposes into several — not once per trivial follow-up within the same step. This is what turns the shared usage log (see TOOL_CANDIDATES.md) from an undifferentiated pile of tool calls into reviewable {intent, calls, result} units. Pair with log_result once the step is done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "One sentence: what is this step trying to accomplish, e.g. \"add a bouncy platform to the scene\""
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "log_result",
+      "description": "Log a short outcome summary for the step most recently opened with log_intent, once its tool calls are done. The number of calls and errors made since that log_intent is recorded automatically — you don't need to count or report that yourself, just describe the outcome. The response includes pending_review_ready: true whenever a tool-candidate batch is waiting — mention this to the user when it comes up (e.g. \"there's a tool-candidate batch ready whenever you want to look\") rather than staying silent about it; a background server process has no other way to surface this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "One sentence: what actually happened, e.g. \"done, bounce=0.9 applied and verified\" or \"partial — moved but AI script wasn't attached\""
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "partial",
+              "failure"
+            ],
+            "description": "Coarse outcome classification"
+          }
+        },
+        "required": [
+          "summary",
+          "outcome"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    },
+    {
+      "name": "get_script_diagnostics",
+      "description": "Get real GDScript diagnostics (type errors, unused variables, and similar static checks) for a script, from Godot's own built-in language server — the same one VSCode's Godot extension uses. Requires the Godot editor to be open for this project (the LSP is part of the editor process). Checks on-disk content by default; pass `content` to check draft text instead, before it's ever written to disk — e.g. to validate a script before attach_script/run_script writes or runs it. Catches real static type errors (e.g. assigning a String to an int-typed variable) and warnings (e.g. unused variables), but is not exhaustive — it does not catch every possible mistake (e.g. calling a nonexistent method on a loosely-typed value may go unflagged); treat a clean result as \"no issues found\", not a full correctness guarantee.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "description": "Absolute path to the Godot project directory (same as other tools' projectPath)"
+          },
+          "scriptPath": {
+            "type": "string",
+            "description": "res://-relative path to the script, e.g. \"res://addons/godot_live_mcp/bridge.gd\""
+          },
+          "content": {
+            "type": "string",
+            "description": "Optional: check this text instead of the file's current on-disk content (e.g. a draft not yet saved)"
+          }
+        },
+        "required": [
+          "projectPath",
+          "scriptPath"
+        ]
+      },
+      "x_godot": {
+        "route": "node",
+        "target": "editor",
+        "group": "full"
+      }
+    }
+  ]
+}
