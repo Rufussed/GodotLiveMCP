@@ -50,8 +50,10 @@ and log through the Node server as usual; this is the upkeep for the other one.
      the `_cmd_*` of the same name). That is right when the result is plain
      text or JSON.
    - A tool whose result is an **image, several frames or a table** needs an
-     adapter: add it to `BRIDGE_ADAPTERS` (or `RUNTIME`), write the reshaping in
-     `addon/godot_live_mcp/mcp_adapters.gd`, and list its name in `NAMES` there.
+     adapter: give it an adapter name in `BRIDGE_ADAPTERS` (or `RUNTIME`), then in
+     `addon/godot_live_mcp/mcp_adapters.gd` add that name to `NAMES` and a branch
+     for it in `run()` that does the reshaping. Tools with the same kind of result
+     can share an adapter name (the three screenshot tools share `image`).
    - A new **running-game** tool must be added to `RUNTIME` (the build stops until
      it is), with its command name if that differs from the tool name.
    - Decide **Lite or Full**: add the name to `LITE` only if a newcomer needs it
