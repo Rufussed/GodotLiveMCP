@@ -137,7 +137,7 @@ func _json_entry(client: String, url: String, token: String) -> Dictionary:
 
 
 func _vscode_input() -> Dictionary:
-	return {"type": "promptString", "id": VSCODE_INPUT_ID, "description": "Godot MCP token (Godot AI Assistant panel > Connect > Copy token)", "password": true}
+	return {"type": "promptString", "id": VSCODE_INPUT_ID, "description": "Godot MCP token (in Godot: AI Assistant panel > More… > Copy config… > Copy token)", "password": true}
 
 
 func _merge_json(old: String, client: String, name: String, entry: Dictionary) -> Dictionary:

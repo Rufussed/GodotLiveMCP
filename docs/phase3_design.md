@@ -122,6 +122,22 @@ tools-changed notice; the panel says so.
 earlier install) defaults to Full, so people already using the addon don't lose
 tools; a clean install defaults to Lite.
 
+**Built and live-checked (step 3, 2026-10-11)** in a real, windowed editor on a
+clean fake `HOME` with no Node on its `PATH`: the first-run card (Claude Code ·
+Codex · VS Code · Cursor · More…, the Lite / Full selector, and a status line);
+each button's confirm dialog showing the path and the masked entry; writing the
+Cursor, Codex, VS Code and opencode files (owner-only where they hold the
+token); the Claude button registering through `claude mcp add`; "More… > Copy
+config…" with Copy token / URL / config; the live line ("✓ claude-code 2.1.296
+connected at 13:18:21") once a client calls `initialize`; the tool-group switch
+(28 to 105 tools, saved); *Done* persisting across a clean restart; and the
+Settings popup's "Connect your AI app…" button bringing the card back. A clean
+install defaults to Lite; an install that already had a token defaults to Full.
+Differences from the plan above: the Settings popup has a single button that
+re-shows the card, not a second copy of the controls (the popup is tall
+enough); **Regenerate token is not built** (it needs the bridge, the endpoint
+and every written config to change together; worth its own step if wanted).
+
 ## 4. Code layout
 
 - `connect_clients.gd` (new, no UI): the table above as data, `build_entry()`,

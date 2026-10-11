@@ -78,7 +78,10 @@ var _term_signature_started := ""   # the settings the running CLI was launched 
 var _installed: Dictionary = {}    # cli id -> found on PATH (see _detect_clis)
 var _new_session_button: Button
 const ConnectClients = preload("res://addons/godot_live_mcp/connect_clients.gd")
+const ConnectUI = preload("res://addons/godot_live_mcp/connect_ui.gd")
 var _endpoint: Node
+var _connect_ui
+var _settings_box: VBoxContainer
 var _settings_button: Button
 var _settings_popup: PopupPanel
 var _sync_check: CheckBox
@@ -865,6 +868,10 @@ func set_endpoint(endpoint: Node) -> void:
 	# The endpoint settles on its port after the panel is built; register again then.
 	if endpoint != null and not endpoint.availability_changed.is_connected(_ensure_local_registration):
 		endpoint.availability_changed.connect(_ensure_local_registration)
+	if endpoint != null and _connect_ui == null and _bridge_ref != null:
+		_connect_ui = ConnectUI.new()
+		_connect_ui.setup(self, endpoint, _bridge_ref)
+		_connect_ui.build_section(_settings_box)
 
 ## The name Codex knows the server by. Normally "godot-live-mcp", but a Codex
 ## config that already registers a stdio server of that name (the Node setup from
@@ -932,15 +939,24 @@ func _mcp_config_args(report: Callable) -> Array:
 ## what was last registered, since each `claude` invocation blocks the
 ## editor for a moment.
 func _ensure_local_registration() -> void:
-	if OS.get_name() == "Windows" or not _has_command("claude"):
-		return
+	_register_claude_local(false)
+
+## The Connect button's entry point: registers even if it did so before.
+func register_claude_local() -> Dictionary:
+	return _register_claude_local(true)
+
+func _register_claude_local(force: bool) -> Dictionary:
+	if OS.get_name() == "Windows":
+		return {"ok": false, "message": "The panel can't run `claude` for you on Windows yet."}
+	if not _has_command("claude"):
+		return {"ok": false, "message": "Claude Code isn't installed (there is no `claude` on your PATH)."}
 	var conn := _server_connection()
 	if conn.mode == "none":
-		return
+		return {"ok": false, "message": "The editor's MCP endpoint isn't available yet."}
 	var signature := "%s|%s|%s|%s|%s" % [conn.mode, conn.get("url", conn.get("entry", "")), conn.token, _tool_data_enabled(), "v2"]
 	var editor_settings := EditorInterface.get_editor_settings()
-	if editor_settings.get_project_metadata("godot_live_mcp", "local_registration", "") == signature:
-		return
+	if not force and editor_settings.get_project_metadata("godot_live_mcp", "local_registration", "") == signature:
+		return {"ok": true, "message": "Already registered for this project folder."}
 
 	var add_cmd: String
 	if conn.mode == "http":
@@ -959,10 +975,13 @@ func _ensure_local_registration() -> void:
 	var output: Array = []
 	var sh := _login_shell(shell_cmd)
 	if OS.execute(sh[0], sh[1], output, true) != 0:
-		_append_transcript("[color=yellow]Couldn't register godot-live-mcp for this project with Claude Code: %s[/color]" % "".join(output).strip_edges())
-		return
+		var failure := "Couldn't register godot-live-mcp for this project with Claude Code: %s" % "".join(output).strip_edges()
+		_append_transcript("[color=yellow]%s[/color]" % failure.xml_escape())
+		return {"ok": false, "message": failure}
 	editor_settings.set_project_metadata("godot_live_mcp", "local_registration", signature)
-	_append_transcript("[i]Registered godot-live-mcp for this project folder — any `claude` session started here can now control this editor.[/i]")
+	var done := "Registered godot-live-mcp for this project folder — any `claude` session started here can now control this editor."
+	_append_transcript("[i]%s[/i]" % done)
+	return {"ok": true, "message": done}
 
 func _shell_quote(s: String) -> String:
 	return "'" + s.replace("'", "'\\''") + "'"
@@ -1874,6 +1893,7 @@ func _build_settings_popup() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	columns.add_child(box)
+	_settings_box = box
 	if _xterm_available():
 		columns.add_child(VSeparator.new())
 		var right := VBoxContainer.new()
