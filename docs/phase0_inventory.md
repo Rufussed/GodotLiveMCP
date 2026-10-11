@@ -40,9 +40,9 @@ Two generic-path duties to remember: unknown-parameter rejection
 and results are `JSON.stringify(result, null, 2)` text unless the tool returns
 an image.
 
-### Generic: 89 tools (all bridge commands)
+### Generic: 98 tools (89 editor tools, then 9 running-game tools below)
 
-All 93 bridge-tool names **except** the four below. That includes
+All 93 bridge-tool names **except** the four editor-side adapters (the two screenshot tools and the two asset tools, in the Adapters table). That includes
 `get_perf_stats` and `highlight_editor_control` / `interact_control` (they pass
 `{...params}` through), which the plan listed as adapters or special: they are not.
 Plain list: `eval_expression`, `run_script`, `list_scene_tree`,
@@ -76,36 +76,49 @@ Plain list: `eval_expression`, `run_script`, `list_scene_tree`,
 `reload_plugin` and `restart_editor` are generic but need the "flush the reply
 before the server stops" rule (plan, "Editor restarts").
 
-### Adapters: 4 bridge tools + 12 runtime (+ 1 LSP, moved to Node-only in section 4)
+**Generic, running game (9 tools):** these call the game's bridge (port 9090,
+`runtime_bridge.gd`, a different process) instead of the editor's, so they need a
+routing-table entry (tool, port, and the command name when it differs), not code:
+`game_eval_expression`, `game_list_scene_tree`, `game_get_node_properties`,
+`game_set_property`, `game_set_properties` (command is the name without `game_`),
+`wait_for_game_condition` (command `wait_for_condition`), and `simulate_key`,
+`simulate_mouse_button`, `simulate_mouse_motion` (same name; `simulate_mouse_button`
+defaults `button` to `MOUSE_BUTTON_LEFT`, which `runtime_bridge.gd` also does).
 
-| Tool | Why it is an adapter |
-|---|---|
-| `get_editor_screenshot` | Result is `{base64, format}`; must become an MCP `image` content block (`image/<format>`), not text |
-| `get_inspector_screenshot` | Same image reshaping |
-| `search_assets` | Lives only in Node (`assetLibrary.ts`): fetches the Asset Library JSON API and asks the editor its version. Redo with `HTTPRequest` |
-| `install_asset` | Node-only: downloads the zip, checks host allow-list, size cap and hash, then hands it to the editor. Redo with `HTTPRequest` + `ZIPReader`; the bridge-side extraction with path checks already exists |
-| `get_game_screenshot` | Image reshaping, **and** the target is the running game's bridge (port 9090, `runtime_bridge.gd`), a different process |
-| `capture_game_frames` | Port 9090; result `{frames[]}` becomes alternating text and image blocks; 15 s timeout instead of 5 s |
-| `monitor_game_properties` | Port 9090; command renamed `monitor_properties`; columns/rows become compact one-row-per-line text; 15 s timeout |
-| `wait_for_game_condition` | Port 9090; command renamed `wait_for_condition` |
-| `game_eval_expression`, `game_list_scene_tree`, `game_get_node_properties`, `game_set_property`, `game_set_properties` | Port 9090 and command renamed (drop `game_`). Pure routing and renaming, no reshaping: these are a **table** (tool → port, command), not code |
-| `simulate_key`, `simulate_mouse_button`, `simulate_mouse_motion` | Port 9090 only; same command name. Table entry. `simulate_mouse_button` defaults `button` to `MOUSE_BUTTON_LEFT`; confirm `runtime_bridge.gd` does too |
-| `get_script_diagnostics` | Lives only in Node: speaks LSP to Godot's language server on a separate port with a script's text. Inside the editor, use the in-process script validation (`validate_script`) or connect to the editor's own LSP port; decide in phase 2. Likely deliberately different |
+### Adapters: 7 tools
 
-So the adapter *code* is small: three image tools, `capture_game_frames`,
-`monitor_game_properties`, two asset tools, and one diagnostics tool. The
-other eight runtime tools are routing-table entries.
+Two kinds. **Reshape only** means the work is still done by a shared bridge
+command and the adapter only changes the result's form. **Rewritten** means the
+logic existed only in Node and was written again in GDScript.
 
-### Node-only, stay in Node: 16 tools
+| Tool | Kind | Why it is an adapter |
+|---|---|---|
+| `get_editor_screenshot` | reshape only | Result is `{base64, format}`; must become an MCP `image` content block (`image/<format>`), not text |
+| `get_inspector_screenshot` | reshape only | Same image reshaping |
+| `get_game_screenshot` | reshape only | Same, and the target is the game's bridge (port 9090) |
+| `capture_game_frames` | reshape only | Port 9090; `{frames[]}` becomes alternating text and image blocks; 15 s timeout instead of 5 s |
+| `monitor_game_properties` | reshape only | Port 9090; command renamed `monitor_properties`; columns and rows become compact one-row-per-line text; 15 s timeout |
+| `search_assets` | **rewritten** | Lived only in Node (`assetLibrary.ts`): fetches the Asset Library JSON API and asks the editor its version. Now GDScript with `HTTPRequest` (`mcp_adapters.gd`); the editor's own version comes from `Engine` instead of an `eval_expression` round trip |
+| `install_asset` | **rewritten** | Lived only in Node: downloads the zip, checks the host allow-list, size cap and hash, then hands it to the editor. Now GDScript with `HTTPRequest`. `ZIPReader` was not needed: the bridge's existing `install_asset_zip` command unpacks it, with path checks |
+
+So only the two asset tools exist as two separate implementations; a bug fixed in
+one has to be fixed in the other. `tests/parity.mjs` compares their results, and a
+real install gave byte-identical output through both.
+
+### Node-only, stay in Node: 17 tools
 
 | Tools | Reason |
 |---|---|
-| `launch_editor`, `run_project`, `get_debug_output`, `stop_project` | Launch or own a Godot **process**; meaningless inside the running editor (relay takes over launch/restart in phase 6) |
+| `launch_editor`, `run_project`, `get_debug_output`, `stop_project` | Launch or own a Godot **process**; meaningless inside the running editor (a stdio relay would take over launch and restart in phase 6) |
 | `get_godot_version`, `list_projects`, `get_project_info` | Find Godot or scan the disk with no editor needed. (`get_project_info` and `get_godot_version` could be answered in-editor later; not in scope.) |
-| `create_scene`, `add_node`, `load_sprite`, `export_mesh_library`, `save_scene`, `get_uid`, `update_project_uids` | Run `godot_operations.gd` in a separate headless Godot process, editing files on disk. Inside the editor the live equivalents already exist (`add_node_live`, `save_scene_live`, `set_property` with `load:`). Not ported; tool descriptions for Lite mode should steer to the live tools |
-| `log_intent`, `log_result` | Write the opt-in usage log (`callLog.ts`, `GODOT_LIVE_MCP_TOOL_DATA=on`); a Node feature, not part of the editor server. Revisit only if the usage-review workflow is meant to work without Node |
+| `create_scene`, `add_node`, `load_sprite`, `export_mesh_library`, `save_scene`, `get_uid`, `update_project_uids` | Run `godot_operations.gd` in a separate headless Godot process, editing files on disk. Inside the editor the live equivalents already exist (`add_node_live`, `save_scene_live`, `set_property` with `load:`). Not ported |
+| `get_script_diagnostics` | Speaks LSP to Godot's language server on a separate port, with a script's text. Not ported: `validate_script` (Lite) reports parse errors from inside the editor. Revisit only if that proves too weak |
+| `log_intent`, `log_result` | Write the opt-in usage log (`callLog.ts`, `GODOT_LIVE_MCP_TOOL_DATA=on`); a Node feature, not part of the editor server. This is why the panel keeps agents on the Node server while "Collect usage data" is on |
 
-Count check: generic 89 + adapters 16 (4 bridge, 12 runtime) + Node-only 17 (14 lifecycle, 2 intent, `get_script_diagnostics`) = 122. (Section 4 moves `get_script_diagnostics` from adapter to Node-only.)
+Count check: generic 98 (89 editor + 9 game) + adapters 7 + Node-only 17 (4
+launch, 3 disk and version, 7 headless scene, 1 LSP, 2 usage log) = 122. These are
+the numbers in the generated `tools.json`; the in-editor server serves the first
+two groups, 105 tools.
 
 ## 3. Where `tools.json` lives
 
@@ -131,9 +144,8 @@ Count check: generic 89 + adapters 16 (4 bridge, 12 runtime) + Node-only 17 (14 
 - Generated by `server/scripts/export-tools.js` (part of `npm run build`);
   `npm run check-tools` fails when the committed file is stale. The script
   refuses to run if a Lite name, a runtime tool or an adapter is unknown.
-  Result: 122 tools; 89 generic editor, 9 generic game, 4 editor adapters,
-  3 game adapters, 17 node; 28 Lite. (So the runtime split is 9 routing-table
-  entries, including `wait_for_game_condition`, and 3 adapters.)
+  Result: 122 tools; 89 generic editor, 9 generic game, 2 editor image
+  adapters, 2 asset adapters, 3 game adapters, 17 node; 28 Lite.
 - Flip the source of truth to `tools.json` (and generate the TypeScript from
   it) only after phase 2 reaches parity. Not before.
 
