@@ -33,6 +33,52 @@ tool (`bridge.gd` / `server/src/bridgeTools.ts`) or a running-game tool
    (`stop_scene` then `play_scene`), since runtime scripts aren't part of
    the editor's hot-reload system.
 
+## Adding or changing a tool: keeping the in-editor server in step
+
+The addon also serves MCP itself, over HTTP, from inside the editor
+(`mcp_core.gd`, `mcp_adapters.gd`). It shares the `_cmd_*` functions with the Node
+server, so a new tool needs very little extra, but it does need these steps. Develop
+and log through the Node server as usual; this is the upkeep for the other one.
+
+1. **Build and commit `tools.json`.** `cd server && npm run build` regenerates
+   `addon/godot_live_mcp/tools.json` from the TypeScript definitions (which stay the
+   source of truth). Commit it. `npm run check-tools` fails if it is stale, and so
+   does the release build. A changed description or schema reaches the in-editor
+   server the same way.
+2. **Check the tool's route** in `server/scripts/export-tools.js`:
+   - A new bridge tool is **generic** by default (the in-editor server just calls
+     the `_cmd_*` of the same name). That is right when the result is plain
+     text or JSON.
+   - A tool whose result is an **image, several frames or a table** needs an
+     adapter: add it to `BRIDGE_ADAPTERS` (or `RUNTIME`), write the reshaping in
+     `addon/godot_live_mcp/mcp_adapters.gd`, and list its name in `NAMES` there.
+   - A new **running-game** tool must be added to `RUNTIME` (the build stops until
+     it is), with its command name if that differs from the tool name.
+   - Decide **Lite or Full**: add the name to `LITE` only if a newcomer needs it
+     in every conversation. The default is Full.
+   - Tools that launch Godot, run headless scene operations, use the language server
+     or write the usage log stay **Node-only** (they are registered in
+     `lifecycleTools.ts`, `intentTools.ts` or `lspTools.ts`).
+3. **Add a call to `tests/parity.mjs`** if it is cheap to test. It runs one list of
+   calls through the Node server and through the editor's own endpoint and
+   compares the answers and all the tool definitions. Start a scratch editor with
+   `GODOT_LIVE_MCP_PROFILE=full`, then:
+   ```
+   PROJECT_DIR=<scratch project> GODOT_LIVE_MCP_TOKEN=<token> GODOT_LIVE_MCP_PORT=9081 \
+   MCP_URL=http://127.0.0.1:<endpoint port>/mcp MCP_TOKEN=<token> node tests/parity.mjs
+   ```
+   (`GAME=1` with a running game also compares the running-game tools.) The
+   endpoint's port is in `user://godot_live_mcp_http.cfg` and the Output panel.
+4. **Changes outside a single tool** (the MCP handshake, tool groups, argument
+   checking, error handling, `search_assets` / `install_asset`) exist twice: in
+   `mcp_core.gd` / `mcp_adapters.gd` and in the Node server. Change both.
+
+Before a release, also run `godot --headless --path tests/mcp_http --script
+res://test.gd` (and `connect_test.gd`, `adapters_test.gd`), `tests/update_check.sh`
+and `tests/install_check.sh`. To exercise the in-editor path in daily use, turn off
+"Collect usage data" in a project for a session: the panel then hands its agents the
+in-editor server. The usage log only records sessions that go through Node.
+
 ## Live verification is required, not optional
 
 A tool that typechecks is not a tool that works. Every new tool needs a
