@@ -682,7 +682,7 @@ func _spec_gemini() -> Dictionary:
 	var conn := _server_connection()
 	if conn.mode != "none":
 		var path := ProjectSettings.globalize_path("res://.gemini/settings.json")
-		var cfg = JSON.parse_string(FileAccess.get_file_as_string(path)) if FileAccess.file_exists(path) else {}
+		var cfg = _read_json(path) if FileAccess.file_exists(path) else {}
 		if not (cfg is Dictionary):
 			_append_transcript("[color=yellow]%s isn't valid JSON — left alone; Gemini will use its own godot-live-mcp registration, if any.[/color]" % path.xml_escape())
 		else:
@@ -1643,14 +1643,14 @@ func _cli_default(agent: String, what: String) -> String:
 		return ""
 	var home := _home_dir()
 	if agent == "opencode":
-		var cfg = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".config/opencode/opencode.json")))
+		var cfg = _read_json(home.path_join(".config/opencode/opencode.json"))
 		return String(cfg.get("model", "")) if cfg is Dictionary and what == "model" else ""
 	if agent == "codex":
 		var toml := FileAccess.get_file_as_string(home.path_join(".codex/config.toml"))
 		var key := "model" if what == "model" else "model_reasoning_effort"
 		var m := RegEx.create_from_string("(?m)^%s\\s*=\\s*\"([^\"]*)\"" % key).search(toml)
 		return m.get_string(1) if m else ""
-	var settings = JSON.parse_string(FileAccess.get_file_as_string(home.path_join(".claude/settings.json")))
+	var settings = _read_json(home.path_join(".claude/settings.json"))
 	if settings is Dictionary:
 		return String(settings.get("model" if what == "model" else "effortLevel", ""))
 	return ""
@@ -1693,6 +1693,15 @@ const _CLAUDE_ALIASES := {
 	"sonnet": "Sonnet (latest)", "haiku": "Haiku (latest)",
 }
 
+## A JSON file's contents, or null when it is missing or not JSON. Unlike
+## JSON.parse_string it logs no engine error: on a machine that has never run
+## the agent CLI these files simply don't exist.
+func _read_json(path: String) -> Variant:
+	if not FileAccess.file_exists(path):
+		return null
+	var json := JSON.new()
+	return json.data if json.parse(FileAccess.get_file_as_string(path)) == OK else null
+
 func _home_dir() -> String:
 	return OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
 
@@ -1703,7 +1712,7 @@ func _claude_models() -> Dictionary:
 	var out := {}
 	for k in _CLAUDE_ALIASES:
 		out[k] = _CLAUDE_ALIASES[k]
-	var cfg = JSON.parse_string(FileAccess.get_file_as_string(_home_dir().path_join(".claude.json")))
+	var cfg = _read_json(_home_dir().path_join(".claude.json"))
 	if cfg is Dictionary and cfg.get("additionalModelOptionsCache") is Array:
 		for m in cfg["additionalModelOptionsCache"]:
 			if m is Dictionary and String(m.get("value", "")) != "":
@@ -1752,7 +1761,7 @@ func _codex_models() -> Array:
 			if data is Dictionary and data.get("models") is Array:
 				models = data["models"]
 	if models.is_empty():
-		var cache = JSON.parse_string(FileAccess.get_file_as_string(_home_dir().path_join(".codex/models_cache.json")))
+		var cache = _read_json(_home_dir().path_join(".codex/models_cache.json"))
 		models = cache.get("models", []) if cache is Dictionary else []
 	_codex_models_cache = models
 	_codex_models_at = Time.get_ticks_msec()
