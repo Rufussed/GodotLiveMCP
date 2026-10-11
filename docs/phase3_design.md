@@ -46,6 +46,17 @@ Every entry points at the endpoint (`http://127.0.0.1:<port>/mcp`, from
 User-level entries are named `godot-<project slug>` so two projects don't
 overwrite each other. Project-scoped entries keep `godot-live-mcp`.
 
+**Confirmed 2026-10-11** by writing the files with `connect_clients.gd` under a
+throwaway `HOME` and asking the real CLIs (`tests/connect_cli_check.sh`):
+Claude Code (`claude mcp add … -H`, then `mcp list`: connected), opencode
+(`mcp list`: connected), Codex (`http_headers` works; a real `eval_expression`
+call returned `3`), Gemini (`httpUrl` + `headers` is the right form; connected
+once the folder is trusted). Gemini lists project servers as **Disabled** in a
+folder it has not been told to trust, so the Connect text for Gemini must say
+"trust this folder when Gemini asks". **Still unconfirmed:** VS Code (the
+`${input:…}` prompt) and Cursor (no command line to check them with, and
+Cursor is not installed); both stay marked until someone opens them.
+
 ## 2. Panel-launched agents
 
 Switch the four launchers to the HTTP entry, built by one helper
