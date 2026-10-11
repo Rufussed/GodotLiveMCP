@@ -33,16 +33,92 @@ Two parts:
   `stop_scene` over godot-mcp's inherited `run_project`, which spawns a
   separate CLI process that proved unreliable in practice.
 
-## Quick start
+## Quick start: three steps, no Node
+
+The addon serves MCP itself, from inside the editor, over HTTP on your own
+computer. You need Godot and one AI app that can use a URL-based MCP server
+(Claude Code, Codex, VS Code, Cursor, opencode, Gemini CLI and others can). No
+Node.js, no terminal, no config file to edit.
+
+> **Tested so far:** Godot 4.7 on Linux. Other 4.x versions, Windows and macOS
+> are not tested yet. The Asset Library listing is not published yet, so step 1
+> is a copy.
+
+1. **Add the addon.** Copy `addon/godot_live_mcp/` from this repo into your
+   project as `addons/godot_live_mcp/`.
+2. **Enable it.** Project > Project Settings > Plugins > tick "GodotLive MCP
+   Bridge". An **AI Assistant** tab appears in the bottom panel, with a card
+   called **Connect your AI app**.
+3. **Press your app's button** on the card (Claude Code, Codex, VS Code or
+   Cursor; **More…** has opencode, Gemini CLI and **Copy config…** for anything
+   else). A dialog shows exactly which file will be written and what goes in
+   it (the token is hidden); press **Write file**. Then start the app and ask
+   it something like "list the scene tree". The card turns to
+   *✓ claude-code 2.1 connected* once the app has talked to the editor.
+
+What each button does, and where the token ends up:
+
+| App | What is written | Token |
+|---|---|---|
+| Claude Code | `claude mcp add -s local …`, stored in `~/.claude.json` against this project folder (the panel also does this by itself when it starts) | In that file, not in your project |
+| VS Code | `.vscode/mcp.json` in the project | Not written: VS Code asks for it once (use **More… > Copy config… > Copy token**) |
+| Cursor | `~/.cursor/mcp.json` (your user config) | In that file, readable only by you |
+| Codex | `~/.codex/config.toml` (your user config) | In that file, readable only by you |
+| opencode | `~/.config/opencode/opencode.json` | In that file, readable only by you |
+| Gemini CLI | `.gemini/settings.json` in the project | In that file: keep `.gemini/` out of version control, and trust the folder when Gemini asks |
+
+Nothing is written until you confirm. An existing config file is kept (your
+other servers and settings stay), a `.bak` copy of the original is made the first
+time, and a file that is not plain JSON (for example one with comments) is never
+touched: use **Copy config…** and add the entry by hand.
+
+**Tool groups.** New installs start with **Lite** (28 tools: look at the scene,
+add and change nodes, edit and check scripts, play and stop, plus
+`eval_expression`). The drop-down on the card switches to **Full** (105 tools:
+animation, audio, materials, tours, the running game, asset search and install,
+`run_script` and more). Your AI app sees the change from its next conversation.
+A project that already used the addon starts on Full. If an agent tries a tool
+from the group that is off, it is told how to switch.
+
+**If the editor restarts** (`restart_editor`, `reload_plugin`, or you close it),
+the server stops with it and comes back on the same address and token. Some apps
+reconnect by themselves; others need the server restarted from their own MCP
+menu. An agent running in an *external* terminal can carry on after a restart
+only if its app reconnects; an agent started from the panel ends with the editor
+and is resumed by the panel's saved session.
+
+**Security.** The server listens only on `127.0.0.1`. Every request needs the
+project's token; requests whose `Host` or `Origin` name anything but this
+computer are refused (this blocks web pages from reaching it), and so are
+oversized or malformed ones. There are no switches to turn these checks off.
+Still: anything that holds the token can run code in your editor
+(`eval_expression`) and read and write your project, so treat it like a password
+for this project. The bridge's old TCP port (`9080`) and token are unchanged.
+
+**Switches.** `GODOT_LIVE_MCP_HTTP=off` stops the in-editor server;
+`GODOT_LIVE_MCP_HTTP_PORT` and `GODOT_LIVE_MCP_PROFILE` (`lite` or `full`)
+override the saved port and tool group. The saved settings live in
+`user://godot_live_mcp_http.cfg`.
+
+**What still needs the Node server** (the launcher path below): launching Godot
+from the agent (`launch_editor`, `run_project`), the headless scene tools
+(`create_scene`, `add_node`, `load_sprite`, `export_mesh_library`, `save_scene`,
+`get_uid`, `update_project_uids`, `get_godot_version`, `list_projects`,
+`get_project_info`), `get_script_diagnostics` (use `validate_script` in the
+editor instead), and the opt-in usage log. Claude Desktop cannot use the
+in-editor server (its connectors are reached from Anthropic's servers, not from
+your computer); it needs the Node server, which is an ordinary local program.
+
+## Quick start with the launcher (needs Node)
 
 Prerequisites: [Node.js](https://nodejs.org) 18+ and at least one coding agent CLI,
 installed and logged in: [Claude Code](https://docs.claude.com/en/docs/claude-code),
 [Codex](https://github.com/openai/codex), [OpenCode](https://opencode.ai) or
 [Gemini CLI](https://github.com/google-gemini/gemini-cli).
 
-Why Node.js? The MCP server, the program your agent CLI starts to talk to the editor, is a
-Node.js program (`node server/build/index.js`); `npm install` builds it. Nothing else here
-needs Node.
+Why Node.js here? On this path the MCP server, the program your agent CLI starts to talk to
+the editor, is a Node.js program (`node server/build/index.js`); `npm install` builds it. The
+no-Node quick start above does not use it.
 
 **Easiest: the launcher app.** Clone the repo, then start the launcher with
 the script for your system, from the repo folder:
@@ -152,7 +228,10 @@ says "reusing token cached" or "generated token" instead, Godot didn't see
 the variable. The panel keeps working either way, since it reads the token
 in the same order the bridge does.
 
-**Codex.** Codex reads `AGENTS.md` (linked to `CLAUDE.md` by
+**Codex.** (If `~/.codex/config.toml` already registers a `godot-live-mcp` through
+`node`, as below, the panel's Codex button gives the in-editor server the name
+`godot-live-mcp-editor` instead, because Codex cannot turn one entry into both
+kinds.) Codex reads `AGENTS.md` (linked to `CLAUDE.md` by
 `link-project`) and can only register MCP servers globally:
 ```
 codex mcp add godot-live-mcp -- node /path/to/GodotLiveMCP/server/build/index.js
@@ -372,6 +451,14 @@ condition polling for a live game instance, plus `play_scene`/`stop_scene`
 to start/stop it without leaving the agent.
 
 ## Known limitations
+
+**The in-editor server stops when the editor stops.** The Node server, which
+runs on its own, survives an editor restart; the in-editor one cannot. See
+"If the editor restarts" in the quick start.
+
+**One editor per project serves MCP.** A second editor opened on the same project
+sees that the first one already serves it and does not start another; the agent
+talks to the first.
 
 **The bridge can go unresponsive for several seconds after a heavy
 synchronous call.** Both bridges poll their socket from `_process()`, which

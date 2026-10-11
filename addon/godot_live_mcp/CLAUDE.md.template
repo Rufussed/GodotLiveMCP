@@ -127,7 +127,21 @@ Every `set_property`/`add_node_live`/etc. call changes the editor's
   `ProjectSettings.get_setting("physics/2d/default_gravity")`.
 - A `run_script` runtime error partway through (as opposed to a compile
   error) isn't caught — you get back `null` with no indication anything
-  went wrong; check `get_debug_output` if a result looks suspiciously empty.
+  went wrong; check `get_output_log` (or `get_debug_output`, when the Node server is in
+  use) if a result looks suspiciously empty.
+
+## Tool groups: Lite and Full
+
+The editor can offer a smaller **Lite** set of tools or the **Full** set. If a
+call comes back saying a tool "is not in the Lite tool group", it exists but is
+switched off: tell the user to switch the tool group to **Full** on the Connect
+card in the AI Assistant panel (their AI app sees it from its next
+conversation), rather than trying to work around it with `eval_expression`.
+
+If the connection drops right after `reload_plugin` or `restart_editor`, that is
+expected: the in-editor server restarts with the editor on the same address.
+Wait a few seconds and retry; if the tools stay gone, tell the user their AI app
+may need its MCP server restarted from its own MCP menu.
 
 ## Parameter names are validated — don't guess
 
@@ -196,10 +210,11 @@ screenshots for judging motion), typically right after a `simulate_*`
 input.
 
 - Prefer `play_scene`/`stop_scene` over godot-mcp's inherited
-  `run_project` — the latter spawns a separate CLI process this MCP
-  server owns directly, which proved unreliable in practice (the process
-  can vanish mid-session with no crash trace). `play_scene`/`stop_scene`
-  reuse the editor's own Play/Stop mechanism instead.
+  `run_project` (only there when the Node MCP server is in use) — the
+  latter spawns a separate CLI process that server owns directly, which
+  proved unreliable in practice (the process can vanish mid-session with
+  no crash trace). `play_scene`/`stop_scene` reuse the editor's own
+  Play/Stop mechanism instead.
 
 - **Building editor UI** (an `EditorInspectorPlugin`, a dock, a `@tool`
   script): you can see and use it. Write it with `edit_script_text`, then
