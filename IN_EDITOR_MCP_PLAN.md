@@ -76,9 +76,12 @@ built later, only if the decision gate in phase 6 says it is needed.
 | Claude Code, Codex, Cursor, VS Code | HTTP mode | Docs for Cursor and VS Code list `http` / `url` servers and use `localhost` in their examples; Codex supports Streamable HTTP with a bearer token. Each still needs one live test against our server. |
 | ChatGPT desktop (the Codex host) | HTTP mode (probable) | Docs list Streamable HTTP and a `localhost` example; not yet tested. Plain ChatGPT web chat accepts only a public HTTPS address, so it cannot reach us (nor the Node server). |
 | The AI Assistant panel (`assistant_panel.gd`): `claude` or `codex` started in the editor's GodotXterm terminal or chat view | HTTP mode, written by the panel | The editor is open by definition, and a URL plus token need no second process. |
-| Claude Desktop | stdio mode, if it is wanted | Local servers go through its config file or an extension. We found no clear statement that it accepts a localhost URL. This is the main open question for stdio mode. |
+| Claude Desktop | stdio mode, if it is a target | Cannot use HTTP mode. Its custom connectors are reached from Anthropic's servers, not from the user's machine, so a `127.0.0.1` URL is unreachable; a certificate (self-signed or real) does not change that. A public tunnel would work but exposes `eval_expression` and `run_script` to the internet, so we do not offer it. Local servers use its config file, which launches a command. The existing `mcp-remote` workaround needs Node. Only the relay is a Node-free route. |
 
 Client facts come from vendor docs and third-party guides, not live tests.
+HTTPS is not needed for clients that connect from the user's machine (Cursor,
+VS Code, Codex, Claude Code): they accept `http://localhost`, and a
+self-signed certificate would only add trust errors.
 
 ## What the spike proved (2026-10-10, Godot 4.7.2 on Linux)
 
@@ -216,9 +219,9 @@ Asset Store tab in 4.7 only searches the new store, so also submit there.
 
 **6. stdio mode (the relay), conditional.** First apply the decision gate:
 
-- *Skip it if both hold:* Claude Desktop accepts a localhost HTTP connector
-  (or we decide it is not a target), and nobody needs agents outside the editor
-  to restart the editor and carry on.
+- *Skip it if both hold:* we decide Claude Desktop is not a target (it cannot
+  use HTTP mode, see "Which mode, for whom"), and nobody needs agents outside
+  the editor to restart the editor and carry on.
 - *Build it if either fails.*
 
 If built: make the relay production-ready (clear errors, `--no-header`, relay
@@ -258,6 +261,10 @@ Until then, Node stays the stdio server for anyone who has it.
 - **Tokens in plain text.** The token ends up in config files, as it does now.
   Keep config files per project and out of version control; prefer
   environment or input references where the client supports them.
+- **No Claude Desktop in HTTP mode.** Custom connectors are reached from
+  Anthropic's servers, so localhost cannot work, with or without HTTPS. We do
+  not offer a public tunnel because the server runs arbitrary code in the
+  editor.
 - **Managed setups.** Some Cursor admin setups restrict remote MCP URLs to
   approved patterns, so a localhost URL may be blocked there. VS Code blocks
   workspace servers in restricted mode.
