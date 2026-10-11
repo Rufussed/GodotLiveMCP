@@ -27,7 +27,8 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc && node scripts/build.js",
+    "build": "tsc && node scripts/build.js && node scripts/export-tools.js",
+    "check-tools": "node scripts/export-tools.js --check",
     "link-project": "node scripts/link-project.js",
     "inspector":"npx @modelcontextprotocol/inspector build/index.js",
     "prepare": "npm run build",
