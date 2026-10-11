@@ -7,8 +7,7 @@
 #
 # Needs a scratch editor running (see script_io.mjs). Checks only the CLIs that
 # are installed (Gemini ignores project servers in a folder it has not been told to
-# trust, so the check sets GEMINI_CLI_TRUST_WORKSPACE). VS Code and Cursor have no command line for this; they are
-# checked by hand. Codex is run for real, so its auth.json is linked into the
+# trust, so the check sets GEMINI_CLI_TRUST_WORKSPACE). VS Code has no command line for this; it is checked by hand. Codex is run for real, so its auth.json is linked into the
 # temporary CODEX_HOME (your login is not copied).
 set -u
 : "${MCP_URL:?}" "${MCP_TOKEN:?}"
@@ -34,6 +33,11 @@ if command -v claude >/dev/null; then
 fi
 echo; echo "== opencode mcp list"; command -v opencode >/dev/null && timeout 60 opencode mcp list 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -iE "godot|connected|fail"
 echo; echo "== gemini mcp list";   command -v gemini   >/dev/null && GEMINI_CLI_TRUST_WORKSPACE=true timeout 60 gemini mcp list 2>&1 | grep -iE "godot|connected|disconn"
+echo; echo "== cursor-agent mcp list-tools (needs no Cursor account)"
+if command -v cursor-agent >/dev/null; then
+  timeout 60 cursor-agent mcp list < /dev/null 2>&1 | grep -i godot
+  timeout 60 cursor-agent mcp list-tools godot-clicheck < /dev/null 2>&1 | head -1
+fi
 echo; echo "== codex exec (calls a tool)"
 if command -v codex >/dev/null && [ -f "$CODEX_HOME/auth.json" ]; then
   timeout 150 codex exec --skip-git-repo-check -s read-only -c 'mcp_servers.godot-clicheck.default_tools_approval_mode="approve"' \

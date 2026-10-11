@@ -53,9 +53,12 @@ Claude Code (`claude mcp add … -H`, then `mcp list`: connected), opencode
 call returned `3`), Gemini (`httpUrl` + `headers` is the right form; connected
 once the folder is trusted). Gemini lists project servers as **Disabled** in a
 folder it has not been told to trust, so the Connect text for Gemini must say
-"trust this folder when Gemini asks". **Still unconfirmed:** VS Code (the
-`${input:…}` prompt) and Cursor (no command line to check them with, and
-Cursor is not installed); both stay marked until someone opens them.
+"trust this folder when Gemini asks". Cursor's command-line
+agent (`cursor-agent mcp list` / `list-tools`, which need no Cursor account)
+reads the user-level `~/.cursor/mcp.json` we write, connects with the bearer
+header and lists all 105 tools. **Still unconfirmed:** VS Code (the
+`${input:…}` prompt; no command line for it) and the Cursor *IDE* itself, which
+shares that file format but was not opened.
 
 ## 2. Panel-launched agents
 
