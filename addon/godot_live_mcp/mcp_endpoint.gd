@@ -36,7 +36,7 @@ func start(bridge: Node) -> void:
 	if profile == "":
 		profile = str(cfg.get_value("http", "profile", "lite"))
 	_core = Core.new()
-	_core.setup(bridge, profile, _plugin_version())
+	_core.setup(bridge, self, profile, _plugin_version())
 	if _core.load_error != "":
 		push_error("GodotLiveMCP: MCP endpoint disabled: %s" % _core.load_error)
 		return
