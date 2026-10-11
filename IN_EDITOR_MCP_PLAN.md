@@ -190,6 +190,17 @@ Node server stopped, one live check each passes for Cursor, VS Code and Codex
 rejection of a wrong token, a foreign Origin or Host, an oversized body and
 malformed JSON.
 
+*Status (2026-10-11):* core, `tools.json`, Lite / Full groups, generic
+dispatch, the HTTP server and its security checks are built
+(`mcp_core.gd`, `mcp_endpoint.gd`, `mcp_http_*.gd`). 51 headless checks cover
+the rejection cases (`tests/mcp_http`). Live on a scratch editor: Claude Code
+over HTTP, `tests/script_io.mjs` and `tests/tour_scenario.mjs` pass identically
+through Node and through HTTP (`MCP_URL` / `MCP_TOKEN`); `reload_plugin`'s
+reply arrives before the server restarts, and a second editor attaches instead
+of clashing. Not yet done: the Cursor, VS Code and Codex live checks, and the
+Windows and macOS runs (phase 4). Only generic editor tools are served until
+phase 2 (27 in Lite, 89 in Full).
+
 **2. Adapters to parity.** Port the special tools one by one. A parity harness
 runs one call list through both the Node server and the in-editor server and
 compares results.
