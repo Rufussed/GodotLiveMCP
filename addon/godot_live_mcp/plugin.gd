@@ -33,6 +33,7 @@ func _enter_tree() -> void:
 	_move_tab_first(tab_button)
 	_bridge.activity.connect(_assistant_panel.on_bridge_activity)
 	_assistant_panel.set_bridge(_bridge)
+	_assistant_panel.set_endpoint(_mcp_endpoint)
 	add_tool_menu_item(TOURS_MENU_ITEM, _open_tours)
 
 ## New bottom panels go last; the chat is the one used most, so make it the

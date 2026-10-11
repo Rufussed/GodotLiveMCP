@@ -80,6 +80,18 @@ Cost: panel agents lose the 17 Node-only tools unless usage data is on.
 `get_script_diagnostics` is the only one that matters in practice;
 `validate_script` covers most of it.
 
+**Built and live-checked (step 2, 2026-10-11).** One `_server_connection()` picks
+HTTP (default), Node (usage data on, or endpoint not serving) or none. Through
+the panel's own launch specs, against a scratch editor: Claude (`--mcp-config`
+http entry), Codex and opencode each ran `eval_expression` and returned `3`;
+Gemini's `.gemini/settings.json` connects; with usage data on the same helper
+returns the Node entry again; and the panel's startup registration wrote the
+HTTP entry into Claude's local scope. **Found while testing:** a Codex config
+that already registers a *stdio* `godot-live-mcp` (the old Node setup) makes
+Codex reject a `url` override for the same name, so the HTTP server is named
+`godot-live-mcp-editor` for Codex when such an entry exists. The Codex token
+now travels in the environment (`bearer_token_env_var`), not on the command line.
+
 ## 3. The Connect UI
 
 Lives in the AI Assistant panel, two places:
