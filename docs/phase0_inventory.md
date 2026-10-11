@@ -76,7 +76,7 @@ Plain list: `eval_expression`, `run_script`, `list_scene_tree`,
 `reload_plugin` and `restart_editor` are generic but need the "flush the reply
 before the server stops" rule (plan, "Editor restarts").
 
-### Adapters: 4 bridge tools + 12 runtime + 1 LSP
+### Adapters: 4 bridge tools + 12 runtime (+ 1 LSP, moved to Node-only in section 4)
 
 | Tool | Why it is an adapter |
 |---|---|
@@ -105,7 +105,7 @@ other eight runtime tools are routing-table entries.
 | `create_scene`, `add_node`, `load_sprite`, `export_mesh_library`, `save_scene`, `get_uid`, `update_project_uids` | Run `godot_operations.gd` in a separate headless Godot process, editing files on disk. Inside the editor the live equivalents already exist (`add_node_live`, `save_scene_live`, `set_property` with `load:`). Not ported; tool descriptions for Lite mode should steer to the live tools |
 | `log_intent`, `log_result` | Write the opt-in usage log (`callLog.ts`, `GODOT_LIVE_MCP_TOOL_DATA=on`); a Node feature, not part of the editor server. Revisit only if the usage-review workflow is meant to work without Node |
 
-Count check: generic 89 + adapters 17 (4 bridge, 12 runtime, 1 LSP) + Node-only 16 (14 lifecycle, 2 intent) = 122.
+Count check: generic 89 + adapters 16 (4 bridge, 12 runtime) + Node-only 17 (14 lifecycle, 2 intent, `get_script_diagnostics`) = 122. (Section 4 moves `get_script_diagnostics` from adapter to Node-only.)
 
 ## 3. Where `tools.json` lives
 
@@ -130,9 +130,36 @@ Count check: generic 89 + adapters 17 (4 bridge, 12 runtime, 1 LSP) + Node-only 
 - Flip the source of truth to `tools.json` (and generate the TypeScript from
   it) only after phase 2 reaches parity. Not before.
 
-## Open items for Phase 1
+## 4. Decisions (step 1 of phase 1)
 
-- Lite group membership is undecided; needs a pass over the 122 tools.
+**Lite group (28 tools).** What a newcomer needs to build and debug a scene,
+and nothing that runs arbitrary code beyond `eval_expression`. Everything else
+is Full. Default for a new install: Lite.
+
+- Look: `list_scene_tree`, `get_node_properties`, `find_nodes`, `get_signals`,
+  `get_editor_selection`, `get_output_log`, `get_editor_screenshot`,
+  `get_script_text`
+- Scenes and nodes: `open_scene`, `save_scene_live`, `add_node_live`,
+  `remove_node`, `rename_node`, `reparent_node`, `duplicate_node`,
+  `select_nodes`
+- Change: `set_property`, `set_properties`, `set_transform`, `connect_signal`
+- Scripts: `attach_script`, `edit_script_text`, `validate_script`,
+  `save_scripts`
+- Run: `play_scene`, `stop_scene`, `is_playing_scene`
+- Escape hatch: `eval_expression`
+
+Judgment calls, easy to change in `tools.json`: `run_script` is Full only
+(whole-script execution is the bigger hammer; `eval_expression` covers small
+needs); runtime-game tools are Full because they need the autoload;
+`restart_editor` and `reload_plugin` are Full.
+A Lite server simply omits Full tools; the panel says how to switch.
+
+**`get_script_diagnostics` in the editor:** not ported. `validate_script`
+(Lite) already reports parse errors from inside the editor. The language-server
+version stays Node-only (`route: "node"`), so it is absent from the in-editor
+list. Revisit only if `validate_script` proves too weak for parity tests.
+
+## Still open for Phase 1
+
 - Confirm the bridge's reply for images (`{base64, format}`) survives the
-  8 MB response path and GDScript string handling.
-- Decide `get_script_diagnostics` in-editor (see table).
+  8 MB response path and GDScript string handling (test with the transport).

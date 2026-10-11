@@ -50,8 +50,10 @@ client asks for, **URL** or **Command**.
 
 - **HTTP mode:** adapt Funplay's transport (MIT, about 220 lines; keep their
   copyright notice and license in `THIRD_PARTY_NOTICES`). Review each file we
-  take; it's a two-day-old project. Funplay's README mentions a token but no
-  Host or Origin checks; we add both (see phase 1).
+  take; it's a two-day-old project. Funplay does check Host, Origin and
+  Referer, but weakly (absent headers pass, the token is optional, the compare
+  is not constant-time); we make all of them mandatory (see phase 1 and
+  `docs/phase0_inventory.md`).
 - **stdio mode, via the relay:** Godot itself, run with no window, acts as the
   program a stdio client launches. It reads JSON-RPC on stdin, forwards each
   message to the editor, and prints the reply. The config writer puts the
