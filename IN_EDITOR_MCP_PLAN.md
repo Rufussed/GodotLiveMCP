@@ -197,15 +197,30 @@ the rejection cases (`tests/mcp_http`). Live on a scratch editor: Claude Code
 over HTTP, `tests/script_io.mjs` and `tests/tour_scenario.mjs` pass identically
 through Node and through HTTP (`MCP_URL` / `MCP_TOKEN`); `reload_plugin`'s
 reply arrives before the server restarts, and a second editor attaches instead
-of clashing. Not yet done: the Cursor, VS Code and Codex live checks, and the
-Windows and macOS runs (phase 4). Only generic editor tools are served until
-phase 2 (27 in Lite, 89 in Full).
+of clashing. Client checks: Codex (call tools, with
+`default_tools_approval_mode="approve"`) and opencode (connects) pass, along
+with Claude Code; `localhost` and `127.0.0.1` both work. Cursor and VS Code
+are still unchecked (not installed / needs the UI), as are the Windows and
+macOS runs (phase 4).
 
 **2. Adapters to parity.** Port the special tools one by one. A parity harness
 runs one call list through both the Node server and the in-editor server and
 compares results.
 *Done when:* every tool in the inventory is either at parity or deliberately
 Node-only.
+
+*Status (2026-10-11):* all 105 tools that belong in the editor are served
+(27 Lite, 105 Full): generic editor tools, the running-game tools (the core
+talks to the game's bridge on port 9090), the image, frame and table adapters,
+and `search_assets` / `install_asset` (Godot `HTTPRequest` for the download;
+the bridge's existing `install_asset_zip` unpacks, so `ZIPReader` was not
+needed). `tests/parity.mjs` runs 56 calls through Node and through the editor
+and they match, as do the 105 tool definitions; `GAME=1` adds the game tools
+against a running game. An installed asset's reply is byte-identical.
+`get_script_diagnostics`, the lifecycle tools and the usage-log tools stay in
+Node. Not covered: screenshot and frame capture against a real renderer (a
+headless editor has none; the result shaping is unit-tested instead,
+`tests/mcp_http/adapters_test.gd`).
 
 **3. Connect buttons.** Port Funplay's config writer for HTTP mode: Claude Code
 (the project's `.mcp.json`, which VS Code's portable format also reads, so one

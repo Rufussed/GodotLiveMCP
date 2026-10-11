@@ -6,15 +6,17 @@ extends RefCounted
 ## message and calls reply with the JSON-RPC response, or null for none.
 ##
 ## Tools are served from tools.json ("x_godot" metadata, see
-## server/scripts/export-tools.js). Phase 1 serves the generic editor tools,
-## which pass their arguments straight to the bridge command of the same name.
-## Adapters, the running-game tools and Node-only tools are not served yet and
-## are left out of tools/list.
+## server/scripts/export-tools.js). Generic tools pass their arguments straight
+## to a bridge command (the editor's, or the running game's for target "game");
+## adapters (mcp_adapters.gd) reshape arguments or results. Tools whose route is
+## "node" stay in the Node server and are left out of tools/list.
 
 const SUPPORTED_PROTOCOL_VERSIONS := ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
 const TOOLS_PATH := "res://addons/godot_live_mcp/tools.json"
+const Adapters = preload("res://addons/godot_live_mcp/mcp_adapters.gd")
 
 var _bridge: Node
+var _adapters
 var _version := "0"
 var _profile := "lite"
 var _tools: Dictionary = {}   # name -> tool entry, only the ones this core serves
@@ -22,8 +24,10 @@ var _order: Array = []
 var load_error := ""
 
 
-func setup(bridge: Node, profile: String, version: String) -> void:
+func setup(bridge: Node, host: Node, profile: String, version: String) -> void:
 	_bridge = bridge
+	_adapters = Adapters.new()
+	_adapters.setup(host, bridge)
 	_profile = "full" if profile == "full" else "lite"
 	_version = version
 	_load_tools()
@@ -58,10 +62,15 @@ func _load_tools() -> void:
 			_order.append(entry.name)
 
 
-## What this core can run. Grows as adapters are ported (docs/phase0_inventory.md).
+## What this core can run: every generic tool and every adapter it has.
 func _serves(entry: Dictionary) -> bool:
 	var x: Dictionary = entry.get("x_godot", {})
-	return x.get("route") == "generic" and x.get("target", "editor") == "editor"
+	match x.get("route"):
+		"generic":
+			return true
+		"adapter":
+			return x.get("adapter", "") in Adapters.NAMES
+	return false
 
 
 func _in_profile(entry: Dictionary) -> bool:
@@ -139,11 +148,22 @@ func _call_tool(id: Variant, params: Dictionary, reply: Callable) -> void:
 		if not allowed.has(key):
 			unknown.append(str(key))
 	if not unknown.is_empty():
-		var expected := ", ".join(PackedStringArray(allowed.keys().map(func(k): return str(k)))) if not allowed.is_empty() else "(no parameters)"
+		var names := PackedStringArray(allowed.keys().map(func(k): return str(k)))
+		names.sort()
+		var expected := ", ".join(names) if not allowed.is_empty() else "(no parameters)"
 		reply.call(_result(id, _tool_error("unknown parameter(s) for \"%s\": %s — expected one of: %s" % [name, ", ".join(PackedStringArray(unknown)), expected])))
 		return
-	var command: String = entry.x_godot.get("command", name)
-	var out: Dictionary = await _bridge.execute_command(command, args)
+	var x: Dictionary = entry.x_godot
+	if x.route == "adapter":
+		var made: Dictionary = await _adapters.run(x.adapter, entry, args)
+		reply.call(_result(id, _tool_error(str(made.error)) if made.has("error") else made))
+		return
+	var command: String = x.get("command", name)
+	var out: Dictionary
+	if x.get("target", "editor") == "game":
+		out = await _adapters.game.call_command(command, args)
+	else:
+		out = await _bridge.execute_command(command, args)
 	if out.ok:
 		reply.call(_result(id, {"content": [{"type": "text", "text": _text(out.result)}]}))
 	else:
