@@ -4411,6 +4411,10 @@ func _cmd_get_resource_dependencies(params: Dictionary):
 
 # ---- Token / port setup ----
 
+## True when this run generated the token: a clean install, as opposed to an
+## upgrade of a project that already had one.
+var token_created_now := false
+
 ## The bridge's shared secret; the in-editor MCP endpoint uses the same one.
 func get_token() -> String:
 	return _token
@@ -4428,6 +4432,7 @@ func _load_or_create_token() -> String:
 			print("GodotLiveMCPBridge: reusing token cached at %s (no GODOT_LIVE_MCP_TOKEN in environment)" % ProjectSettings.globalize_path(path))
 			return existing
 	var generated := _generate_token()
+	token_created_now = true
 	var f2 := FileAccess.open(path, FileAccess.WRITE)
 	f2.store_string(generated)
 	print("GodotLiveMCPBridge: generated token, stored at %s (no GODOT_LIVE_MCP_TOKEN in environment)" % ProjectSettings.globalize_path(path))

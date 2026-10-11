@@ -37,7 +37,14 @@ func start(bridge: Node) -> void:
 		return
 	var profile := OS.get_environment("GODOT_LIVE_MCP_PROFILE").to_lower()
 	if profile == "":
-		profile = str(cfg.get_value("http", "profile", "lite"))
+		if cfg.has_section_key("http", "profile"):
+			profile = str(cfg.get_value("http", "profile"))
+		else:
+			# First run. A project that already had the addon keeps every tool it
+			# had; a clean install starts with the smaller Lite group.
+			profile = "lite" if bridge.token_created_now else "full"
+			cfg.set_value("http", "profile", profile)
+			cfg.save(CONFIG_PATH)
 	_core = Core.new()
 	_core.setup(bridge, self, profile, _plugin_version())
 	if _core.load_error != "":
@@ -73,6 +80,25 @@ func stop() -> void:
 	if _server:
 		_server.stop()
 		_server = null
+
+
+func get_core():
+	return _core
+
+
+func get_profile() -> String:
+	return _core.get_profile() if _core else "lite"
+
+
+## Switches the tool group and remembers it. Clients see it from their next session.
+func set_profile(profile: String) -> void:
+	if _core == null:
+		return
+	_core.set_profile(profile)
+	var cfg := ConfigFile.new()
+	cfg.load(CONFIG_PATH)
+	cfg.set_value("http", "profile", _core.get_profile())
+	cfg.save(CONFIG_PATH)
 
 
 func get_port() -> int:

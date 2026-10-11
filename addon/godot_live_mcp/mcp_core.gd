@@ -11,6 +11,9 @@ extends RefCounted
 ## adapters (mcp_adapters.gd) reshape arguments or results. Tools whose route is
 ## "node" stay in the Node server and are left out of tools/list.
 
+## An MCP client sent `initialize`: its self-reported name and version.
+signal client_seen(client_name: String, client_version: String)
+
 const SUPPORTED_PROTOCOL_VERSIONS := ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
 const TOOLS_PATH := "res://addons/godot_live_mcp/tools.json"
 const Adapters = preload("res://addons/godot_live_mcp/mcp_adapters.gd")
@@ -43,6 +46,15 @@ func get_profile() -> String:
 
 func tool_count() -> int:
 	return _tools.size()
+
+
+## How many tools a group exposes ("lite" or "full").
+func tool_count_for(profile: String) -> int:
+	var n := 0
+	for name in _order:
+		if profile == "full" or _tools[name].get("x_godot", {}).get("group") == "lite":
+			n += 1
+	return n
 
 
 func _load_tools() -> void:
@@ -104,6 +116,9 @@ func handle(request: Dictionary, reply: Callable) -> void:
 
 
 func _initialize(id: Variant, params: Dictionary) -> Dictionary:
+	var info: Variant = params.get("clientInfo", {})
+	if info is Dictionary:
+		client_seen.emit(str(info.get("name", "")), str(info.get("version", "")))
 	var asked := str(params.get("protocolVersion", ""))
 	return _result(id, {
 		"protocolVersion": asked if asked in SUPPORTED_PROTOCOL_VERSIONS else SUPPORTED_PROTOCOL_VERSIONS[0],
