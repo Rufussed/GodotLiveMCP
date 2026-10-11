@@ -1,5 +1,7 @@
 Third-party notices
 
+GodotLive MCP itself is MIT licensed (see LICENSE).
+
 mcp_http_transport.gd and mcp_http_server.gd (addon/godot_live_mcp/) are
 adapted from funplay-godot-mcp (https://github.com/FunplayAI/funplay-godot-mcp),
 used under the MIT License:

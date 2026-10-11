@@ -6,6 +6,7 @@ extends RefCounted
 ## goes where (the token is masked on screen). File writing is connect_clients.gd.
 
 const Clients = preload("res://addons/godot_live_mcp/connect_clients.gd")
+const UpdateChecker = preload("res://addons/godot_live_mcp/update_checker.gd")
 
 const META_DISMISSED := "connect_card_dismissed"
 const META_SEEN := "connect_client_seen"
@@ -37,6 +38,7 @@ var _card: PanelContainer
 var _status_labels: Array = []
 var _group_buttons: Array = []
 var _notes: Array = []       # transient result lines, one label per UI copy
+var _open_dialog: ConfirmationDialog   # at most one Connect dialog at a time
 var _last_client := ""
 var _was_seen_before := false
 
@@ -89,6 +91,42 @@ func build_section(parent: Control) -> void:
 	b.tooltip_text = "Show the card with the Claude Code, Codex, VS Code and Cursor buttons again."
 	b.pressed.connect(_show_card)
 	parent.add_child(b)
+
+	var version_row := HBoxContainer.new()
+	version_row.add_theme_constant_override("separation", 8)
+	parent.add_child(version_row)
+	var version_label := Label.new()
+	version_label.text = "Version %s" % _plugin_version()
+	version_row.add_child(version_label)
+	var check := Button.new()
+	check.text = "Check for updates"
+	check.tooltip_text = "Asks GitHub once whether a newer release exists. This is the only time the addon contacts the network for this; it never checks by itself."
+	version_row.add_child(check)
+	var result := Label.new()
+	result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	result.custom_minimum_size.x = 300
+	result.visible = false
+	parent.add_child(result)
+	check.pressed.connect(func():
+		check.disabled = true
+		result.visible = true
+		result.text = "Checking…"
+		var r: Dictionary = await UpdateChecker.new().check(_panel, _plugin_version())
+		result.text = r.message
+		check.disabled = false)
+
+
+## Paths under the home folder shown as ~/…, which reads better and is shorter.
+func _pretty(text: String) -> String:
+	var home := _clients.home_path()
+	return text.replace(home, "~") if home != "" else text
+
+
+func _plugin_version() -> String:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://addons/godot_live_mcp/plugin.cfg") == OK:
+		return str(cfg.get_value("plugin", "version", "?"))
+	return "?"
 
 
 func _show_card() -> void:
@@ -272,13 +310,13 @@ func _confirm_file(client: String) -> void:
 	var masked: String = _clients.snippet(client, _url(), _token(), _project_dir(), _project_name(), true)
 	var existing := FileAccess.file_exists(t.path)
 	var where := "inside this project" if not t.user_level else "outside this project (your user config)"
-	var body := "%s %s\n%s" % ["Update" if existing else "Create", t.path, "(%s)" % where]
+	var body := "%s %s\n%s" % ["Update" if existing else "Create", _pretty(t.path), "(%s)" % where]
 	if existing:
 		body += "\nYour other servers and settings in it are kept, and a .bak copy of the file is made first."
 	var d := _dialog("Connect %s" % _label_for(client), body, masked, "Write file")
 	d.dialog.confirmed.connect(func():
 		var r: Dictionary = _clients.configure(client, _url(), _token(), _project_dir(), _project_name())
-		_show_note(("✓ " if r.ok else "✗ ") + r.message + ("\n" + NOTES[client] if r.ok else "")))
+		_show_note(("✓ " if r.ok else "✗ ") + _pretty(r.message) + ("\n" + NOTES[client] if r.ok else "")))
 	_add_copy_button(d.dialog, "Copy config", _clients.snippet(client, _url(), _token(), _project_dir(), _project_name()))
 	if client == "vscode":
 		_add_copy_button(d.dialog, "Copy token", _token())
@@ -320,7 +358,10 @@ func _show_copy_config() -> void:
 
 ## A ConfirmationDialog with a description, a read-only text area and an OK button.
 func _dialog(title: String, body: String, text: String, ok_text: String) -> Dictionary:
+	if _open_dialog != null and is_instance_valid(_open_dialog):
+		_open_dialog.queue_free()
 	var dialog := ConfirmationDialog.new()
+	_open_dialog = dialog
 	dialog.title = title
 	dialog.ok_button_text = ok_text
 	var box := VBoxContainer.new()

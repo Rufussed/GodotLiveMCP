@@ -15,3 +15,4 @@ launcher/.godot_path
 
 # Scratch project cache for the HTTP transport test
 tests/mcp_http/.godot/
+dist/

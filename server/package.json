@@ -1,6 +1,6 @@
 {
   "name": "godot-live-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for driving a running Godot 4 editor session live: structured scene/node tools plus a live GDScript eval REPL, on top of godot-mcp's project lifecycle tools.",
   "keywords": [
     "godot",

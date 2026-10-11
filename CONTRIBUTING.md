@@ -109,3 +109,9 @@ paths, node names, and property values from your own real usage. Don't
 attach or paste raw log content into a public issue or PR — describe the
 pattern, or use a generalized/fabricated example that reproduces the same
 shape.
+
+## Releasing
+
+Build the install zip and the Asset Library tree with
+`cd server && node scripts/build-release.js [--tree <dir>]`, check it with
+`tests/install_check.sh`, and follow `docs/phase5_submission.md` to publish.
