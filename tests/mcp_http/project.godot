@@ -1,0 +1,7 @@
+; Scratch project for tests/mcp_http/test.gd. Run:
+;   godot --headless --path tests/mcp_http --script res://test.gd
+config_version=5
+
+[application]
+
+config/name="mcp_http_test"
