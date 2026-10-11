@@ -6,6 +6,12 @@
 //   GODOT_LIVE_MCP_TOKEN=… GODOT_LIVE_MCP_PORT=9081 PROJECT_DIR=/path/to/project \
 //     node tests/script_io.mjs
 //
+// To run the same checks against the editor's own HTTP endpoint, with no Node
+// server in between, set MCP_URL and MCP_TOKEN instead:
+//
+//   MCP_URL=http://127.0.0.1:41069/mcp MCP_TOKEN=… PROJECT_DIR=/path/to/project \
+//     node tests/script_io.mjs
+//
 // PROJECT_DIR (optional) lets the test remove its zz_test_* files afterwards.
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
@@ -13,14 +19,27 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const server = spawn('node', [join(here, '../server/build/index.js')], { env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
-let buf = '', id = 0; const pending = {};
-server.stdout.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1);
-  try { const m = JSON.parse(l); if (pending[m.id]) { pending[m.id](m); delete pending[m.id]; } } catch {} } });
-const rpc = (method, params) => new Promise(r => { const i = ++id; pending[i] = r; server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method, params }) + '\n'); });
+const httpUrl = process.env.MCP_URL;
+let id = 0;
+let rpc, notify, close;
+if (httpUrl) {
+  const post = body => fetch(httpUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.MCP_TOKEN}` }, body: JSON.stringify(body) });
+  rpc = async (method, params) => (await post({ jsonrpc: '2.0', id: ++id, method, params })).json();
+  notify = async method => { await post({ jsonrpc: '2.0', method }); };
+  close = () => {};
+} else {
+  const server = spawn('node', [join(here, '../server/build/index.js')], { env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
+  let buf = ''; const pending = {};
+  server.stdout.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1);
+    try { const m = JSON.parse(l); if (pending[m.id]) { pending[m.id](m); delete pending[m.id]; } } catch {} } });
+  rpc = (method, params) => new Promise(r => { const i = ++id; pending[i] = r; server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method, params }) + '\n'); });
+  notify = async method => { server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method }) + '\n'); };
+  close = () => server.kill();
+}
 const call = async (name, args = {}) => {
   const r = await rpc('tools/call', { name, arguments: args });
   if (r.error) return { __error: r.error.message };
+  if (r.result?.isError) return { __error: r.result.content?.[0]?.text ?? 'error' };
   const t = r.result?.content?.[0]?.text ?? '';
   try { return JSON.parse(t); } catch { return { text: t }; }
 };
@@ -31,7 +50,7 @@ const dir = process.env.PROJECT_DIR;
 const disk = p => (dir && existsSync(join(dir, p.replace('res://', ''))) ? readFileSync(join(dir, p.replace('res://', '')), 'utf8') : null);
 
 await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
-server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+await notify('notifications/initialized');
 
 const A = 'res://zz_test_a.gd';
 let r = await call('edit_script_text', { path: A, text: 'extends Node\n\nfunc _ready():\n\tpass\n' });
@@ -86,5 +105,5 @@ if (dir) check('  …shader on disk', disk(S)?.includes('ALBEDO'));
 
 if (dir) for (const f of readdirSync(dir)) if (f.startsWith('zz_test_')) unlinkSync(join(dir, f));
 console.log(failures === 0 ? '\nall passed' : `\n${failures} FAILED`);
-server.kill();
+close();
 process.exit(failures === 0 ? 0 : 1);

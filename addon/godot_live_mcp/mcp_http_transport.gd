@@ -224,6 +224,16 @@ func _begin_write(c: Dictionary, response: Dictionary) -> void:
 	c.out_pos = 0
 	c.state = "writing"
 	c.write_started = Time.get_ticks_msec()
+	# Write what fits right now, in this same frame. Commands such as
+	# reload_plugin and restart_editor tear the server down on a deferred call
+	# that runs before the next poll, and the reply must already be out by then.
+	var peer: StreamPeerTCP = c.peer
+	var out: PackedByteArray = c.out
+	while c.out_pos < out.size():
+		var res := peer.put_partial_data(out.slice(c.out_pos, c.out_pos + mini(out.size() - c.out_pos, WRITE_CHUNK)))
+		if res[0] != OK or res[1] <= 0:
+			break
+		c.out_pos += res[1]
 
 
 ## For refusing a connection that never entered the table: a short reply, then

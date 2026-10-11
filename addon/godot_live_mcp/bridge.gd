@@ -299,6 +299,14 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 
 	var command := String(req.get("command", ""))
 	var params: Dictionary = req.get("params", {})
+	var out: Dictionary = await execute_command(command, params)
+	_send(peer, {"id": id, "ok": out.ok, "result": out.result, "error": out.error})
+
+## Runs one bridge command and returns {ok, result, error}. The single place
+## commands are executed, shared by the TCP bridge above and the in-editor MCP
+## endpoint (mcp_core.gd), so both get the same scene-edit notes, activity
+## signal and Watch-mode recording. Callers must have authenticated already.
+func execute_command(command: String, params: Dictionary) -> Dictionary:
 	var result
 	var error = null
 	var ok := true
@@ -353,7 +361,7 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 	activity.emit(ok)
 	if is_watching():
 		_watch().observe(command, params, result, ok, error)
-	_send(peer, {"id": id, "ok": ok, "result": result, "error": error})
+	return {"ok": ok, "result": result, "error": error}
 
 func _edited_scene_label() -> String:
 	var root := _get_scene_root()
@@ -4402,6 +4410,10 @@ func _cmd_get_resource_dependencies(params: Dictionary):
 	return {"dependencies": deps}
 
 # ---- Token / port setup ----
+
+## The bridge's shared secret; the in-editor MCP endpoint uses the same one.
+func get_token() -> String:
+	return _token
 
 func _load_or_create_token() -> String:
 	var override := OS.get_environment("GODOT_LIVE_MCP_TOKEN")
