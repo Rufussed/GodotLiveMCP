@@ -50,6 +50,7 @@ var _agent_effort_menu: PopupMenu
 var _chat_button: Button           # header mode: Chat
 var _agent_label: Label            # header: the current agent / model, after the Agent button
 var _logo: TextureRect             # header robot: a status light (see _set_robot)
+var _server_label: Label           # header: which MCP server panel agents get (see _refresh_server_label)
 var _robot_textures := {}          # face name -> texture
 var _robot_state := "idle"
 var _robot_frame := 0
@@ -285,6 +286,14 @@ func _ready() -> void:
 	title.text = "Godot LIVE MCP"
 	title.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
 	left_group.add_child(title)
+
+	# Which MCP server agents launched from this panel are handed: the
+	# editor's own endpoint or the Node server. Details in the tooltip.
+	_server_label = Label.new()
+	_server_label.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignore the mouse by default, so no tooltip
+	_server_label.mouse_entered.connect(_refresh_server_label)
+	left_group.add_child(_server_label)
+	_refresh_server_label()
 
 	# Godot control itself (mcp__godot-live-mcp__*) is always granted, not a
 	# toggle — it's the entire point of this panel. The three optional,
@@ -860,6 +869,46 @@ func _server_connection() -> Dictionary:
 		return {"mode": "node", "entry": entry, "token": token}
 	return {"mode": "none"}
 
+## The header's server label: "Editor server", "Node server" or "No server",
+## with the reason and details in its tooltip. Cheap enough to run on hover.
+func _refresh_server_label() -> void:
+	if _server_label == null:
+		return
+	var conn := _server_connection()
+	var text := ""
+	var color := Color(0.75, 0.77, 0.8)
+	var tip := ""
+	match conn.mode:
+		"http":
+			text = "Editor server"
+			tip = "Agents launched from this panel use the MCP server inside the Godot editor (no Node).\n"
+			tip += "URL: %s\n" % conn.url
+			if _endpoint.is_serving():
+				var core = _endpoint.get_core()
+				var profile: String = _endpoint.get_profile()
+				tip += "Tool group: %s (%d tools)\n" % [profile.capitalize(), core.tool_count_for(profile) if core else 0]
+			else:
+				tip += "Served by another Godot editor that has this project open.\n"
+		"node":
+			text = "Node server"
+			tip = "Agents launched from this panel use the Node server:\n%s\n" % conn.entry
+			if _endpoint_url() == "":
+				tip += "Why: the editor's own MCP server isn't running.\n"
+			else:
+				tip += "Why: usage-data logging is on, and only the Node server records it.\n"
+		_:
+			text = "No server"
+			color = Color("#e0a050")
+			if _read_bridge_token().is_empty():
+				tip = "No bridge token yet; is the GodotLive MCP plugin enabled?\n"
+			else:
+				tip = "The editor's MCP server isn't running and the Node server wasn't found.\n"
+			tip += "Agents fall back to any godot-live-mcp server you registered yourself.\n"
+	tip += "AI apps you start outside this panel use whatever they were registered with."
+	_server_label.text = "· " + text
+	_server_label.tooltip_text = tip
+	_server_label.add_theme_color_override("font_color", color)
+
 func _endpoint_url() -> String:
 	return _endpoint.get_url() if _endpoint != null and is_instance_valid(_endpoint) else ""
 
@@ -868,6 +917,9 @@ func set_endpoint(endpoint: Node) -> void:
 	# The endpoint settles on its port after the panel is built; register again then.
 	if endpoint != null and not endpoint.availability_changed.is_connected(_ensure_local_registration):
 		endpoint.availability_changed.connect(_ensure_local_registration)
+	if endpoint != null and not endpoint.availability_changed.is_connected(_refresh_server_label):
+		endpoint.availability_changed.connect(_refresh_server_label)
+	_refresh_server_label()
 	if endpoint != null and _connect_ui == null and _bridge_ref != null:
 		_connect_ui = ConnectUI.new()
 		_connect_ui.setup(self, endpoint, _bridge_ref)
@@ -1974,6 +2026,7 @@ func _build_settings_popup() -> void:
 	data_check.toggled.connect(func(on: bool):
 		EditorInterface.get_editor_settings().set_project_metadata("godot_live_mcp", _TOOL_DATA_SETTING, on)
 		_ensure_local_registration()
+		_refresh_server_label()
 		_apply_on_next_message("Usage-data preference changed"))
 	box.add_child(data_check)
 

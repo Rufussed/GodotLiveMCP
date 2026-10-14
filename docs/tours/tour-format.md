@@ -129,6 +129,7 @@ says it can't point at it.
 | `property_equals` | `node_path`, `property`, `value`, `tolerance`? | The property equals `value`. |
 | `property_changed` | `node_path`, `property`, `tolerance`? | The property differs from its value when the step began. |
 | `property_class` | `node_path`, `property`, `class` | The property holds a resource of `class` (e.g. a `RectangleShape2D`). |
+| `node_type` | `node_path`, `class` | The node is a `class` (e.g. after right-click → **Change Type**, a `Node2D` root is now a `Node3D`). Variables that pointed at the node follow it to its replacement. |
 | `script_attached` | `node_path`, `script`? | The node has a script (that script, if given). |
 | `signal_connected` | `source`, `signal`, `target`, `method`? | `source.signal` is connected to `target` (that `method`, if given). |
 | `in_group` | `node_path`, `group` | The node is in the group. |
@@ -142,7 +143,7 @@ says it can't point at it.
 | `file_exists` | `path` | The file or folder exists. |
 | `control_pressed` | none (uses the step's `target`) | The outlined button is pressed. Last resort: it misses keyboard shortcuts. |
 | `game_running` | none | The game is running. |
-| `manual` | none | The user presses **Next**. For explanation-only steps. |
+| `manual` | none | The user presses **Next**. For explanation-only steps; Show me can't do these. |
 | `all` / `any` | `checks: [ … ]` | All / any of the nested checks pass. |
 
 `value` uses Godot's `var_to_str()` form: `"5"`, `"true"`, `"\"Hello\""`,
@@ -222,8 +223,11 @@ so it can be read, then does it. Almost every step can be shown:
   `script`), `script_contains` (creates the script, or edits it, with the
   code; opens it in the Script editor and saves it), `signal_connected`
   (with `method`), `in_group`, `scene_open`, `scene_saved`, `game_running`,
-  `control_pressed` (presses the outlined button), and `all` of those;
-- `manual` steps: Show me just moves on.
+  `control_pressed` (presses the outlined button), `node_type` (changes
+  the node's type, as Change Type does), and `all` of those;
+- `manual` steps: Show me can't know what the step asks, so it says to do
+  the step by hand and click **Next**. Use a state check (e.g. `node_type`)
+  for anything the user has to do.
 
 Anything else can give an explicit `show_me` (below). Action effects can be
 undone with Ctrl+Z, except written script files.

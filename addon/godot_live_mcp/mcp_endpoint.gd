@@ -23,6 +23,7 @@ var _core
 var _port := 0
 var _attached := false
 var _token := ""
+var _polling := false
 
 
 func start(bridge: Node) -> void:
@@ -118,8 +119,13 @@ func is_serving() -> bool:
 
 
 func _process(_delta: float) -> void:
-	if _server:
+	# A command can run a nested editor frame (saving shows a progress dialog);
+	# requests that arrive meanwhile wait for the next normal frame instead of
+	# running inside that command.
+	if _server and not _polling:
+		_polling = true
 		_server.poll()
+		_polling = false
 
 
 ## The saved port if it is free or already ours; otherwise the first free port

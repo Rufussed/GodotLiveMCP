@@ -273,16 +273,18 @@ func _process_inner() -> void:
 		_peer_buffers.erase(peer)
 
 func _drain_lines(peer: StreamPeerTCP) -> void:
-	var buf: String = _peer_buffers[peer]
-	while true:
+	# Each line is taken out of the shared buffer before it is handled: a command
+	# can run a nested editor frame (saving shows a progress dialog), whose
+	# _process would otherwise see the same line still there and run it again.
+	while _peer_buffers.has(peer):
+		var buf: String = _peer_buffers[peer]
 		var nl := buf.find("\n")
 		if nl == -1:
 			break
+		_peer_buffers[peer] = buf.substr(nl + 1)
 		var line := buf.substr(0, nl)
-		buf = buf.substr(nl + 1)
 		if line.strip_edges() != "":
 			_handle_line(peer, line)
-	_peer_buffers[peer] = buf
 
 func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 	var parsed = JSON.parse_string(line)
@@ -299,7 +301,9 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 
 	var command := String(req.get("command", ""))
 	var params: Dictionary = req.get("params", {})
+	var started := Time.get_ticks_msec()
 	var out: Dictionary = await execute_command(command, params)
+	record_activity("node", command, params, out.ok, out.error, Time.get_ticks_msec() - started)
 	_send(peer, {"id": id, "ok": out.ok, "result": out.result, "error": out.error})
 
 ## Runs one bridge command and returns {ok, result, error}. The single place
@@ -2057,6 +2061,45 @@ func _cmd_rename_node(params: Dictionary):
 	_commit_node_action()
 	return {"path": _rel_path(node)}
 
+## Changes a node's class in place, like the Scene dock's Change Type: same
+## name, children, owner and the properties both classes share, one undoable
+## step. Works on the scene root too (a 2D scene can become 3D).
+func _cmd_change_node_type(params: Dictionary):
+	if not Engine.is_editor_hint():
+		return _fail("change_node_type is only available inside the editor")
+	var node_path := String(params.get("node_path", "."))
+	var node_type := String(params.get("node_type", ""))
+	var node := _resolve_node(node_path)
+	if node == null:
+		return _fail("node not found: %s" % node_path)
+	if not ClassDB.class_exists(node_type) or not ClassDB.is_parent_class(node_type, "Node") or not ClassDB.can_instantiate(node_type):
+		return _fail("'%s' is not a node class that can be created" % node_type)
+	var from := node.get_class()
+	if from == node_type:
+		return {"path": _rel_path(node), "from": from, "to": node_type, "changed": false}
+	var script: Script = node.get_script()
+	if script != null and not ClassDB.is_parent_class(node_type, script.get_instance_base_type()):
+		return _fail("%s has a script that extends %s, which a %s can't run. Change the script's extends line, or remove the script, first" % [
+			node.name, script.get_instance_base_type(), node_type])
+	if node != _get_scene_root() and node.scene_file_path != "":
+		return _fail("%s is an instanced scene; change the type inside its own scene instead" % node.name)
+	var docks := EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)
+	if docks.is_empty() or not docks[0].has_method("replace_node"):
+		return _fail("couldn't find the editor's Scene dock")
+	var dock: Node = docks[0]
+	var by: Node = ClassDB.instantiate(node_type)
+	by.name = node.name
+	if not _begin_node_action("change type of %s to %s" % [node.name, node_type]):
+		return _fail("the editor's undo system isn't available")
+	# replace_node(old, new, keep_properties) is what Change Type runs; it moves
+	# the children and, for the root, makes the new node the edited scene.
+	_do(dock, "replace_node", [node, by, true])
+	_node_action_ur.add_do_reference(by)
+	_undo(dock, "replace_node", [by, node, true])
+	_node_action_ur.add_undo_reference(node)
+	_commit_node_action()
+	return {"path": _rel_path(by), "from": from, "to": node_type, "changed": true}
+
 func _cmd_connect_signal(params: Dictionary):
 	var node_path := String(params.get("node_path", "."))
 	var signal_name := String(params.get("signal_name", ""))
@@ -3204,6 +3247,46 @@ func _watch() -> Node:
 		_watch_node.setup(self)
 		add_child(_watch_node)
 	return _watch_node
+
+# --- recent activity ----------------------------------------------------------
+# Every tool call that reaches the editor from outside, through either server: the
+# bridge's TCP port (the Node server, so `via` is "node") or the in-editor MCP
+# endpoint (mcp_core.gd, "editor"). Always on, in memory only, so a session
+# outside the editor can see what an agent inside it has been doing.
+
+const _ACTIVITY_MAX := 200
+const _ACTIVITY_TEXT_MAX := 300
+var _activity_log: Array = []
+var _activity_seq := 0
+
+func record_activity(via: String, command: String, params: Dictionary, ok: bool, error, ms: int) -> void:
+	if command == "get_recent_activity":
+		return  # polling it would bury everything else
+	_activity_seq += 1
+	var entry := {"seq": _activity_seq, "time": Time.get_datetime_string_from_system(false, true),
+		"via": via, "command": command, "ok": ok, "ms": ms,
+		"params": _clip(JSON.stringify(params))}
+	if not ok:
+		entry["error"] = _clip(str(error))
+	_activity_log.append(entry)
+	if _activity_log.size() > _ACTIVITY_MAX:
+		_activity_log.pop_front()
+
+func _clip(text: String) -> String:
+	return text if text.length() <= _ACTIVITY_TEXT_MAX else text.left(_ACTIVITY_TEXT_MAX) + "…"
+
+func _cmd_get_recent_activity(params: Dictionary):
+	var since := int(params.get("since", 0))
+	var limit := clampi(int(params.get("limit", 50)), 1, _ACTIVITY_MAX)
+	var newer := _activity_log.filter(func(e): return e.seq > since)
+	var entries := newer.slice(maxi(0, newer.size() - limit))
+	var out := {"entries": entries, "next_since": _activity_seq}
+	# Entries can fall out of the buffer, or past the limit, between polls.
+	var first_kept: int = _activity_log[0].seq if not _activity_log.is_empty() else _activity_seq + 1
+	var missed := maxi(0, first_kept - since - 1) + (newer.size() - entries.size())
+	if missed > 0:
+		out["missed"] = missed
+	return out
 
 func _cmd_set_watch_mode(params: Dictionary):
 	set_watching(bool(params.get("on", true)))

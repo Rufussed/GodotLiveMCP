@@ -169,8 +169,10 @@ func _call_tool(id: Variant, params: Dictionary, reply: Callable) -> void:
 		reply.call(_result(id, _tool_error("unknown parameter(s) for \"%s\": %s — expected one of: %s" % [name, ", ".join(PackedStringArray(unknown)), expected])))
 		return
 	var x: Dictionary = entry.x_godot
+	var started := Time.get_ticks_msec()
 	if x.route == "adapter":
 		var made: Dictionary = await _adapters.run(x.adapter, entry, args)
+		_bridge.record_activity("editor", name, args, not made.has("error"), made.get("error"), Time.get_ticks_msec() - started)
 		reply.call(_result(id, _tool_error(str(made.error)) if made.has("error") else made))
 		return
 	var command: String = x.get("command", name)
@@ -179,6 +181,7 @@ func _call_tool(id: Variant, params: Dictionary, reply: Callable) -> void:
 		out = await _adapters.game.call_command(command, args)
 	else:
 		out = await _bridge.execute_command(command, args)
+	_bridge.record_activity("editor", name, args, out.ok, out.error, Time.get_ticks_msec() - started)
 	if out.ok:
 		reply.call(_result(id, {"content": [{"type": "text", "text": _text(out.result)}]}))
 	else:

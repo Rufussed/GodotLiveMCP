@@ -102,6 +102,8 @@ export const bridgeToolNames = new Set([
   'start_tour',
   'get_tour_status',
   'get_perf_stats',
+  'get_recent_activity',
+  'change_node_type',
   'search_assets',
   'install_asset',
   'revise_tour',
@@ -348,6 +350,22 @@ export const bridgeToolDefinitions = [
         new_name: { type: 'string', description: 'New name for the node' },
       },
       required: ['node_path', 'new_name'],
+    },
+  },
+  {
+    name: 'change_node_type',
+    description:
+      'Change a node\'s class in place, like right-click > Change Type in the Scene dock: it keeps its name, children, owner and the ' +
+      'properties both classes share, as one undoable step. Works on the scene root, e.g. to turn a Node2D scene into a Node3D one. Use it ' +
+      'instead of remove + add (which loses the children) or rewriting the .tscn. Refuses when the node\'s script extends a class the new ' +
+      'type isn\'t, and on instanced sub-scenes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...NODE_PATH_PROPERTY,
+        node_type: { type: 'string', description: 'The new node class, e.g. "Node3D"' },
+      },
+      required: ['node_path', 'node_type'],
     },
   },
   {
@@ -1277,7 +1295,8 @@ export const bridgeToolDefinitions = [
       'done_when for node_selected, node_added (with class), node_removed/renamed/reparented, property_equals, property_class ' +
       '(new resource of that class, e.g. a BoxMesh), script_attached (with script), signal_connected (with method), in_group, ' +
       'scene_open, scene_saved, game_running, script_contains (creates/edits the script with your code, opens and saves it), ' +
-      'property_changed (nudges the current value), control_pressed (presses the outlined button), manual (just moves on) and all. ' +
+      'property_changed (nudges the current value), control_pressed (presses the outlined button), node_type (changes the node\'s type) and all; ' +
+      'on a manual step it only tells the user to do the step themselves. ' +
       'Show me announces what it is about to do, then does it; it refuses @tool scripts and anything under addons/. Give an explicit ' +
       'show_me only when the derived one wouldn\'t fit. Explicit form: [{command, ...bridge params}], command one of ' +
       'select_nodes, add_node_live, set_property, set_nested_property {node_path, property_path, value}, set_resource_property ' +
@@ -1297,7 +1316,8 @@ export const bridgeToolDefinitions = [
       'called; name is only a SUGGESTION: the step then asks the user to rename it, and completes once they give it any name of their own — later steps still work, whatever they chose — so give main objects a name from the request, e.g. "Ball") | "node_removed" ' +
       '{node_path} | "node_renamed" {node_path, name} | "node_reparented" {node_path, parent} | "property_equals" {node_path, property ' +
       '(sub-paths ok, e.g. "position:y"), value (var_to_str form, "load:res://…" or "#ff0000"), tolerance?} | "property_changed" {node_path, ' +
-      'property} | "property_class" {node_path, property, class} (a new resource of that class, e.g. a BoxMesh) | "script_attached" {node_path, ' +
+      'property} | "property_class" {node_path, property, class} (a new resource of that class, e.g. a BoxMesh) | "node_type" {node_path, class} ' +
+      '(the node is of that class, e.g. after right-click > Change Type; use it for change-type steps, never manual) | "script_attached" {node_path, ' +
       'script?} | "script_contains" {script | node_path, text, extends?, replace?} (the script\'s text contains text, whitespace ignored — for ' +
       '"type this code" steps) | "script_ok" {script | node_path} (parses with no errors) | "output_contains" {text} (Output panel / game ' +
       'prints since the step began) | "no_errors" (no new errors since the step began) | "game_property" {node_path, property, op: > < >= <= ' +
@@ -1404,6 +1424,25 @@ export const bridgeToolDefinitions = [
     inputSchema: {
       type: 'object',
       properties: { reset: { type: 'boolean', description: 'Clear the probes after reading (default false)' } },
+      required: [],
+    },
+  },
+  {
+    name: 'get_recent_activity',
+    description:
+      'The tool calls that recently reached this Godot editor from any AI agent, newest last: time, command, via ("node" = through ' +
+      'the Node MCP server, "editor" = through the editor\'s own built-in MCP server), ok, error, duration in ms and the parameters ' +
+      '(long values cut to 300 characters). Use it to see what another agent working in the same editor has been doing, e.g. one ' +
+      'launched from the AI Assistant panel. Poll with since = the next_since of the previous call to get only newer calls; "missed" ' +
+      'counts calls that were dropped (the editor keeps the last 200, in memory only, cleared when the plugin reloads). Calls to ' +
+      'get_recent_activity itself are not listed, and a running game\'s tools are only listed when they went through the editor\'s ' +
+      'own server.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'integer', description: 'Only calls after this sequence number (next_since from the last call); default 0 = all kept' },
+        limit: { type: 'integer', description: 'At most this many of the newest matching calls (default 50, max 200)' },
+      },
       required: [],
     },
   },
@@ -1672,6 +1711,8 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
         scene_path: params.scene_path ?? '',
         node_name: params.node_name ?? '',
       }));
+    case 'change_node_type':
+      return textResult(await client.call('change_node_type', { node_path: params.node_path ?? '.', node_type: params.node_type }));
     case 'rename_node':
       return textResult(await client.call('rename_node', {
         node_path: params.node_path ?? '.',
@@ -1977,6 +2018,8 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
       return textResult(await searchAssets(params, client));
     case 'install_asset':
       return textResult(await installAsset(params, client));
+    case 'get_recent_activity':
+      return textResult(await client.call('get_recent_activity', { since: params.since ?? 0, limit: params.limit ?? 50 }));
     case 'get_perf_stats':
       return textResult(await client.call('get_perf_stats', { reset: params.reset ?? false }));
     case 'get_tour_status':
