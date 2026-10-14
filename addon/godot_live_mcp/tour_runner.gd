@@ -26,7 +26,7 @@ const SHOW_ME_COMMANDS := ["select_nodes", "add_node_live", "set_property", "set
 	"set_resource_property", "set_transform", "duplicate_node", "add_mesh_instance", "setup_collision",
 	"set_material_3d", "set_physics_material", "setup_environment", "rename_node", "reparent_node", "remove_node",
 	"connect_signal", "set_node_groups", "attach_script", "edit_script_text", "save_scene_live", "open_scene",
-	"play_scene"]
+	"play_scene", "change_node_type"]
 ## Event types that mean a step isn't going well: what the agent is shown
 ## (get_tour_status.problems) and what the Ask the agent button sends.
 const PROBLEM_TYPES := ["verify_failed", "show_me_failed", "show_me_refused", "wrong_action", "stuck", "target_missing"]
@@ -47,6 +47,7 @@ const CHECK_FIELDS := {
 	"property_equals": ["node_path", "property", "value"],
 	"property_changed": ["node_path", "property"],
 	"property_class": ["node_path", "property", "class"],
+	"node_type": ["node_path", "class"],
 	"script_attached": ["node_path"],
 	"script_contains": ["text"],
 	"script_ok": [],
@@ -72,6 +73,7 @@ var _source_path := ""    # the file the running tour was loaded from ("" = from
 var _steps: Array = []
 var _index := -1
 var _vars := {}           # name -> WeakRef(Node); follows renames and moves
+var _tracked := {}        # instance ids whose replacing_by is connected (see _set_var); kept across tours
 var _events: Array = []
 var _start_msec := 0
 var _step_start_msec := 0
@@ -185,7 +187,7 @@ func start(tour: Dictionary, dry_run: bool, source_path := "") -> Dictionary:
 	_vars = {}
 	var initial: Dictionary = tour.get("vars", {})
 	for name in initial:
-		_vars[str(name)] = weakref(_resolve_var(initial[name]))
+		_set_var(str(name), _resolve_var(initial[name]))
 	_start_msec = Time.get_ticks_msec()
 	_connect_signals()
 	_build_card()
@@ -529,8 +531,10 @@ func _validate_check(check: Dictionary, step: Dictionary, where: String, var_cla
 			errors.append("%s: script must be a res:// path (got %s)" % [where, check.script])
 	if type == "node_added" and check.has("name") and str(check.name).validate_node_name() != str(check.name):
 		errors.append("%s: '%s' isn't a valid node name" % [where, check.name])
-	if check.has("class") and type in ["node_added", "property_class"] and not ClassDB.class_exists(str(check["class"])):
+	if check.has("class") and type in ["node_added", "property_class", "node_type"] and not ClassDB.class_exists(str(check["class"])):
 		errors.append("%s: unknown class '%s'" % [where, check["class"]])
+	elif type == "node_type" and check.has("class") and not (ClassDB.is_parent_class(str(check["class"]), "Node") and ClassDB.can_instantiate(str(check["class"]))):
+		errors.append("%s: '%s' isn't a node type a node can be changed to" % [where, check["class"]])
 	if type in ["property_equals", "property_changed", "property_class"] and check.has("node_path") and check.has("property"):
 		_check_property(str(check.node_path), str(check.property), var_class, where, errors)
 	if type == "signal_connected" and check.has("source") and check.has("signal"):
@@ -1241,16 +1245,13 @@ func _on_show_me_pressed() -> void:
 	var actions := _show_me_actions(step)
 	var gen := _gen
 	if actions.is_empty():
-		# An explanation-only step has nothing to do: Show me just moves on.
+		# A manual step may still ask for something done by hand (a menu the
+		# tour can't watch). Moving on would skip it unseen, so say so instead.
 		if str(step.done_when.type) == "manual":
-			_showing = true
-			_note_hint = "▶ Nothing to do for this one — moving on…"
+			_note_hint = "I can't do this one for you. Follow the step, then click **Next**."
+			_hint_hold_until = Time.get_ticks_msec() + 6000
+			_log("show_me_refused", {"why": "manual step"})
 			_refresh_card()
-			_log("show_me")
-			await get_tree().create_timer(1.2).timeout
-			_showing = false
-			if gen == _gen:
-				await _advance("step_done")
 		return
 	for a in actions:
 		var refusal := _show_me_refusal(a)
@@ -1340,6 +1341,9 @@ func _describe_action(a: Dictionary) -> String:
 			return "give **%s** a new %s as %s" % [node.get_file(), a.get("resource_type", "resource"), str(a.get("property_name", "")).capitalize()]
 		"rename_node":
 			return "rename **%s** to **%s**" % [node.get_file(), a.get("new_name", "")]
+		"change_node_type":
+			var n := _node(node)
+			return "change **%s** to a **%s** (like right-click → Change Type)" % [n.name if n != null else node.get_file(), a.get("node_type", "")]
 		"attach_script":
 			return "attach `%s` to **%s** and open it" % [str(a.get("script_path", "")).get_file(), node.get_file()]
 		"interact_control":
@@ -1351,6 +1355,20 @@ func _describe_action(a: Dictionary) -> String:
 		"open_scene":
 			return "open `%s`" % str(a.get("path", "")).get_file()
 	return str(a.get("command", "")).replace("_", " ") + (" on **%s**" % node.get_file() if node != "" else "")
+
+## A tour var. Follows the node through a Change Type (the editor's menu or
+## change_node_type), which swaps in a new node and keeps the old one for undo.
+func _set_var(name: String, n: Node) -> void:
+	_vars[name] = weakref(n)
+	if n != null and not _tracked.has(n.get_instance_id()):
+		_tracked[n.get_instance_id()] = true
+		n.replacing_by.connect(_on_node_replaced.bind(n))
+
+func _on_node_replaced(by: Node, old: Node) -> void:
+	for name in _vars.keys():
+		if _vars[name].get_ref() == old:
+			_set_var(name, by)
+	_queue_check()
 
 ## The step's show_me actions with $vars filled in, or ones derived from its
 ## done_when check; [] when the step can't be shown.
@@ -1525,6 +1543,10 @@ func _derive_show_me(check: Dictionary, key := "c") -> Array:
 				return [{"command": "add_node_live", "parent_path": check.parent, "node_type": check["class"], "node_name": check.get("name", check["class"])}]
 		"node_removed":
 			return [{"command": "remove_node", "node_path": check.node_path}]
+		"node_type":
+			var n := _node(str(check.node_path))
+			if n != null and not n.is_class(str(check["class"])):
+				return [{"command": "change_node_type", "node_path": check.node_path, "node_type": check["class"]}]
 		"node_renamed":
 			return [{"command": "rename_node", "node_path": check.node_path, "new_name": check.name}]
 		"node_reparented":
@@ -1733,7 +1755,7 @@ func _passes(check: Dictionary, key: String) -> bool:
 				if check.has("class") and not c.is_class(str(check["class"])):
 					continue
 				if check.has("capture"):
-					_vars[str(check.capture)] = weakref(c)
+					_set_var(str(check.capture), c)
 				if not check.has("name"):
 					return true
 				# `name` is a suggestion: the step goes on to "now rename it" and
@@ -1757,6 +1779,9 @@ func _passes(check: Dictionary, key: String) -> bool:
 			var n = _baseline[key].get_ref() if _baseline.get(key) != null else null
 			var parent := _node(str(check.parent))
 			return n is Node and parent != null and (n as Node).get_parent() == parent
+		"node_type":
+			var n := _node(str(check.node_path))
+			return n != null and n.is_class(str(check["class"]))
 		"property_equals":
 			var n := _node(str(check.node_path))
 			if n == null:

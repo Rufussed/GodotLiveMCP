@@ -75,7 +75,7 @@
 			"properties": {
 				"type": {
 					"enum": ["node_selected", "node_exists", "node_added", "node_removed", "node_renamed", "node_reparented",
-						"property_equals", "property_changed", "property_class", "script_attached", "signal_connected",
+						"property_equals", "property_changed", "property_class", "node_type", "script_attached", "signal_connected",
 						"in_group", "script_contains", "script_ok", "output_contains", "no_errors", "game_property", "scene_open", "scene_saved", "file_exists", "control_pressed", "game_running",
 						"manual", "all", "any"]
 				},
@@ -89,6 +89,7 @@
 				{ "if": { "properties": { "type": { "const": "property_equals" } } }, "then": { "required": ["node_path", "property", "value"] } },
 				{ "if": { "properties": { "type": { "const": "property_changed" } } }, "then": { "required": ["node_path", "property"] } },
 				{ "if": { "properties": { "type": { "const": "property_class" } } }, "then": { "required": ["node_path", "property", "class"] } },
+				{ "if": { "properties": { "type": { "const": "node_type" } } }, "then": { "required": ["node_path", "class"] } },
 				{ "if": { "properties": { "type": { "const": "signal_connected" } } }, "then": { "required": ["source", "signal", "target"] } },
 				{ "if": { "properties": { "type": { "const": "in_group" } } }, "then": { "required": ["node_path", "group"] } },
 				{ "if": { "properties": { "type": { "const": "script_contains" } } }, "then": { "required": ["text"] } },

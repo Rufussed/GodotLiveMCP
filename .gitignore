@@ -9,6 +9,7 @@ launcher/.godot/
 # Local test projects (linked to this repo's addon)
 test_project/
 woop/
+test2/
 
 # Godot path remembered by launch.bat
 launcher/.godot_path

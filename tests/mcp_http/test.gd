@@ -12,6 +12,7 @@ var port := 0
 var failures := 0
 var checks := 0
 var pending_replies: Array = []
+var nested_calls := 0
 
 
 func _initialize() -> void:
@@ -41,6 +42,13 @@ func _handle(req: Dictionary, reply: Callable) -> void:
 			reply.call({"jsonrpc": "2.0", "id": id, "result": {"data": "x".repeat(3 * 1024 * 1024)}})
 		"slow":
 			pending_replies.append({"left": 6, "id": id, "reply": reply})
+		"nested":
+			# Like save_scene_live: the command runs a nested editor frame, which
+			# polls the server again before this request has been answered.
+			nested_calls += 1
+			if nested_calls < 50:
+				server.poll()
+			reply.call({"jsonrpc": "2.0", "id": id, "result": {"calls": nested_calls}})
 		"notifications/initialized":
 			reply.call(null)
 		_:
@@ -152,6 +160,12 @@ func run_all() -> void:
 	r = await post_split_mid_character(body, good)
 	assert_eq(r.status, 200, "a body split inside a multi-byte character is accepted")
 	assert_true(JSON.parse_string(r.body).result.text == text, "multi-byte text survives a split arrival")
+	# A poll from inside a handler must not dispatch the same request again (it
+	# recursed until the editor crashed when save_scene_live ran over HTTP).
+	r = await post('{"jsonrpc":"2.0","id":8,"method":"nested"}', good)
+	assert_eq(r.status, 200, "a request polled again from inside its handler is answered")
+	assert_eq(nested_calls, 1, "a request polled again from inside its handler runs once")
+
 	r = await post('{"jsonrpc":"2.0","id":3,"method":"big"}', good)
 	assert_eq(r.status, 200, "a 3 MB reply is delivered")
 	assert_eq(r.raw_size, r.declared_length + r.head.length() + 4, "the 3 MB reply arrives complete")

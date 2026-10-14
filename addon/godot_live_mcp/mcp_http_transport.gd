@@ -175,6 +175,10 @@ func _try_dispatch(c: Dictionary, on_request: Callable) -> void:
 	if buf.size() - c.headers_end < c.content_length:
 		return
 	var body := buf.slice(c.headers_end, c.headers_end + c.content_length).get_string_from_utf8()
+	# Out of "reading" before the handler runs: a command can run a nested editor
+	# frame (saving shows a progress dialog) that polls again, and would otherwise
+	# dispatch this same request again, recursively, until the editor crashed.
+	c.state = "dispatching"
 	var response = on_request.call(c.id, c.method, c.path, c.headers, body)
 	if response == null:
 		c.state = "waiting"

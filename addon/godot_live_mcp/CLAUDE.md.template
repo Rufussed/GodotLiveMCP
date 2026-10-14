@@ -301,8 +301,9 @@ Writing a good spontaneous tour:
    the card shows the node's current name, so the text always matches the
    Scene dock.
 5. **Check state, not clicks.** `node_added` with `capture` (the user may name
-   the node anything), `property_equals`, `scene_saved`; `manual` only for
-   pure explanation, `control_pressed` only as a last resort.
+   the node anything), `property_equals`, `node_type` (after Change Type),
+   `scene_saved`; `manual` only for pure explanation (Show me can't do a
+   manual step), `control_pressed` only as a last resort.
 6. **Show me works on almost every step** and announces what it does; for
    code steps use a `script_contains` check (it writes, saves and attaches
    the code for the user). Give an explicit `show_me` only when the derived
