@@ -47,7 +47,7 @@ Node.js, no terminal, no config file to edit.
 1. **Add the addon.** Copy `addon/godot_live_mcp/` from this repo into your
    project as `addons/godot_live_mcp/`.
 2. **Enable it.** Project > Project Settings > Plugins > tick "GodotLive MCP
-   Bridge". An **AI Assistant** tab appears in the bottom panel, with a card
+   Bridge". An **Agentic Tutor** tab appears in the bottom panel, with a card
    called **Connect your AI app**.
 3. **Press your app's button** on the card (Claude Code, Codex, VS Code or
    Cursor; **More…** has opencode, Gemini CLI and **Copy config…** for anything
@@ -162,7 +162,7 @@ The steps below do the same from a terminal.
 "Optional — terminal panel" section. **Download GodotXterm** fetches the latest release of
 [GodotXterm](https://github.com/lihop/godot-xterm) (MIT, about 11 MB) once into a per-user folder;
 **Add terminal** on a project then links it in, the way the addon is linked, so one download
-serves every project and **Update GodotXterm** updates them all. With it, the AI Assistant tab
+serves every project and **Update GodotXterm** updates them all. With it, the Agentic Tutor tab
 gets a **CLI** mode. Restart the editor if the project is open. From a terminal:
 `npm run link-project -- /path/to/project --xterm /path/to/godot_xterm` (and `--unlink-xterm`).
 Installing GodotXterm yourself, for example from the AssetLib, works just as well.
@@ -189,7 +189,7 @@ Installing GodotXterm yourself, for example from the AssetLib, works just as wel
 3. Open the project in Godot. The plugin is already enabled (if the project
    was open while you linked it, reopen it). The bridge generates its auth
    token automatically.
-4. Open the **AI Assistant** tab in the bottom panel and type a message (or
+4. Open the **Agentic Tutor** tab in the bottom panel and type a message (or
    use the **CLI** or **External** modes for a full interactive CLI). The panel
    finds the server through the link and passes it to Claude along with
    this project's token, so there's no MCP config file to edit and no token
@@ -328,7 +328,7 @@ ones such as the Tree docks. Docks that are hidden or scrolled off-screen
 can't be screenshotted (the error says so). Custom Inspector controls
 should use `EditorInterface.get_editor_scale()` for pixel sizes.
 
-## AI Assistant panel
+## Agentic Tutor panel
 
 The panel's header is one line: the title, the **Agent** menu with the current choice printed after it,
 a **Chat | CLI | External** toggle (defaults to Chat), and refresh and settings on the right. You

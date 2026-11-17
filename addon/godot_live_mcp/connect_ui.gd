@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-## The "Connect your AI app" UI: a first-run card at the top of the AI Assistant
+## The "Connect your AI app" UI: a first-run card at the top of the Agentic Tutor
 ## panel and the same controls as a section of its Settings popup. Nothing is
 ## written anywhere until the user confirms a dialog that shows exactly what
 ## goes where (the token is masked on screen). File writing is connect_clients.gd.

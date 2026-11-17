@@ -147,7 +147,7 @@ func _call_tool(id: Variant, params: Dictionary, reply: Callable) -> void:
 	var entry: Dictionary = _tools[name]
 	if not _in_profile(entry):
 		reply.call(_result(id, _tool_error(
-			"The tool %s is not in the Lite tool group. Switch the tool group to Full in the AI Assistant panel, or start the editor with GODOT_LIVE_MCP_PROFILE=full." % name)))
+			"The tool %s is not in the Lite tool group. Switch the tool group to Full in the Agentic Tutor panel, or start the editor with GODOT_LIVE_MCP_PROFILE=full." % name)))
 		return
 	var args: Variant = params.get("arguments", {})
 	if args == null:

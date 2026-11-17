@@ -3,7 +3,7 @@ class_name GodotLiveMCPBridge
 extends Node
 
 ## Emitted once per request the bridge answers (ok = whether it succeeded). The
-## AI Assistant panel's robot uses it to show that an AI is working in the
+## Agentic Tutor panel's robot uses it to show that an AI is working in the
 ## editor, whichever client (chat, CLI, a separate terminal, another tool) it is.
 signal activity(ok: bool)
 ## Watch mode switched on/off (by the panel button or the set_watch_mode tool).

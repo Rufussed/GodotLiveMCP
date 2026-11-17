@@ -1433,7 +1433,7 @@ export const bridgeToolDefinitions = [
       'The tool calls that recently reached this Godot editor from any AI agent, newest last: time, command, via ("node" = through ' +
       'the Node MCP server, "editor" = through the editor\'s own built-in MCP server), ok, error, duration in ms and the parameters ' +
       '(long values cut to 300 characters). Use it to see what another agent working in the same editor has been doing, e.g. one ' +
-      'launched from the AI Assistant panel. Poll with since = the next_since of the previous call to get only newer calls; "missed" ' +
+      'launched from the Agentic Tutor panel. Poll with since = the next_since of the previous call to get only newer calls; "missed" ' +
       'counts calls that were dropped (the editor keeps the last 200, in memory only, cleared when the plugin reloads). Calls to ' +
       'get_recent_activity itself are not listed, and a running game\'s tools are only listed when they went through the editor\'s ' +
       'own server.',

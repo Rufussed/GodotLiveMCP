@@ -135,7 +135,7 @@ Every `set_property`/`add_node_live`/etc. call changes the editor's
 The editor can offer a smaller **Lite** set of tools or the **Full** set. If a
 call comes back saying a tool "is not in the Lite tool group", it exists but is
 switched off: tell the user to switch the tool group to **Full** on the Connect
-card in the AI Assistant panel (their AI app sees it from its next
+card in the Agentic Tutor panel (their AI app sees it from its next
 conversation), rather than trying to work around it with `eval_expression`.
 
 If the connection drops right after `reload_plugin` or `restart_editor`, that is

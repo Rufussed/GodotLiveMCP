@@ -9,7 +9,7 @@ live eval, scene tree inspection, node/property editing.
 **No Node needed.** Copy this `godot_live_mcp/` folder into your project as
 `addons/godot_live_mcp/`, enable the plugin (Project > Project Settings >
 Plugins), and press your AI app's button on the **Connect your AI app** card in
-the AI Assistant tab. The addon then serves MCP itself, over HTTP on
+the Agentic Tutor tab. The addon then serves MCP itself, over HTTP on
 `127.0.0.1`. The main [README](../../README.md#quick-start-three-steps-no-node)
 has the details: what each button writes, tool groups, security, and what still
 needs the Node server. The sections below describe the launcher and the Node
@@ -35,11 +35,11 @@ least one coding agent CLI, installed and logged in:
    has a `project.godot`. The launcher links this addon into the project's
    `addons/` folder and enables the plugin in `project.godot`.
 5. The project appears in the list with **Open in Godot** and **Unlink**
-   buttons. Open it and the AI Assistant panel sets up the server and token
+   buttons. Open it and the Agentic Tutor panel sets up the server and token
    by itself. You don't need the manual steps below. (If the project was
    already open in Godot while you added it, reopen it.)
 6. Optional, Linux and macOS: the launcher's **terminal panel** section downloads
-   GodotXterm once; **Add terminal** on a project then gives its AI Assistant tab
+   GodotXterm once; **Add terminal** on a project then gives its Agentic Tutor tab
    a **CLI** mode (the agent's full interactive CLI inside the editor). See the main
    README for details.
 
@@ -47,7 +47,7 @@ least one coding agent CLI, installed and logged in:
 
 If you'd rather not use the launcher, the main README's Quick start does
 the same from a terminal: `npm run link-project` links this folder into
-your project and enables the plugin. After that, the AI Assistant panel
+your project and enables the plugin. After that, the Agentic Tutor panel
 sets up the server and token by itself, so you can skip the steps below.
 
 ### Manual

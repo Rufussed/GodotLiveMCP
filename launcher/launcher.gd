@@ -13,7 +13,7 @@ extends Control
 
 const CONFIG_PATH := "user://launcher.cfg"
 const REPO_URL := "https://github.com/Rufussed/GodotLiveMCP.git"
-# The coding agent CLIs the AI Assistant panel can drive. At least one is needed.
+# The coding agent CLIs the Agentic Tutor panel can drive. At least one is needed.
 const AGENT_CLIS := [
 	{"cmd": "claude", "name": "Claude Code", "url": "https://docs.claude.com/en/docs/claude-code"},
 	{"cmd": "codex", "name": "Codex", "url": "https://github.com/openai/codex"},
@@ -381,7 +381,7 @@ func _make_project_row(path: String) -> Control:
 		var xs := _xterm_link_state(path)
 		var xl := Label.new()
 		xl.text = {"linked": "terminal ✔", "copy": "terminal (own copy)", "none": "no terminal"}[xs]
-		xl.tooltip_text = "The in-editor CLI view (GodotXterm) for this project's AI Assistant panel."
+		xl.tooltip_text = "The in-editor CLI view (GodotXterm) for this project's Agentic Tutor panel."
 		xl.modulate = Color(0.5, 0.85, 0.5) if xs != "none" else Color(1, 1, 1, 0.5)
 		row.add_child(xl)
 		if xs == "linked":
@@ -616,7 +616,7 @@ func _build_xterm_section(parent: Control) -> void:
 	head.add_theme_font_size_override("font_size", 14)
 	box.add_child(head)
 	var blurb := Label.new()
-	blurb.text = ("Adds a CLI view to the AI Assistant tab: Claude Code, Codex, OpenCode or Gemini running inside the editor.\n" +
+	blurb.text = ("Adds a CLI view to the Agentic Tutor tab: Claude Code, Codex, OpenCode or Gemini running inside the editor.\n" +
 		"Uses the GodotXterm addon by lihop (MIT licence, about 11 MB). Download it once here, then add it to the projects you want.")
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	blurb.modulate = Color(1, 1, 1, 0.7)
@@ -771,7 +771,7 @@ func _xterm_link_state(path: String) -> String:
 func _xterm_link(path: String) -> void:
 	_run_async("npm", ["run", "link-project", "--prefix", _server_dir, "--", path, "--xterm", _xterm_addon_dir()], func(code: int):
 		if code == 0:
-			_log_line("Restart the editor if this project is open: the AI Assistant tab then has a [b]CLI[/b] mode.")
+			_log_line("Restart the editor if this project is open: the Agentic Tutor tab then has a [b]CLI[/b] mode.")
 		_update_controls()
 	)
 

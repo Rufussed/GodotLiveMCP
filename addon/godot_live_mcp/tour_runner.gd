@@ -1139,7 +1139,7 @@ func _maybe_auto_ask() -> void:
 	_auto_asked[key] = true
 	_last_auto_msec = Time.get_ticks_msec()
 	_log("asked_agent", {"sent": true, "auto": true})
-	_note_why = "Asked the agent automatically — see the AI Assistant panel."
+	_note_why = "Asked the agent automatically — see the Agentic Tutor panel."
 	_refresh_card()
 
 func _on_ask_pressed() -> void:
@@ -1152,7 +1152,7 @@ func _on_ask_pressed() -> void:
 	_log("asked_agent", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
 	if err == "":
 		_bridge._editor_plugin.make_bottom_panel_item_visible(panel)
-		_note_why = "Asked the agent — see the AI Assistant panel."
+		_note_why = "Asked the agent — see the Agentic Tutor panel."
 	else:
 		_note_why = "Couldn't ask the agent: " + err
 	_refresh_card()
@@ -1203,7 +1203,7 @@ func revise(new_steps: Array, from_step: int, note: String, dry_run: bool) -> Di
 
 ## "Why?": the step's own why text first (works offline, in saved tours);
 ## pressed again, or when there is none, the question goes to the agent in
-## the AI Assistant panel with the tour context.
+## the Agentic Tutor panel with the tour context.
 func _on_why_pressed() -> void:
 	if not is_running() or _done:
 		return
@@ -1223,12 +1223,12 @@ func _on_why_pressed() -> void:
 	_log("why_asked", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
 	if err == "":
 		_bridge._editor_plugin.make_bottom_panel_item_visible(panel)
-		_note_why = (why + "\n" if why != "" else "") + "Asked the agent — see the AI Assistant panel."
+		_note_why = (why + "\n" if why != "" else "") + "Asked the agent — see the Agentic Tutor panel."
 	else:
 		_note_why = (why + "\n" if why != "" else "") + "Couldn't ask the agent: " + err
 	_refresh_card()
 
-## The in-editor AI Assistant panel, if the plugin has one.
+## The in-editor Agentic Tutor panel, if the plugin has one.
 func _agent_panel() -> Node:
 	var plugin = _bridge._editor_plugin if _bridge else null
 	if plugin == null:

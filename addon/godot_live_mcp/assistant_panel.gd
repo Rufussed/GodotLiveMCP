@@ -1,7 +1,7 @@
 @tool
 extends VBoxContainer
 
-## Bottom-panel tab: "AI Assistant". Two independent on-ramps, offered
+## Bottom-panel tab: "Agentic Tutor". Two independent on-ramps, offered
 ## together rather than as a mode switch: an external-terminal launcher
 ## (the native TUI, no parsing needed) and an in-editor structured session (this addition) that
 ## drives `claude` via stream-json and renders it as native Godot UI
@@ -49,8 +49,11 @@ var _agent_model_menu: PopupMenu
 var _agent_effort_menu: PopupMenu
 var _chat_button: Button           # header mode: Chat
 var _agent_label: Label            # header: the current agent / model, after the Agent button
+var _title_label: Label            # header title: the tutor's name
+var _name_card: PanelContainer     # first-run card: "Name your friendly robot tutor"
+var _name_edit: LineEdit           # the settings popup's tutor-name field
 var _logo: TextureRect             # header robot: a status light (see _set_robot)
-var _server_label: Label           # header: which MCP server panel agents get (see _refresh_server_label)
+var _server_label: Label           # top of the settings popup: which MCP server panel agents get (see _refresh_server_label)
 var _robot_textures := {}          # face name -> texture
 var _robot_state := "idle"
 var _robot_frame := 0
@@ -283,17 +286,12 @@ func _ready() -> void:
 	_setup_robot()
 
 	var title := Label.new()
-	title.text = "Godot LIVE MCP"
+	title.text = _tutor_name()
+	title.tooltip_text = "Your Godot Tutor. Rename it in Settings."
+	title.mouse_filter = Control.MOUSE_FILTER_STOP
+	_title_label = title
 	title.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
 	left_group.add_child(title)
-
-	# Which MCP server agents launched from this panel are handed: the
-	# editor's own endpoint or the Node server. Details in the tooltip.
-	_server_label = Label.new()
-	_server_label.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignore the mouse by default, so no tooltip
-	_server_label.mouse_entered.connect(_refresh_server_label)
-	left_group.add_child(_server_label)
-	_refresh_server_label()
 
 	# Godot control itself (mcp__godot-live-mcp__*) is always granted, not a
 	# toggle — it's the entire point of this panel. The three optional,
@@ -388,6 +386,7 @@ func _ready() -> void:
 	_build_settings_popup()
 
 	_build_session_ui()
+	_build_name_card()
 	_restore_conversation()
 	_update_agent_button()
 	visibility_changed.connect(_on_panel_visibility_changed)
@@ -869,7 +868,7 @@ func _server_connection() -> Dictionary:
 		return {"mode": "node", "entry": entry, "token": token}
 	return {"mode": "none"}
 
-## The header's server label: "Editor server", "Node server" or "No server",
+## The settings popup's server label: "Editor server", "Node server" or "No server",
 ## with the reason and details in its tooltip. Cheap enough to run on hover.
 func _refresh_server_label() -> void:
 	if _server_label == null:
@@ -905,7 +904,7 @@ func _refresh_server_label() -> void:
 				tip = "The editor's MCP server isn't running and the Node server wasn't found.\n"
 			tip += "Agents fall back to any godot-live-mcp server you registered yourself.\n"
 	tip += "AI apps you start outside this panel use whatever they were registered with."
-	_server_label.text = "· " + text
+	_server_label.text = "MCP server: " + text
 	_server_label.tooltip_text = tip
 	_server_label.add_theme_color_override("font_color", color)
 
@@ -924,6 +923,8 @@ func set_endpoint(endpoint: Node) -> void:
 		_connect_ui = ConnectUI.new()
 		_connect_ui.setup(self, endpoint, _bridge_ref)
 		_connect_ui.build_section(_settings_box)
+		if _name_card:
+			move_child(_name_card, 1)
 
 ## The name Codex knows the server by. Normally "godot-live-mcp", but a Codex
 ## config that already registers a stdio server of that name (the Node setup from
@@ -1908,23 +1909,23 @@ const _TOOL_DATA_SETTING := "collect_tool_data"
 const _ASSISTANT_SETTING := "panel_assistant"
 
 const _SAVE_ON_PROMPT := (
-	"Saving preference (set by the user in the Godot AI Assistant settings): save the scene " +
+	"Saving preference (set by the user in the Godot Agentic Tutor settings): save the scene " +
 	"with save_scene_live after finishing each step of a task."
 )
 const _SAVE_OFF_PROMPT := (
-	"Saving preference (set by the user in the Godot AI Assistant settings): don't save — " +
+	"Saving preference (set by the user in the Godot Agentic Tutor settings): don't save — " +
 	"leave changes unsaved in the editor (the scene tab shows (*)) for the user to save " +
 	"with Ctrl+S, like their own edits. Don't call save_scene_live unless the user asks. " +
 	"Pressing Play still saves everything first, as it does for the user."
 )
 
 const _TESTS_ON_PROMPT := (
-	"Testing preference (set by the user in the Godot AI Assistant settings): " +
+	"Testing preference (set by the user in the Godot Agentic Tutor settings): " +
 	"after making changes, verify them yourself — play the scene, check the result " +
 	"(game state, screenshots) and fix problems before reporting back."
 )
 const _TESTS_OFF_PROMPT := (
-	"Testing preference (set by the user in the Godot AI Assistant settings): the user " +
+	"Testing preference (set by the user in the Godot Agentic Tutor settings): the user " +
 	"tests changes themselves to save tokens. Don't play the scene, take screenshots, " +
 	"simulate input or run other verification steps unless the user asks. Make the " +
 	"change, then briefly say what to try. Quick checks that catch outright errors " +
@@ -1963,6 +1964,32 @@ func _build_settings_popup() -> void:
 		_build_term_settings(right)
 
 	var bold: Font = EditorInterface.get_editor_theme().get_font("bold", "EditorFonts")
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 8)
+	box.add_child(name_row)
+	var name_label := Label.new()
+	name_label.text = "Tutor name"
+	name_label.add_theme_font_override("font", bold)
+	name_row.add_child(name_label)
+	_name_edit = LineEdit.new()
+	_name_edit.custom_minimum_size = Vector2(160, 0)
+	_name_edit.max_length = _TUTOR_NAME_MAX
+	_name_edit.placeholder_text = _DEFAULT_TUTOR_NAME
+	_name_edit.text = _tutor_name()
+	_name_edit.tooltip_text = "What your tutor is called in this panel and in tours. Press Enter to save."
+	_name_edit.text_submitted.connect(func(t: String): _save_tutor_name(t))
+	_name_edit.focus_exited.connect(func(): _save_tutor_name(_name_edit.text))
+	name_row.add_child(_name_edit)
+	box.add_child(HSeparator.new())
+	# Which MCP server agents launched from this panel are handed: the
+	# editor's own endpoint or the Node server. Details in the tooltip. Lives
+	# at the top of the settings popup, not in the header, to keep the header light.
+	_server_label = Label.new()
+	_server_label.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignore the mouse by default, so no tooltip
+	_server_label.mouse_entered.connect(_refresh_server_label)
+	box.add_child(_server_label)
+	_refresh_server_label()
+	box.add_child(HSeparator.new())
 	var perm_label := Label.new()
 	perm_label.text = "Permissions"
 	perm_label.add_theme_font_override("font", bold)
@@ -2068,6 +2095,7 @@ func _panel_agent() -> String:
 	return _preferred_assistant()
 
 func _on_settings_pressed() -> void:
+	_refresh_server_label()
 	if _term_size_spin:
 		_sync_term_settings_controls()
 	_sync_check.set_pressed_no_signal(_is_sync_enabled())
@@ -2089,6 +2117,7 @@ func _behavior_text() -> String:
 	var tests: bool = es.get_project_metadata("godot_live_mcp", _TESTS_SETTING, false)
 	var saves: bool = es.get_project_metadata("godot_live_mcp", _SAVE_SETTING, true)
 	return "\n\n".join([
+		"The user has named you \"%s\". Use that name if they ask who you are." % _tutor_name(),
 		_NO_DISK_EDITS_PROMPT,
 		_TESTS_ON_PROMPT if tests else _TESTS_OFF_PROMPT,
 		_SAVE_ON_PROMPT if saves else _mac_keys(_SAVE_OFF_PROMPT),
@@ -2571,6 +2600,91 @@ func _append_transcript(bbcode_line: String) -> void:
 		f.seek_end()
 		f.store_string(bbcode_line + "\n")
 
+const _DEFAULT_TUTOR_NAME := "Gobo"
+const _TUTOR_NAME_MAX := 24
+const _TUTOR_NAME_KEY := "tutor_name"
+const _TUTOR_ASKED_KEY := "tutor_name_asked"
+const _TUTOR_LAST_NAME_SETTING := "godot_live_mcp/last_tutor_name"
+
+## What the user calls their tutor (default "Gobo"). Saved per project.
+func _tutor_name() -> String:
+	var n := _clean_tutor_name(String(_meta(_TUTOR_NAME_KEY, "")))
+	return n if n != "" else _DEFAULT_TUTOR_NAME
+
+## One short line: trimmed, whitespace collapsed, no control characters, so the
+## name is safe to show and to hand to the agent.
+func _clean_tutor_name(raw: String) -> String:
+	var out := ""
+	for ch in raw:
+		out += " " if ch.unicode_at(0) < 32 else ch
+	return " ".join(out.strip_edges().split(" ", false)).left(_TUTOR_NAME_MAX)
+
+func _save_tutor_name(raw: String) -> void:
+	var n := _clean_tutor_name(raw)
+	if n == "":
+		n = _DEFAULT_TUTOR_NAME
+	var changed := n != _tutor_name()
+	_set_meta(_TUTOR_NAME_KEY, n)
+	_set_meta(_TUTOR_ASKED_KEY, true)
+	EditorInterface.get_editor_settings().set_setting(_TUTOR_LAST_NAME_SETTING, n)
+	_apply_tutor_name()
+	if changed:
+		_append_transcript("[i]Your tutor is now called[/i] %s[i]. Its new name reaches the agent from your next new session.[/i]" % _agent_line())
+
+func _apply_tutor_name() -> void:
+	var n := _tutor_name()
+	if _title_label:
+		_title_label.text = n
+	if _name_edit and _name_edit.text != n and not _name_edit.has_focus():
+		_name_edit.text = n
+	if _name_card:
+		_name_card.visible = false
+
+## First run in a project: ask once what to call the tutor. Pre-filled with the
+## name chosen in another project, or "Gobo". Skipping keeps the default.
+func _build_name_card() -> void:
+	if bool(_meta(_TUTOR_ASKED_KEY, false)):
+		return
+	var es := EditorInterface.get_editor_settings()
+	var prefill := String(es.get_setting(_TUTOR_LAST_NAME_SETTING)) if es.has_setting(_TUTOR_LAST_NAME_SETTING) else _DEFAULT_TUTOR_NAME
+	_name_card = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(1, 1, 1, 0.05)
+	style.border_color = Color(0.49, 0.75, 0.49, 0.5)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(10)
+	_name_card.add_theme_stylebox_override("panel", style)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	_name_card.add_child(box)
+	var title := Label.new()
+	title.text = "Name your friendly robot tutor"
+	title.add_theme_font_override("font", EditorInterface.get_editor_theme().get_font("bold", "EditorFonts"))
+	box.add_child(title)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	var edit := LineEdit.new()
+	edit.custom_minimum_size = Vector2(220, 0)
+	edit.max_length = _TUTOR_NAME_MAX
+	edit.placeholder_text = _DEFAULT_TUTOR_NAME
+	edit.text = prefill
+	edit.select_all_on_focus = true
+	row.add_child(edit)
+	var save := Button.new()
+	save.text = "Save name"
+	row.add_child(save)
+	var keep := Button.new()
+	keep.text = "Keep %s" % _DEFAULT_TUTOR_NAME
+	keep.tooltip_text = "Use the default name. You can rename your tutor any time in Settings."
+	row.add_child(keep)
+	save.pressed.connect(func(): _save_tutor_name(edit.text))
+	edit.text_submitted.connect(func(t: String): _save_tutor_name(t))
+	keep.pressed.connect(func(): _save_tutor_name(_DEFAULT_TUTOR_NAME))
+	add_child(_name_card)
+	move_child(_name_card, 1)
+
 func _meta(key: String, default = ""):
 	return EditorInterface.get_editor_settings().get_project_metadata("godot_live_mcp", key, default)
 
@@ -2606,13 +2720,10 @@ func _restore_conversation() -> void:
 func _show_header() -> void:
 	_transcript.append_text(_agent_line() + "\n")
 
-## "In Editor Coding Agent: <name> · <model>" in bold green, as BBCode.
+## The tutor's name in bold green, as BBCode. The agent and model it runs on
+## are in the header and its tooltip.
 func _agent_line() -> String:
-	var agent := _preferred_assistant()
-	var model := _current_setting(agent, "model")
-	return "[b][color=#7ec07e]In Editor Coding Agent: %s · %s[/color][/b]" % [
-		_cli_name(agent).xml_escape(),
-		_choice_label(agent, model).xml_escape() if model != "" else "default model"]
+	return "[b][color=#7ec07e]%s[/color][/b]" % _tutor_name().xml_escape()
 
 ## Forget the stored conversation (id, name and saved transcript).
 func _clear_conversation() -> void:

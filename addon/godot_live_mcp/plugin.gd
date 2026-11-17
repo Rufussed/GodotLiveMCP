@@ -29,7 +29,7 @@ func _enter_tree() -> void:
 
 	_assistant_panel = AssistantPanelScript.new()
 	_assistant_panel.name = "AIAssistantPanel"
-	var tab_button := add_control_to_bottom_panel(_assistant_panel, "AI Assistant")
+	var tab_button := add_control_to_bottom_panel(_assistant_panel, "Agentic Tutor")
 	_move_tab_first(tab_button)
 	_bridge.activity.connect(_assistant_panel.on_bridge_activity)
 	_assistant_panel.set_bridge(_bridge)
@@ -37,20 +37,30 @@ func _enter_tree() -> void:
 	add_tool_menu_item(TOURS_MENU_ITEM, _open_tours)
 
 ## New bottom panels go last; the chat is the one used most, so make it the
-## first tab. Newer Godot wraps the panel in a dock inside a TabContainer
-## (tab order = child order); older versions return a tab button instead.
+## first tab and the one shown when the editor opens. Newer Godot wraps the
+## panel in a dock inside a TabContainer (tab order = child order); older
+## versions return a tab button instead. The editor can reorder or reselect
+## tabs while it finishes loading (saved layout, other plugins), so this
+## runs again shortly afterwards.
 func _move_tab_first(tab_button: Control) -> void:
+	_place_tab(tab_button)
+	for delay in [0.5, 2.0]:
+		get_tree().create_timer(delay).timeout.connect(_place_tab.bind(tab_button))
+
+func _place_tab(tab_button: Control) -> void:
+	if _assistant_panel == null or not is_instance_valid(_assistant_panel):
+		return
 	var node: Node = _assistant_panel
 	while node and not (node.get_parent() is TabContainer):
 		node = node.get_parent()
 	if node:
 		var tabs: TabContainer = node.get_parent()
-		var current := tabs.get_current_tab_control()
 		tabs.move_child(node, 0)
-		if current:
-			tabs.current_tab = tabs.get_tab_idx_from_control(current)
-	elif tab_button and tab_button.get_parent():
+		tabs.current_tab = tabs.get_tab_idx_from_control(node)
+	elif tab_button and is_instance_valid(tab_button) and tab_button.get_parent():
 		tab_button.get_parent().move_child(tab_button, 0)
+		if tab_button is Button:
+			tab_button.button_pressed = true
 
 func _exit_tree() -> void:
 	remove_tool_menu_item(TOURS_MENU_ITEM)
