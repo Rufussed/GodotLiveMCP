@@ -39,9 +39,10 @@ const _TERMINALS := [
 const _MAC_PATH_PREFIX := 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; '
 
 var _external_button: Button       # header: open the chosen agent in a separate terminal window
-var _tutorial_button: Button       # input row: answer how-to questions with guided tours
+var _teach_button: Button          # input row: send as a guided-tour request (Teach)
 var _raw_next := false
-var _watch_button: Button          # input row: Watch mode (state lives in the bridge)
+var _send_as_teach := false        # true while a Teach send is in progress
+var _watch_check: CheckBox         # Settings: Watch mode (state lives in the bridge)
 var _bridge_ref: Node = null             # the next send is the tour card's own question: no tutorial note
 var _term_emulator_found := true   # a terminal emulator exists for External (set by _refresh_status)
 var _agent_button: MenuButton      # header: agent + model (+ effort) menu
@@ -1448,36 +1449,19 @@ func _build_session_ui() -> void:
 	_chat_view = splitter
 	_build_term_view()
 
-	# Teach mode: how-to questions get a guided tour instead of the agent
-	# doing it — one toggle instead of the agent asking each time. Solid
-	# green when on, grey when off, so the state is obvious at a glance.
-	_tutorial_button = Button.new()
-	_tutorial_button.toggle_mode = true
-	_tutorial_button.focus_mode = Control.FOCUS_NONE
-	_tutorial_button.button_pressed = bool(_meta("tutorial_mode", false))
-	_tutorial_button.toggled.connect(func(on: bool) -> void:
-		_set_meta("tutorial_mode", on)
-		_style_teach_button(on)
-		if on and _bridge_ref != null and _bridge_ref.is_watching():
-			_bridge_ref.set_watching(false))
-	_style_teach_button(_tutorial_button.button_pressed)
-
-	# Watch mode: see each action the agent takes, as it takes it.
-	_watch_button = Button.new()
-	_watch_button.toggle_mode = true
-	_watch_button.focus_mode = Control.FOCUS_NONE
-	_watch_button.toggled.connect(func(on: bool) -> void:
-		if _bridge_ref != null:
-			_bridge_ref.set_watching(on)
-		else:
-			_style_watch_button(on))
-	_style_watch_button(false)
-	input_row.add_child(_watch_button)
-	input_row.add_child(_tutorial_button)
+	# Teach first, then Do (send), then Stop. Do sends the text as typed and the
+	# agent does it; Teach sends the same text as a request for a guided tour.
+	_teach_button = Button.new()
+	_teach_button.icon = _svg_icon("teach.svg")
+	_teach_button.tooltip_text = "Teach: the Tutor guides you through this step by step, with a tour in the editor, instead of doing it for you (Ctrl+Enter)"
+	_teach_button.custom_minimum_size.x = 48 * EditorInterface.get_editor_scale()
+	_style_button(_teach_button, Color(0.25, 0.45, 0.85))
+	_teach_button.pressed.connect(_send_teach)
+	input_row.add_child(_teach_button)
 
 	_send_button = Button.new()
 	_send_button.icon = _svg_icon("send.svg")
-	_send_button.tooltip_text = "Send (Enter)"
+	_send_button.tooltip_text = "Do: send, and the agent does it (Enter)"
 	_send_button.custom_minimum_size.x = 48 * EditorInterface.get_editor_scale()
 	_style_button(_send_button, Color(0.22, 0.6, 0.28))
 	_send_button.pressed.connect(_on_send_pressed.bind(""))
@@ -1492,14 +1476,13 @@ func _build_session_ui() -> void:
 	input_row.add_child(_stop_button)
 	# The text box grows when the splitter is dragged; the buttons keep their
 	# normal height and stay in the bottom-right corner beside it.
-	for b in [_watch_button, _tutorial_button, _send_button, _stop_button]:
+	for b in [_teach_button, _send_button, _stop_button]:
 		b.size_flags_vertical = Control.SIZE_SHRINK_END
 	_equalize_input_buttons.call_deferred()
 
-## All four buttons the same height: text buttons (Watch, Teach) are naturally
-## taller than icon-only ones (Send, Stop), so lift the others to the tallest.
+## All three buttons the same height, lifted to the tallest.
 func _equalize_input_buttons() -> void:
-	var buttons := [_watch_button, _tutorial_button, _send_button, _stop_button]
+	var buttons := [_teach_button, _send_button, _stop_button]
 	var tallest := 0.0
 	for b in buttons:
 		if b != null:
@@ -1533,39 +1516,9 @@ func _style_button(b: Button, color: Color) -> void:
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
 		b.add_theme_color_override(c, Color.WHITE)
 
-func _style_teach_button(on: bool) -> void:
-	_tutorial_button.text = "Teach"
-	_tutorial_button.tooltip_text = (
-		"Teach mode is ON: every message is answered with a step-by-step guided tour in the editor, instead of the agent doing it for you. Click to turn off."
-		if on else
-		"Teach mode is off. Click to turn on: every message will then be answered with a step-by-step guided tour in the editor, instead of the agent doing it for you.")
-	_style_toggle(_tutorial_button, on, Color(0.22, 0.6, 0.28))
-
-func _style_watch_button(on: bool) -> void:
-	_watch_button.text = "Watch"
-	_watch_button.tooltip_text = (
-		"Watch mode is ON: each action the agent takes is shown in the editor as it happens — the node or property it touched is outlined, and a log lists what it did. Click to turn off."
-		if on else
-		"Watch mode is off. Click to turn on: see each action the agent takes in the editor as it happens.")
-	_style_toggle(_watch_button, on, Color(0.25, 0.45, 0.85))
-
-## A mode toggle: solid colour when on, grey when off.
-func _style_toggle(b: Button, on: bool, on_color: Color) -> void:
-	var color := on_color if on else Color(0.28, 0.3, 0.34)
-	_style_button(b, color)
-	# A toggled-on button under the mouse draws "hover_pressed", which
-	# _style_button doesn't set — without this it falls back to theme grey.
-	var hp := StyleBoxFlat.new()
-	hp.bg_color = color.lightened(0.12)
-	hp.set_corner_radius_all(4)
-	hp.content_margin_left = 8
-	hp.content_margin_right = 8
-	b.add_theme_stylebox_override("hover_pressed", hp)
-	if not on:
-		b.add_theme_color_override("font_color", Color(0.75, 0.77, 0.8))
-
-## Watch mode lives in the bridge (it applies to any agent on this editor);
-## the button mirrors it, including when an agent switches it.
+## Watch mode lives in the bridge (it applies to any agent on this editor).
+## The panel has no button for it; the Settings popup mirrors it, including
+## when an agent switches it.
 func set_bridge(bridge: Node) -> void:
 	_bridge_ref = bridge
 	if bridge == null:
@@ -1575,12 +1528,8 @@ func set_bridge(bridge: Node) -> void:
 	_on_watch_changed(bridge.is_watching())
 
 func _on_watch_changed(on: bool) -> void:
-	if _watch_button == null:
-		return
-	_watch_button.set_pressed_no_signal(on)
-	_style_watch_button(on)
-	if on and _tutorial_button.button_pressed:
-		_tutorial_button.button_pressed = false  # Teach and Watch exclude each other
+	if _watch_check != null:
+		_watch_check.set_pressed_no_signal(on)
 
 ## Stops the reply in progress without ending the conversation: Claude gets
 ## the stream-json "interrupt" control request (confirmed: the session and
@@ -1972,7 +1921,8 @@ func _build_settings_popup() -> void:
 	name_label.add_theme_font_override("font", bold)
 	name_row.add_child(name_label)
 	_name_edit = LineEdit.new()
-	_name_edit.custom_minimum_size = Vector2(160, 0)
+	_name_edit.custom_minimum_size = Vector2(320 * EditorInterface.get_editor_scale(), 0)
+	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_name_edit.max_length = _TUTOR_NAME_MAX
 	_name_edit.placeholder_text = _DEFAULT_TUTOR_NAME
 	_name_edit.text = _tutor_name()
@@ -2063,6 +2013,16 @@ func _build_settings_popup() -> void:
 	watch_label.text = "Watch mode"
 	watch_label.add_theme_font_override("font", bold)
 	box.add_child(watch_label)
+	_watch_check = CheckBox.new()
+	_watch_check.text = "Show each action the agent takes"
+	_watch_check.tooltip_text = (
+		"On: the editor shows each action the agent takes as it happens. The node or property it\n" +
+		"touched is outlined, and a log lists what it did.")
+	_watch_check.button_pressed = _bridge_ref != null and _bridge_ref.is_watching()
+	_watch_check.toggled.connect(func(on: bool):
+		if _bridge_ref != null:
+			_bridge_ref.set_watching(on))
+	box.add_child(_watch_check)
 	var step_row := HBoxContainer.new()
 	var step_text := Label.new()
 	step_text.text = "Time per step (seconds)"
@@ -2247,19 +2207,24 @@ func _on_input_gui_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
 			if not event.shift_pressed:
 				get_viewport().set_input_as_handled()
-				_on_send_pressed()
+				if event.ctrl_pressed or event.meta_pressed:
+					_send_teach()
+				else:
+					_on_send_pressed()
 
 ## Sends text as if the user typed it — used by guided tours' "Why?"
 ## button. Returns "" on success, else why it couldn't be sent.
 const _TUTORIAL_NOTE := "\n\n[Teach mode is on in the panel. Answer this by calling start_tour with a step-by-step guided tour for the task — always, no need to ask, and don't do the work for me or change the scene yourself. Look at the scene first so the tour uses my real node names. If the scene already has what I asked for, say so in one sentence instead of touring things that are already done, and offer a tour of the next step or a change. If it isn't a build/how-to task (a plain question), answer in a sentence or two and offer a tour.]"
 
-## What actually goes to the agent: the user's text, plus the tutorial-mode
-## note when that toggle is on (not for the tour card's own Why? questions).
+## What actually goes to the agent: the user's text, plus the tutorial note
+## when it was sent with the Teach button (not for the tour card's own Why? questions).
 func _outgoing(text: String) -> String:
 	if _raw_next:
 		_raw_next = false
 		return text
-	if _tutorial_button != null and _tutorial_button.button_pressed:
+	# tour_runner reads this to ask the agent for help when a tour step fails.
+	_set_meta("tutorial_mode", _send_as_teach)
+	if _send_as_teach:
 		return text + _TUTORIAL_NOTE
 	return text
 
@@ -2277,6 +2242,12 @@ func ask(text: String) -> String:
 
 ## get separate feedback for; acceptable since _start_session already
 ## posts its own "Session started" line to the transcript immediately.
+## Teach: send the typed text as a request for a guided tour.
+func _send_teach() -> void:
+	_send_as_teach = true
+	_on_send_pressed()
+	_send_as_teach = false
+
 func _on_send_pressed(_submitted_text: String = "") -> void:
 	var text := _input_field.text.strip_edges()
 	if text.is_empty():
@@ -2289,7 +2260,7 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 	if not (agent in _CHAT_AGENTS):
 		_append_transcript("[i]%s has no chat view yet — switch to Terminal or External.[/i]" % _cli_name(agent))
 		return
-	var you := "You (teach):" if (_tutorial_button != null and _tutorial_button.button_pressed and not _raw_next) else "You:"
+	var you := "You (teach):" if (_send_as_teach and not _raw_next) else "You:"
 	var outgoing := _outgoing(text)
 	# Watch groups the agent's steps by the message they answer.
 	if _bridge_ref != null and _bridge_ref.is_watching() and you != "":
