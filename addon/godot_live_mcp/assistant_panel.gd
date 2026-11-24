@@ -693,7 +693,7 @@ func _spec_gemini() -> Dictionary:
 		var path := ProjectSettings.globalize_path("res://.gemini/settings.json")
 		var cfg = _read_json(path) if FileAccess.file_exists(path) else {}
 		if not (cfg is Dictionary):
-			_append_transcript("[color=yellow]%s isn't valid JSON — left alone; Gemini will use its own godot-live-mcp registration, if any.[/color]" % path.xml_escape())
+			_append_transcript("[color=yellow]%s isn't valid JSON — left alone; Gemini will use its own godot-live-mcp registration, if any.[/color]" % path.replace("[", "[lb]"))
 		else:
 			if not (cfg.get("mcpServers") is Dictionary):
 				cfg["mcpServers"] = {}
@@ -1030,7 +1030,7 @@ func _register_claude_local(force: bool) -> Dictionary:
 	var sh := _login_shell(shell_cmd)
 	if OS.execute(sh[0], sh[1], output, true) != 0:
 		var failure := "Couldn't register godot-live-mcp for this project with Claude Code: %s" % "".join(output).strip_edges()
-		_append_transcript("[color=yellow]%s[/color]" % failure.xml_escape())
+		_append_transcript("[color=yellow]%s[/color]" % failure.replace("[", "[lb]"))
 		return {"ok": false, "message": failure}
 	editor_settings.set_project_metadata("godot_live_mcp", "local_registration", signature)
 	var done := "Registered godot-live-mcp for this project folder — any `claude` session started here can now control this editor."
@@ -1582,7 +1582,7 @@ func _handle_slash_command(text: String) -> void:
 		return
 	if parts[0] != "/model":
 		_append_transcript("[i]%s isn't available in the panel — use Open %s for the full terminal session. The panel handles /model, /effort and /compact; New session (refresh icon) replaces /clear.[/i]" % [
-			parts[0].xml_escape(), _cli_name(agent)])
+			parts[0].replace("[", "[lb]"), _cli_name(agent)])
 		return
 	if parts.size() == 1:
 		_show_choice_menu(agent, "model")
@@ -1611,10 +1611,10 @@ func _set_model(agent: String, model: String) -> void:
 	EditorInterface.get_editor_settings().set_project_metadata(
 		"godot_live_mcp", "model_" + agent, "" if model == "default" else model)
 	if agent != "claude":
-		_append_transcript("[i]%s model set to %s — used from your next message.[/i]" % [_cli_name(agent), model.xml_escape()])
+		_append_transcript("[i]%s model set to %s — used from your next message.[/i]" % [_cli_name(agent), model.replace("[", "[lb]")])
 	else:
 		# The model is fixed at launch; restarting resumes the same conversation.
-		_apply_on_next_message("Claude model set to %s" % model.xml_escape())
+		_apply_on_next_message("Claude model set to %s" % model.replace("[", "[lb]"))
 	_update_agent_button()
 	_sync_terminal_to_settings()
 
@@ -1629,9 +1629,9 @@ func _effort_command(agent: String, level: String) -> void:
 	EditorInterface.get_editor_settings().set_project_metadata(
 		"godot_live_mcp", "effort_" + agent, "" if level == "default" else level)
 	if agent != "claude":
-		_append_transcript("[i]%s effort set to %s — used from your next message.[/i]" % [_cli_name(agent), level.xml_escape()])
+		_append_transcript("[i]%s effort set to %s — used from your next message.[/i]" % [_cli_name(agent), level.replace("[", "[lb]")])
 	else:
-		_apply_on_next_message("Claude effort set to %s" % level.xml_escape())
+		_apply_on_next_message("Claude effort set to %s" % level.replace("[", "[lb]"))
 	_update_agent_button()
 	_sync_terminal_to_settings()
 
@@ -2178,7 +2178,7 @@ func _start_session(first_message: String = "") -> bool:
 	# the "conversation continues" note (model/effort change) already said so.
 	if not _resuming:
 		_append_transcript("[i]Session started: “%s” (pid %d). Granted: %s.[/i]" % [
-			_session_name.xml_escape(), _pipe.pid,
+			_session_name.replace("[", "[lb]"), _pipe.pid,
 			", ".join(granted_labels) if not granted_labels.is_empty() else "Godot control only"])
 	return true
 
@@ -2272,14 +2272,14 @@ func _on_send_pressed(_submitted_text: String = "") -> void:
 			_append_transcript("[i]%s is still working on the last message — wait for it to finish.[/i]" % _cli_name(agent))
 			return
 		if _start_turn(agent, outgoing):
-			_append_transcript("[color=#e5c07b][b]%s[/b] %s[/color]" % [you, text.xml_escape()])
+			_append_transcript("[color=#e5c07b][b]%s[/b] %s[/color]" % [you, text.replace("[", "[lb]")])
 			_input_field.text = ""
 			_set_busy("chat", true)
 		return
 	if not _session_active:
 		if not _start_session(text):
 			return
-	_append_transcript("[color=#e5c07b][b]%s[/b] %s[/color]" % [you, text.xml_escape()])
+	_append_transcript("[color=#e5c07b][b]%s[/b] %s[/color]" % [you, text.replace("[", "[lb]")])
 	var payload := {
 		"type": "user",
 		"message": {"role": "user", "content": [{"type": "text", "text": outgoing}]},
@@ -2363,9 +2363,9 @@ func _handle_stream_event(line: String) -> void:
 		for block in content:
 			var block_type := String(block.get("type", ""))
 			if block_type == "text":
-				_append_transcript("[b]Claude:[/b] %s" % String(block.get("text", "")).xml_escape())
+				_append_transcript("[b]%s:[/b] %s" % [_tutor_name().replace("[", "[lb]"), String(block.get("text", "")).replace("[", "[lb]")])
 			elif block_type == "tool_use":
-				_append_transcript("[i]  → %s[/i]" % String(block.get("name", "")).xml_escape())
+				_append_transcript("[i]  → %s[/i]" % String(block.get("name", "")).replace("[", "[lb]"))
 	elif event_type == "result":
 		if int(evt.get("num_turns", 1)) == 0:
 			return  # the reply to /compact: no model turn to report
@@ -2442,24 +2442,24 @@ func _handle_codex_event(evt: Dictionary) -> void:
 			var item_type := String(item.get("type", ""))
 			if event_type == "item.started":
 				if item_type == "command_execution":
-					_append_transcript("[i]  → shell: %s[/i]" % String(item.get("command", "")).xml_escape())
+					_append_transcript("[i]  → shell: %s[/i]" % String(item.get("command", "")).replace("[", "[lb]"))
 				elif item_type == "mcp_tool_call":
-					_append_transcript("[i]  → %s[/i]" % String(item.get("tool", "")).xml_escape())
+					_append_transcript("[i]  → %s[/i]" % String(item.get("tool", "")).replace("[", "[lb]"))
 				elif item_type == "web_search":
-					_append_transcript("[i]  → web search: %s[/i]" % String(item.get("query", "")).xml_escape())
+					_append_transcript("[i]  → web search: %s[/i]" % String(item.get("query", "")).replace("[", "[lb]"))
 			elif item_type == "agent_message":
-				_append_transcript("[b]Codex:[/b] %s" % String(item.get("text", "")).xml_escape())
+				_append_transcript("[b]%s:[/b] %s" % [_tutor_name().replace("[", "[lb]"), String(item.get("text", "")).replace("[", "[lb]")])
 			elif item_type == "file_change":
 				_append_transcript("[i]  → edited files[/i]")
 			elif item_type == "error":
-				_append_transcript("[color=gray]%s[/color]" % String(item.get("message", "")).xml_escape())
+				_append_transcript("[color=gray]%s[/color]" % String(item.get("message", "")).replace("[", "[lb]"))
 		"turn.completed":
 			var usage: Dictionary = evt.get("usage", {})
 			# Codex's input_tokens includes the cached part; take it out.
 			_turn_complete(int(usage.get("input_tokens", 0)) - int(usage.get("cached_input_tokens", 0)), int(usage.get("cached_input_tokens", 0)), int(usage.get("output_tokens", 0)), -1.0)
 		"turn.failed":
 			var msg := String(evt.get("error", {}).get("message", "unknown error"))
-			_append_transcript("[color=red]Codex failed: %s[/color]" % msg.xml_escape())
+			_append_transcript("[color=red]Codex failed: %s[/color]" % msg.replace("[", "[lb]"))
 			_set_robot("angry")
 			if msg.contains("401") or msg.containsn("unauthorized"):
 				_append_transcript("[color=yellow]Codex isn't logged in — run `codex login` in a terminal.[/color]")
@@ -2501,7 +2501,7 @@ func _start_opencode_turn(text: String) -> bool:
 		_tokens_in = 0
 		_tokens_out = 0
 		_append_transcript("[i]OpenCode session started: “%s”. Edit %s, shell %s, web %s.[/i]" % [
-			_session_name.xml_escape(),
+			_session_name.replace("[", "[lb]"),
 			"on" if _file_control_toggle.button_pressed else "off",
 			"on" if _terminal_toggle.button_pressed else "off",
 			"on" if _web_toggle.button_pressed else "off"])
@@ -2524,11 +2524,11 @@ func _handle_opencode_event(evt: Dictionary) -> void:
 	var part: Dictionary = evt.get("part", {}) if evt.get("part") is Dictionary else {}
 	match String(evt.get("type", "")):
 		"text":
-			_append_transcript("[b]OpenCode:[/b] %s" % String(part.get("text", "")).xml_escape())
+			_append_transcript("[b]%s:[/b] %s" % [_tutor_name().replace("[", "[lb]"), String(part.get("text", "")).replace("[", "[lb]")])
 		"tool_use":
 			var tool_name := String(part.get("tool", "")).trim_prefix("godot-live-mcp_")
 			var status := String(part.get("state", {}).get("status", "")) if part.get("state") is Dictionary else ""
-			_append_transcript("[i]  → %s%s[/i]" % [tool_name.xml_escape(), " (failed)" if status == "error" else ""])
+			_append_transcript("[i]  → %s%s[/i]" % [tool_name.replace("[", "[lb]"), " (failed)" if status == "error" else ""])
 		"step_finish":
 			var tokens: Dictionary = part.get("tokens", {}) if part.get("tokens") is Dictionary else {}
 			var cache: Dictionary = tokens.get("cache", {}) if tokens.get("cache") is Dictionary else {}
@@ -2541,7 +2541,7 @@ func _handle_opencode_event(evt: Dictionary) -> void:
 		"error":
 			var err = evt.get("error", {})
 			var msg := String(err.get("data", {}).get("message", err.get("name", "unknown error"))) if err is Dictionary and err.get("data") is Dictionary else str(err)
-			_append_transcript("[color=red]OpenCode failed: %s[/color]" % msg.xml_escape())
+			_append_transcript("[color=red]OpenCode failed: %s[/color]" % msg.replace("[", "[lb]"))
 			_set_robot("angry")
 
 ## "— edits complete —" plus this turn's fresh tokens in/out (cached reads
@@ -2682,7 +2682,7 @@ func _restore_conversation() -> void:
 	_transcript.append_text(text)
 	if _has_resumable():
 		# Display only: logging it would pile up a copy per editor restart.
-		_transcript.append_text("[color=orange][i]— previous session restored: “%s”. Your next message resumes it. —[/i][/color]\n" % _session_name.xml_escape())
+		_transcript.append_text("[color=orange][i]— previous session restored: “%s”. Your next message resumes it. —[/i][/color]\n" % _session_name.replace("[", "[lb]"))
 
 ## First line of the session box: which in-editor agent and model are in
 ## use. Display only (not saved with the transcript), so it always reflects
@@ -2694,7 +2694,7 @@ func _show_header() -> void:
 ## The tutor's name in bold green, as BBCode. The agent and model it runs on
 ## are in the header and its tooltip.
 func _agent_line() -> String:
-	return "[b][color=#7ec07e]%s[/color][/b]" % _tutor_name().xml_escape()
+	return "[b][color=#7ec07e]%s[/color][/b]" % _tutor_name().replace("[", "[lb]")
 
 ## Forget the stored conversation (id, name and saved transcript).
 func _clear_conversation() -> void:
