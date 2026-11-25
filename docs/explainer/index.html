@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Godot Tutor: motion explainer</title>
+<style>
+  :root {
+    --bg: #131316;
+    --panel: #1d1d22;
+    --text: #e8e8ec;
+    --muted: #a3a3ad;
+    --accent: #7ec07e;
+    --orange: #e07b5a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+  .stage {
+    position: relative; overflow: hidden; background: #0e0e10;
+    width: min(100vw, calc((100vh - 72px) * 16 / 9)); aspect-ratio: 16 / 9;
+    border-radius: 6px;
+  }
+  .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+  .world img { position: absolute; left: 0; top: 0; display: block; max-width: none; image-rendering: auto; }
+  .ring {
+    position: absolute; border-radius: 6px; pointer-events: none; opacity: 0;
+    border: calc(3px * var(--inv, 1)) solid var(--accent);
+    box-shadow: 0 0 calc(14px * var(--inv, 1)) rgba(126, 192, 126, .65);
+  }
+
+  /* title / end cards */
+  .card {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 6%; opacity: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 40%, #23262b 0%, #0e0e10 70%);
+  }
+  .card h1 { font-size: clamp(28px, 6.2vw, 84px); margin: 0 0 .25em; letter-spacing: .01em; }
+  .card p  { font-size: clamp(14px, 2.1vw, 28px); margin: 0; color: var(--muted); max-width: 30em; line-height: 1.4; }
+  #cardTitle h1 { font-size: clamp(34px, 7.44vw, 101px); }
+  .card p.lead { margin-bottom: .9em; }
+  .card p.line { color: var(--text); font-size: clamp(16px, 2.6vw, 34px); line-height: 1.5; }
+  .card .tags { margin-top: 1.6em; display: flex; gap: .6em; flex-wrap: wrap; justify-content: center; }
+  .card .tags span { font-size: clamp(11px, 1.5vw, 19px); padding: .35em .9em; border-radius: 999px;
+    border: 1px solid #3b3b44; color: var(--text); }
+  .card small { margin-top: 2.2em; font-size: clamp(10px, 1.2vw, 15px); color: #7d7d88; max-width: 44em; }
+  .robot { width: clamp(46px, 7vw, 96px); height: auto; margin-bottom: .6em; color: var(--orange); }
+
+  /* captions */
+  .caption {
+    position: absolute; width: 38%; padding: 1.3% 1.7% 1.5%;
+    background: rgba(14, 14, 18, .86); border: 1px solid #41414b; border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .45); backdrop-filter: blur(6px);
+    opacity: 0; transform: translateY(8px);
+  }
+  .caption.pos-tl { left: 2.5%; top: 3.5%; }
+  .caption.pos-tr { right: 2.5%; top: 3.5%; }
+  .caption.pos-bl { left: 2.5%; bottom: 4%; }
+  .caption.pos-br { right: 2.5%; bottom: 4%; }
+  .caption .step { display: flex; align-items: center; gap: .6em; margin-bottom: .5em;
+    font-size: clamp(9px, 1.05vw, 14px); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .caption .step b { display: inline-grid; place-items: center; width: 1.9em; height: 1.9em; border-radius: 50%;
+    background: var(--accent); color: #0e140e; font-size: 1.05em; letter-spacing: 0; }
+  .caption h2 { font-size: clamp(14px, 1.85vw, 26px); margin: 0 0 .25em; line-height: 1.2; }
+  .caption p { font-size: clamp(11px, 1.2vw, 17px); margin: 0; color: #cfcfd6; line-height: 1.4; }
+  @media (max-width: 720px) { .caption { width: 92%; } .caption.pos-tl, .caption.pos-bl { left: 4%; } .caption.pos-tr, .caption.pos-br { right: 4%; } }
+  .badge {
+    position: absolute; top: 3%; left: 2.5%; font-size: clamp(10px, 1.3vw, 17px); color: #cfcfd6;
+    background: rgba(8, 8, 10, .6); border: 1px solid #34343c; padding: .3em .8em; border-radius: 999px;
+  }
+
+  /* controls */
+  .bar { width: min(100vw, calc((100vh - 72px) * 16 / 9)); height: 72px; display: flex; align-items: center; gap: 12px; padding: 0 4px; }
+  .seg-wrap { flex: 1; display: flex; gap: 4px; }
+  .seg { flex: 1; height: 8px; border-radius: 4px; background: #2a2a31; cursor: pointer; overflow: hidden; position: relative; }
+  .seg i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); }
+  .seg.done i { width: 100%; }
+  button {
+    font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid #34343c;
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; min-width: 44px;
+  }
+  button:hover { background: #26262d; }
+  button:focus-visible, .seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .hint { color: #7d7d88; font-size: 12px; display: none; }
+  @media (min-width: 900px) { .hint { display: block; } }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage" aria-label="Godot Tutor explainer">
+  <div class="world" id="world"></div>
+  <div class="badge" id="badge" hidden>Real screenshots from a live Godot editor</div>
+  <div class="caption" id="caption">
+    <div class="step" id="capStep"></div>
+    <h2 id="capTitle"></h2>
+    <p id="capSub"></p>
+  </div>
+
+  <div class="card" id="cardTitle">
+    <svg class="robot" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/>
+    </svg>
+    <h1>Godot Tutor</h1>
+    <p class="lead">Your Friendly Agentic Tutor for Godot Game Engine.</p>
+    <p class="line">Say what you want to do with your Game</p>
+    <p class="line">Be taught each process step by step</p>
+    <p class="line">Or have it done for you while you watch</p>
+  </div>
+
+  <div class="card" id="cardEnd">
+    <h1>Learn it, or have it done.</h1>
+    <p>You choose, one task at a time.</p>
+    <div class="tags"><span>Open source (MIT)</span><span>Built on the open MCP standard</span><span>Saved tours replay with no AI</span></div>
+  </div>
+</div>
+
+<div class="bar">
+  <button id="prev" aria-label="Previous scene" title="Previous (←)">&#9664;</button>
+  <button id="play" aria-label="Pause" title="Play / pause (Space)">Pause</button>
+  <button id="next" aria-label="Next scene" title="Next (→)">&#9654;</button>
+  <div class="seg-wrap" id="segs" role="group" aria-label="Scenes"></div>
+  <span class="hint">Space = play/pause · ← → = scenes</span>
+</div>
+
+<script>
+(() => {
+  const S = "shots/";
+  // Regions are [x, y, width, height] in the screenshot's own pixels.
+  const FULL_UI = [0, 0, 1914, 1038];
+  const scenes = [
+    { kind: "card", el: "cardTitle", dur: 6200 },
+
+    { kind: "shot", dur: 6800, step: "1 · Ask", cap: "bl", title: "Say it in plain words",
+      sub: "Type what you want. Switch Teach on and the tutor shows you how, instead of just doing it.",
+      layers: [{ src: "01-prompt.png", w: 1270, h: 289, at: 0 }],
+      from: [0, 0, 1270, 289], to: [520, 70, 750, 422],
+      rings: [{ x: 5, y: 207, w: 1025, h: 40, at: .25 }, { x: 1098, y: 207, w: 70, h: 42, at: .5 }] },
+
+    { kind: "shot", dur: 7200, step: "2 · Tour", cap: "br", title: "The Tutor turns your requested task into a guided tour of your project",
+      sub: "You get one small step at a time, with the exact control outlined in green.",
+      layers: [{ src: "02-step1.png", w: 1914, h: 1038, at: 0 }],
+      from: FULL_UI, to: [0, 60, 820, 461],
+      rings: [{ x: 330, y: 90, w: 322, h: 158, at: .3 }, { x: 9, y: 89, w: 36, h: 34, at: .5 }] },
+
+    { kind: "shot", dur: 7200, step: "3 · Point", cap: "bl", title: "The Tutor points you to the exact property",
+      sub: "No hunting through panels: the row you need to change is outlined for you.",
+      layers: [{ src: "03-inspector.png", w: 1914, h: 1038, at: 0 }],
+      from: FULL_UI, to: [1000, 150, 914, 514],
+      rings: [{ x: 1262, y: 243, w: 322, h: 176, at: .3 }, { x: 1601, y: 242, w: 300, h: 36, at: .5 }] },
+
+    { kind: "shot", dur: 8400, step: "4 · Check", cap: "bl", title: "Every step is checked for you",
+      sub: "The next step appears only when the last one is truly done. Stuck? “Show me” does it for you, and you can undo it.",
+      layers: [{ src: "04-plane.png", w: 1914, h: 1038, at: 0 }, { src: "05-ground-done.png", w: 1914, h: 1038, at: .5 }],
+      from: FULL_UI, to: [700, 330, 1214, 683],
+      rings: [{ x: 1262, y: 412, w: 322, h: 210, at: .15, until: .5 }, { x: 1570, y: 848, w: 322, h: 144, at: .62 }] },
+
+    { kind: "shot", dur: 8000, step: "5 · Repair", cap: "tl", title: "If a step goes wrong, the Tutor fixes the tour for you",
+      sub: "If a step doesn't work, the Tutor can spot it and you can carry on.",
+      layers: [{ src: "06-ball-material.png", w: 1914, h: 1038, at: 0 }],
+      from: FULL_UI, to: [326, 330, 1262, 709],
+      rings: [{ x: 332, y: 888, w: 1262, h: 56, at: .3 }, { x: 1262, y: 412, w: 322, h: 194, at: .55 }] },
+
+    { kind: "shot", dur: 6800, step: "6 · Learn", cap: "br", title: "Real game concepts, in order",
+      sub: "Physics material, bounce 0.8: the exact settings behind the ball.",
+      layers: [{ src: "07-ball-bounce-step.png", w: 1914, h: 1038, at: 0 }],
+      from: FULL_UI, to: [1000, 150, 914, 514],
+      rings: [{ x: 1262, y: 277, w: 322, h: 158, at: .3 }, { x: 1601, y: 276, w: 300, h: 36, at: .5 }] },
+
+    { kind: "shot", dur: 7000, step: "7 · Ready", cap: "tr", title: "Your scene is ready",
+      sub: "A big green ground plane, and a red ball waiting 10 metres above it.",
+      layers: [{ src: "07b-scene-ready.png", w: 1914, h: 1038, at: 0 }],
+      from: FULL_UI, to: [0, 110, 1280, 720],
+      rings: [{ x: 930, y: 282, w: 54, h: 50, at: .35 }, { x: 36, y: 232, w: 250, h: 26, at: .55 }] },
+
+    { kind: "shot", dur: 6900, step: "7 · Ready", cap: "bl", title: "Ten metres up, ready to drop",
+      sub: "The ball is a RigidBody3D with a bouncy physics material.",
+      layers: [{ src: "07b-scene-ready.png", w: 1914, h: 1038, at: 0 }],
+      from: [0, 110, 1280, 720], to: [706, 164, 502, 282],
+      rings: [{ x: 937, y: 286, w: 42, h: 42, at: .35 }] },
+
+    { kind: "bounce", dur: 9200, step: "8 · Play", cap: "tl", title: "Press Play: a green plane, a red ball, and a bounce",
+      sub: "Dropped from 10 metres with bounce 0.8.",
+      plate: "plate.png", pw: 1082, ph: 609, ball: "ball.png", bw: 48,
+      from: [0, 0, 1082, 609], to: [40, 22, 1002, 564] },
+
+    { kind: "card", el: "cardEnd", dur: 7200 }
+  ];
+
+  const stage = document.getElementById("stage");
+  const world = document.getElementById("world");
+  const badge = document.getElementById("badge");
+  const cap = document.getElementById("caption");
+  const capStep = document.getElementById("capStep");
+  const capTitle = document.getElementById("capTitle");
+  const capSub = document.getElementById("capSub");
+  const playBtn = document.getElementById("play");
+  const segsEl = document.getElementById("segs");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  // Build each scene's DOM once.
+  const segs = [];
+  scenes.forEach((sc, i) => {
+    const seg = document.createElement("div");
+    seg.className = "seg"; seg.tabIndex = 0; seg.setAttribute("role", "button");
+    seg.setAttribute("aria-label", "Scene " + (i + 1));
+    seg.innerHTML = "<i></i>";
+    seg.addEventListener("click", () => go(i));
+    seg.addEventListener("keydown", e => { if (e.key === "Enter") go(i); });
+    segsEl.appendChild(seg); segs.push(seg);
+
+    if (sc.kind === "card") { sc.node = document.getElementById(sc.el); return; }
+    const g = document.createElement("div");
+    g.className = "world"; g.style.display = "none"; g.style.width = "0"; g.style.height = "0";
+    world.parentNode.insertBefore(g, cap);
+    sc.node = g; sc.rings = sc.rings || [];
+    if (sc.kind === "shot") {
+      sc.layerEls = sc.layers.map(l => {
+        const im = new Image(); im.src = S + l.src; im.width = l.w; im.height = l.h; im.alt = "";
+        g.appendChild(im); return im;
+      });
+      sc.ringEls = sc.rings.map(r => {
+        const d = document.createElement("div"); d.className = "ring";
+        Object.assign(d.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+        g.appendChild(d); return d;
+      });
+    } else {
+      const plate = new Image(); plate.src = S + sc.plate; plate.width = sc.pw; plate.height = sc.ph; plate.alt = "";
+      g.appendChild(plate);
+      sc.shadow = document.createElement("div");
+      Object.assign(sc.shadow.style, { position: "absolute", borderRadius: "50%", background: "rgba(0,40,0,.55)", filter: "blur(2px)" });
+      g.appendChild(sc.shadow);
+      sc.ballEl = new Image(); sc.ballEl.src = S + sc.ball; sc.ballEl.width = sc.bw; sc.ballEl.height = sc.bw; sc.ballEl.alt = "";
+      Object.assign(sc.ballEl.style, { transformOrigin: "50% 100%" });
+      g.appendChild(sc.ballEl);
+    }
+  });
+  world.remove();
+
+  const fit = (r, W, H) => { const s = Math.min(W / r[2], H / r[3]); return { s, tx: W / 2 - s * (r[0] + r[2] / 2), ty: H / 2 - s * (r[1] + r[3] / 2) }; };
+
+  let idx = -1, t = 0, playing = !reduce, last = 0;
+
+  // Bounce: the same numbers as the scene (ball centre starts 10 m up, floor contact at 0.5 m,
+  // bounce 0.8, gravity 9.8) projected through the game camera (y 4.2, 10 m back, pitch -0.05, fov 75).
+  const G = 9.8, REST = 0.8, START = 10, FLOOR = 0.5, HOLD = 0.5;
+  const camY = 4.2, camDist = 10, pitch = 0.05, halfFov = 75 * Math.PI / 360;
+  function height(sec) {                       // ball centre height at time `sec`, plus time since last impact
+    sec -= HOLD; if (sec <= 0) return { h: START, since: 9 };
+    let v = Math.sqrt(2 * G * (START - FLOOR)), tt = v / G;   // first fall
+    if (sec < tt) return { h: START - 0.5 * G * sec * sec, since: 9 };
+    sec -= tt; v *= REST;
+    for (let k = 0; k < 12; k++) {
+      const flight = 2 * v / G;
+      if (sec < flight) return { h: FLOOR + v * sec - 0.5 * G * sec * sec, since: sec, until: flight - sec };
+      sec -= flight; v *= REST;
+    }
+    return { h: FLOOR, since: 0 };
+  }
+  function drawBounce(sc, ms) {
+    const sec = ms / 1000, r = height(sec);
+    const rowAt = (y, dz) => sc.ph / 2 * (1 - Math.tan(Math.atan((y - camY) / dz) + pitch) / Math.tan(halfFov));
+    const cx = sc.pw / 2, cy = rowAt(r.h, camDist), gy = rowAt(0, camDist), restY = rowAt(FLOOR, camDist);
+    // squash on contact (first ~70 ms after / before an impact)
+    let sx = 1, sy = 1;
+    const near = Math.min(r.since === undefined ? 9 : r.since, r.until === undefined ? 9 : r.until);
+    if (near < 0.07) { const k = 1 - near / 0.07; sx = 1 + 0.16 * k; sy = 1 - 0.2 * k; }
+    // ball sits with its bottom on the floor at rest; anchor the squash at the bottom of the sprite
+    const half = sc.bw / 2, bottom = cy + (sc.ballR || 20.5);
+    sc.ballEl.style.left = (cx - half) + "px";
+    sc.ballEl.style.top = (bottom - sc.bw + 3) + "px";
+    sc.ballEl.style.transform = `scale(${sx}, ${sy})`;
+    const hh = Math.max(0, r.h - FLOOR);
+    const w = 46 * (1 - Math.min(.7, hh / 14)), ht = 11 * (1 - Math.min(.7, hh / 14));
+    sc.shadow.style.width = w + "px"; sc.shadow.style.height = ht + "px";
+    sc.shadow.style.left = (cx - w / 2) + "px"; sc.shadow.style.top = (gy - ht / 2 + 2) + "px";
+    sc.shadow.style.opacity = String(.75 * (1 - Math.min(.8, hh / 12)));
+  }
+
+  function show(i) {
+    idx = i; t = 0;
+    scenes.forEach((sc, k) => {
+      sc.node.style.display = (k === i) ? "" : "none";
+      if (sc.kind === "card") sc.node.style.opacity = (k === i) ? 1 : 0;
+    });
+    segs.forEach((s, k) => { s.classList.toggle("done", k < i); s.firstChild.style.width = ""; });
+    const sc = scenes[i];
+    badge.hidden = true;
+    if (sc.kind === "card") { cap.style.opacity = 0; }
+    else {
+      const [num, label] = sc.step.split(" \u00b7 ");
+      capStep.replaceChildren();
+      const nb = document.createElement("b"); nb.textContent = num;
+      const lb = document.createElement("span"); lb.textContent = label;
+      capStep.append(nb, lb);
+      cap.className = "caption pos-" + (sc.cap || "bl");
+      capTitle.textContent = sc.title; capSub.textContent = sc.sub;
+      badge.hidden = (i !== 1);
+    }
+  }
+
+  function render() {
+    const sc = scenes[idx]; if (!sc) return;
+    const p = clamp(t / sc.dur);
+    segs[idx].firstChild.style.width = (p * 100) + "%";
+    if (sc.kind === "card") { sc.node.style.opacity = clamp(Math.min(t / 500, (sc.dur - t) / 400 + .001)); return; }
+
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const e = reduce ? 1 : ease(clamp(p / .92));
+    const r = sc.from.map((v, k) => lerp(v, sc.to[k], e));
+    const { s, tx, ty } = fit(r, W, H);
+    sc.node.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    sc.node.style.setProperty("--inv", 1 / s);
+
+    cap.style.opacity = clamp(t / 450) * clamp((sc.dur - t) / 350 + .001);
+    cap.style.transform = `translateY(${(1 - clamp(t / 450)) * 8}px)`;
+
+    if (sc.kind === "shot") {
+      sc.layers.forEach((l, k) => { sc.layerEls[k].style.opacity = k === 0 ? 1 : clamp((p - l.at) / .08); });
+      sc.rings.forEach((r2, k) => {
+        let o = clamp((p - r2.at) / .06);
+        if (r2.until) o = Math.min(o, clamp((r2.until - p) / .05));
+        sc.ringEls[k].style.opacity = o;
+      });
+    } else {
+      drawBounce(sc, t);
+    }
+  }
+
+  function tick(now) {
+    const dt = Math.min(now - last, 100); last = now;
+    if (playing && idx >= 0) {
+      t += dt;
+      if (t >= scenes[idx].dur) {
+        if (idx < scenes.length - 1) show(idx + 1); else { playing = false; t = scenes[idx].dur; syncBtn(); }
+      }
+    }
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  function go(i) {
+    i = clamp(i, 0, scenes.length - 1);
+    const atEnd = idx === scenes.length - 1 && t >= scenes[idx].dur;
+    if (atEnd && i < scenes.length - 1) playing = true;   // leaving the finished end card resumes playback
+    show(i); render(); syncBtn();
+  }
+  function syncBtn() {
+    const atEnd = idx === scenes.length - 1 && t >= scenes[idx].dur;
+    playBtn.textContent = atEnd ? "Replay" : (playing ? "Pause" : "Play");
+    playBtn.setAttribute("aria-label", playBtn.textContent);
+  }
+  function toggle() {
+    const atEnd = idx === scenes.length - 1 && t >= scenes[idx].dur;
+    if (atEnd) { show(0); playing = true; } else playing = !playing;
+    syncBtn();
+  }
+
+  document.getElementById("prev").addEventListener("click", () => { go(idx - 1); });
+  document.getElementById("next").addEventListener("click", () => { go(idx + 1); });
+  playBtn.addEventListener("click", toggle);
+  window.addEventListener("keydown", e => {
+    if (e.key === " ") { e.preventDefault(); toggle(); }
+    else if (e.key === "ArrowRight") go(idx + 1);
+    else if (e.key === "ArrowLeft") go(idx - 1);
+  });
+  setInterval(syncBtn, 300);
+
+  show(0); syncBtn();
+  last = performance.now(); requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

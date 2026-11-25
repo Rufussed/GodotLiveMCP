@@ -1,5 +1,8 @@
 # GodotLiveMCP
 
+**[Watch the one-minute Godot Tutor explainer](https://rufussed.github.io/GodotLiveMCP/explainer/)**:
+real screenshots of the in-editor tutor teaching a bouncing ball, step by step.
+
 An MCP server that lets an AI coding agent drive a **running** Godot 4.x editor
 session directly, not just edit files on disk. See
 [GodotLive_Project_Brief.md](GodotLive_Project_Brief.md) for the full rationale and scope.
