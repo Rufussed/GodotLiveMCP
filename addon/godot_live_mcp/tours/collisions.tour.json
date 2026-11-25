@@ -1,6 +1,7 @@
 {
 	"format": "godot-live-tour/1",
 	"title": "Collisions: a crate lands on a floor",
+	"requires": { "root_class": "CanvasItem" },
 	"vars": {
 		"root": "."
 	},

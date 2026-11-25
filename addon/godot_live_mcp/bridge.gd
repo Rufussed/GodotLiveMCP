@@ -2329,7 +2329,10 @@ func _cmd_play_scene(params: Dictionary):
 	if not Engine.is_editor_hint():
 		return _fail("play_scene is only available inside the editor")
 	var scene_path := String(params.get("scene_path", ""))
-	if scene_path != "":
+	if params.get("current", false):
+		# F6: the scene open in the editor, saved or not.
+		EditorInterface.play_current_scene()
+	elif scene_path != "":
 		if not ResourceLoader.exists(scene_path):
 			return _fail("scene not found: %s" % scene_path)
 		EditorInterface.play_custom_scene(scene_path)

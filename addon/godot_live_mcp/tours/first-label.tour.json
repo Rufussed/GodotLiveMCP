@@ -1,6 +1,7 @@
 {
 	"format": "godot-live-tour/1",
 	"title": "Your first Label",
+	"requires": { "root_class": "CanvasItem" },
 	"vars": { "root": "." },
 	"steps": [
 		{

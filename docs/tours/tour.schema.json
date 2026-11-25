@@ -26,6 +26,10 @@
 			"type": "object",
 			"properties": {
 				"scene_open": { "type": "string", "pattern": "^res://" },
+				"root_class": {
+					"type": "string",
+					"description": "The open scene's root must be this class or inherit it, e.g. \"CanvasItem\" for any 2D scene (Node2D or Control) or \"Node3D\" for a 3D one."
+				},
 				"node_exists": { "type": "array", "items": { "type": "string" } }
 			},
 			"additionalProperties": false

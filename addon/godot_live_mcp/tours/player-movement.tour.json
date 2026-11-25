@@ -1,6 +1,7 @@
 {
 	"format": "godot-live-tour/1",
 	"title": "A player that runs and jumps",
+	"requires": { "root_class": "CanvasItem" },
 	"vars": {
 		"root": ".",
 		"floor": { "class": "StaticBody2D", "hint": "play “Collisions: a crate lands on a floor” first, so the player has something to stand on" }

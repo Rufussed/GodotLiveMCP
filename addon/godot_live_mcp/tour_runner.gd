@@ -324,6 +324,8 @@ func _scan_tours(dir: String, out: Array) -> void:
 				var req = res.tour.get("requires", {})
 				if typeof(req) == TYPE_DICTIONARY and req.has("scene_open"):
 					entry["scene"] = str(req.scene_open)
+				if typeof(req) == TYPE_DICTIONARY and req.has("root_class"):
+					entry["dimension"] = _dimension(str(req.root_class))
 			out.append(entry)
 
 ## Plays a tour file. If it requires a scene that isn't the one open, opens
@@ -341,7 +343,50 @@ func play_file(path: String) -> Dictionary:
 			EditorInterface.open_scene_from_path(want)
 			await get_tree().process_frame
 			await get_tree().process_frame
+	if typeof(req) == TYPE_DICTIONARY and req.has("root_class") and not req.has("scene_open") \
+			and ClassDB.class_exists(str(req.root_class)):
+		var root: Node = _bridge._get_scene_root()
+		if root == null or not root.is_class(str(req.root_class)):
+			var made := _make_scene(str(req.root_class), str(tour.get("title", "tutorial")))
+			if made.has("error"):
+				return {"ok": false, "errors": [made.error], "warnings": []}
+			EditorInterface.open_scene_from_path(made.path)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			EditorInterface.get_editor_toaster().push_toast(
+				"This is a %s tutorial, so a new %s scene was made for it: %s" % [
+					_dimension(str(req.root_class)), _dimension(str(req.root_class)), made.path])
 	return await start(tour, false, path)
+
+## A new scene for a tutorial whose requires.root_class the open scene
+## doesn't match: a Node2D root for 2D (CanvasItem), Node3D for 3D, else that
+## class. Saved next to the project's other files as res://<title>.tscn
+## (numbered if taken), so the user's open scene is left alone.
+func _make_scene(root_class: String, title: String) -> Dictionary:
+	var cls := root_class
+	if cls == "CanvasItem":
+		cls = "Node2D"
+	if not ClassDB.can_instantiate(cls):
+		return {"error": "can't make a %s scene for this tutorial" % root_class}
+	var root: Node = ClassDB.instantiate(cls)
+	root.name = "Main"
+	# "Collisions: a crate…" -> "collisions_a_crate…"
+	var slug := RegEx.create_from_string("[^a-z0-9]+").sub(title.to_lower(), "_", true).strip_edges().trim_prefix("_").trim_suffix("_")
+	if slug == "":
+		slug = "tutorial"
+	var path := "res://%s.tscn" % slug
+	var n := 2
+	while FileAccess.file_exists(path):
+		path = "res://%s_%d.tscn" % [slug, n]
+		n += 1
+	var packed := PackedScene.new()
+	packed.pack(root)
+	root.free()
+	var err := ResourceSaver.save(packed, path)
+	if err != OK:
+		return {"error": "couldn't save a new scene at %s (%s)" % [path, error_string(err)]}
+	EditorInterface.get_resource_filesystem().update_file(path)
+	return {"path": path}
 
 ## Editor menu: Project > Tools > Tutorials… (also the panel's Tutorials
 ## button) — pick a tour file and
@@ -352,34 +397,41 @@ func open_picker() -> void:
 	dialog.ok_button_text = "Start tutorial"
 	# Record mode: do the task once yourself and get a draft tour.
 	dialog.add_button("Record new tutorial…", true, "record")
+	var delete_button := dialog.add_button("Delete…", false, "delete")
+	delete_button.tooltip_text = "Move the selected tutorial file to the trash"
+	var box := VBoxContainer.new()
+	dialog.add_child(box)
+	var tours := list_files()
+	var list := ItemList.new()
 	dialog.custom_action.connect(func(action: StringName) -> void:
 		if action == &"record":
 			dialog.hide()
 			var res: Dictionary = recorder().start()
 			if res.has("error"):
-				_alert(str(res.error)))
-	var box := VBoxContainer.new()
-	dialog.add_child(box)
-	var tours := list_files()
-	var list := ItemList.new()
-	list.custom_minimum_size = Vector2(460, 240)
+				_alert(str(res.error))
+		elif action == &"delete":
+			var sel := list.get_selected_items()
+			if not sel.is_empty():
+				_confirm_delete(dialog, tours[sel[0]]))
+	list.item_selected.connect(func(i: int) -> void:
+		delete_button.disabled = tours[i].get("starter", false)
+		delete_button.tooltip_text = "Starter tutorials come with the add-on and can't be deleted" \
+			if tours[i].get("starter", false) else "Move the selected tutorial file to the trash")
+	list.custom_minimum_size = Vector2(460, 300)
 	for entry in tours:
 		var label := str(entry.get("title", entry.path))
+		var dim := str(entry.get("dimension", ""))
 		if entry.get("starter", false):
-			label = "Starter: " + label
+			label = ("Starter (%s): " % dim if dim != "" else "Starter: ") + label
+		elif dim != "":
+			label = "(%s) %s" % [dim, label]
 		if entry.has("error"):
 			label += "  (unreadable)"
 		elif entry.has("steps"):
-			label += "  ·  %d steps" % entry.steps
+			label += "  ·  %d step%s" % [entry.steps, "" if entry.steps == 1 else "s"]
 		list.add_item(label)
 		list.set_item_tooltip(list.item_count - 1, str(entry.path))
 	box.add_child(list)
-	var hint := Label.new()
-	hint.text = "Tutorials are *%s files in your project. Record one (do the task yourself while recording), or ask the Tutor for one in Teach mode and press Save on its last card." % TOUR_EXT if tours.is_empty() \
-		else "Double-click a tutorial, or select it and press Start tutorial. Record new tutorial… captures a task you do yourself."
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.custom_minimum_size = Vector2(460, 0)
-	box.add_child(hint)
 	var play := func(i: int) -> void:
 		dialog.hide()
 		var result: Dictionary = await play_file(str(tours[i].path))
@@ -397,6 +449,51 @@ func open_picker() -> void:
 	dialog.popup_centered()
 	if not tours.is_empty():
 		list.select(0)
+		list.item_selected.emit(0)
+	else:
+		delete_button.disabled = true
+
+## Asks, then moves a tutorial file to the system trash (so it can be
+## restored) and reopens the list.
+func _confirm_delete(picker: Window, entry: Dictionary) -> void:
+	if entry.get("starter", false):
+		return
+	var path := str(entry.path)
+	var ask := ConfirmationDialog.new()
+	ask.title = "Delete tutorial"
+	ask.dialog_text = "Move \"%s\" to the trash?\n\n%s" % [str(entry.get("title", path.get_file())), path]
+	ask.ok_button_text = "Move to trash"
+	ask.confirmed.connect(func() -> void:
+		var err := OS.move_to_trash(ProjectSettings.globalize_path(path))
+		if err != OK:
+			_alert("Couldn't delete %s (%s)." % [path, error_string(err)])
+			return
+		EditorInterface.get_resource_filesystem().scan()
+		picker.hide()
+		open_picker.call_deferred())
+	ask.visibility_changed.connect(func() -> void:
+		if not ask.visible:
+			ask.queue_free.call_deferred())
+	# A child of the list dialog: Godot won't show a second exclusive
+	# window beside it.
+	picker.add_child(ask)
+	ask.popup_centered()
+
+## "  (2D)" or "  (3D)" for the running tour's card title, else "".
+func _dimension_tag() -> String:
+	var req = _tour.get("requires", {})
+	if typeof(req) == TYPE_DICTIONARY and req.has("root_class"):
+		return "  (%s)" % _dimension(str(req.root_class))
+	return ""
+
+## "2D" or "3D" for a requires.root_class, so the list and errors can say
+## which kind of scene a tutorial is for; otherwise the class name itself.
+func _dimension(root_class: String) -> String:
+	if root_class == "CanvasItem" or ClassDB.is_parent_class(root_class, "CanvasItem"):
+		return "2D"
+	if root_class == "Node3D" or ClassDB.is_parent_class(root_class, "Node3D"):
+		return "3D"
+	return root_class
 
 func _alert(text: String) -> void:
 	var d := AcceptDialog.new()
@@ -433,6 +530,14 @@ func _validate(tour: Dictionary, warnings: Array) -> Array:
 		for p in req.get("node_exists", []):
 			if _bridge._resolve_node(str(p)) == null:
 				errors.append("requires.node_exists: node not found: %s" % p)
+		if req.has("root_class"):
+			var want := str(req.root_class)
+			if not ClassDB.class_exists(want):
+				errors.append("requires.root_class: unknown class '%s'" % want)
+			elif not root.is_class(want):
+				errors.append("This tutorial needs a %s scene, but the open scene's root is a %s. Open or make a %s scene (Scene ▸ New Scene, then %s) and try again." % [
+					_dimension(want), root.get_class(), _dimension(want),
+					"2D Scene" if _dimension(want) == "2D" else "3D Scene" if _dimension(want) == "3D" else "a %s root" % want])
 	# var name -> class name (initial vars: the node's class; captures: the
 	# node_added class, or "" when any class is accepted)
 	var var_class := {}
@@ -1369,7 +1474,7 @@ func _describe_action(a: Dictionary) -> String:
 		"save_scene_live":
 			return "save the scene"
 		"play_scene":
-			return "play the game"
+			return "play this scene (F6)" if a.get("current", false) else "play the game"
 		"open_scene":
 			return "open `%s`" % str(a.get("path", "")).get_file()
 	return str(a.get("command", "")).replace("_", " ") + (" on **%s**" % node.get_file() if node != "" else "")
@@ -1480,10 +1585,8 @@ func _with_play_from_text(actions: Array, step: Dictionary) -> Array:
 			return actions
 	var play := {"command": "play_scene"}
 	var key := found.get_string().to_upper()
-	if key == "F6" or text.to_lower().contains("current scene"):
-		var root: Node = _bridge._get_scene_root()
-		if root != null and root.scene_file_path != "":
-			play["scene_path"] = root.scene_file_path
+	if key == "F6" or text.to_lower().contains("current scene") or text.to_lower().contains("this scene"):
+		play["current"] = true
 	var out := actions.duplicate()
 	out.append(play)
 	return out
@@ -1589,7 +1692,8 @@ func _derive_show_me(check: Dictionary, key := "c") -> Array:
 		"scene_open":
 			return [{"command": "open_scene", "path": check.path}]
 		"game_running":
-			return [{"command": "play_scene"}]
+			# F6, as the step says: the scene being taught, not the main scene.
+			return [{"command": "play_scene", "current": true}]
 		"script_attached":
 			var script_path := str(check.get("script", ""))
 			if script_path == "":
@@ -2138,7 +2242,7 @@ func _refresh_card() -> void:
 	if _card == null or not is_instance_valid(_card) or _done or not is_running():
 		return
 	var step: Dictionary = _steps[_index]
-	_card_title.text = "%s  ·  Step %d/%d%s" % [str(_tour.get("title", "Tour")), _index + 1, _steps.size(),
+	_card_title.text = "%s%s  ·  Step %d/%d%s" % [str(_tour.get("title", "Tour")), _dimension_tag(), _index + 1, _steps.size(),
 		"  ·  fix-up" if step.get("_fixup", false) else ("  ·  checking again" if _verify_only else "")]
 	var text := _markdown(_name_vars(str(step.text)))
 	if _note_why != "":

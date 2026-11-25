@@ -1,6 +1,7 @@
 {
 	"format": "godot-live-tour/1",
 	"title": "Signals: make the button work",
+	"requires": { "root_class": "CanvasItem" },
 	"vars": {
 		"root": ".",
 		"button": {

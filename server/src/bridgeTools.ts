@@ -1113,6 +1113,7 @@ export const bridgeToolDefinitions = [
       type: 'object',
       properties: {
         scene_path: { type: 'string', description: 'Optional res:// path to a specific scene to run instead of the project\'s main scene' },
+        current: { type: 'boolean', description: 'Play the scene open in the editor (like F6) instead of the main scene' },
       },
       required: [],
     },
@@ -1289,7 +1290,7 @@ export const bridgeToolDefinitions = [
       'through it with a guided tour — which?") rather than an open question. Inspect the scene first and use the user\'s real node names. Unlike ' +
       'highlight_editor_control, outlines persist through unrelated edits. The whole tour is validated first and every ' +
       'problem is reported at once; pass dry_run to validate only. Replaces any running tour.\n\n' +
-      'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, requires?: {scene_open?, node_exists?: [paths]}, ' +
+      'Tour: {format: "godot-live-tour/1", title, vars?: {name: node_path}, requires?: {scene_open?, node_exists?: [paths], root_class?: e.g. "CanvasItem" (2D) or "Node3D"}, ' +
       'stuck_after_sec? (default 90; 0 = off), steps: [{id?, text, why?, target?, done_when, show_me?}]}.\n' +
       '- why: one or two sentences on why this step matters; shown by the card\'s Why? button (works with no agent). ' +
       'Pressed again, Why? sends the question to the in-editor agent panel.\n' +
@@ -1957,6 +1958,7 @@ export async function handleBridgeTool(name: string, args: any): Promise<any> {
     case 'play_scene':
       return textResult(await client.call('play_scene', {
         scene_path: params.scene_path ?? '',
+        current: params.current ?? false,
       }));
     case 'stop_scene':
       return textResult(await client.call('stop_scene', {}));

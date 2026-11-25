@@ -64,7 +64,7 @@ The draft has no `why` lines; add them by hand, or ask the agent to.
 | `format` | yes | Always `"godot-live-tour/1"`. |
 | `title` | no | Shown on the card and in the tour list. |
 | `vars` | no | Names for nodes that already exist: `name` → a node path relative to the scene root (`"."` is the root), or `{"class": "CharacterBody2D", "hint": "…"}` for the first node of that class, whatever the user named it (add `"name"` when the scene may hold several). If there's none, the tour won't start and shows the hint, e.g. "play the Collisions tour first". |
-| `requires` | no | `scene_open`: the tour's scene, opened automatically when played from the menu. `node_exists`: node paths that must exist. |
+| `requires` | no | `scene_open`: the tour's scene, opened automatically when played from the menu. `node_exists`: node paths that must exist. `root_class`: the open scene's root must be this class or inherit it, e.g. `"CanvasItem"` for any 2D scene (Node2D or Control) or `"Node3D"` for a 3D one; the tour list labels the tour 2D or 3D. |
 | `stuck_after_sec` | no | Seconds before a "Stuck?" note appears (default 90, `0` = never). |
 | `steps` | yes | One or more steps, run in order. |
 
