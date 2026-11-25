@@ -1022,7 +1022,9 @@ export const bridgeToolDefinitions = [
       'treat a colon-path as one literal (unknown) property name, so use this instead whenever the target is ' +
       'a sub-property of a resource already assigned to the node (a material, a shape, a stylebox, ...). Every ' +
       'intermediate segment must already hold a non-null Resource/Object — this cannot create one along the ' +
-      'way; use set_resource_property first if the intermediate resource does not exist yet.' +
+      'way; use set_resource_property first if the intermediate resource does not exist yet. The last ' +
+      'segment may also be a component of a value-type property, as the Inspector shows it: "position:y", ' +
+      '"modulate:a", "material_override:albedo_color:r" (one undoable set of the whole property).' +
       VALUE_ENCODING_NOTE +
       ' A value of the form "load:res://path/to/file" is resolved via load() instead of var_to_str() decoding.' +
       PROPERTY_VALIDATION_NOTE,

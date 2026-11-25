@@ -1333,6 +1333,10 @@ func _cmd_set_nested_property(params: Dictionary):
 		if next == null:
 			return _fail("%s is null — assign/create it first (e.g. via set_resource_property) before setting a nested property on it" % resolved_path)
 		if not (next is Object or _is_indexable_container(next)):
+			# A component of a value-type property ("position:y",
+			# "modulate:a", "transform:origin:x"), as the Inspector shows it.
+			if obj is Object:
+				return _set_value_component(obj, seg, ":".join(parts.slice(i + 1)), value_str, property_path)
 			return _fail("%s is a %s value, not an Object/Array/Dictionary — nested set only works through those container types" % [resolved_path, type_string(typeof(next))])
 		obj = next
 
@@ -1385,6 +1389,28 @@ func _cmd_set_nested_property(params: Dictionary):
 	if mutable_target is Array:
 		return {"value": var_to_str(mutable_target[int(last)])}
 	return {"value": var_to_str(mutable_target[last])}
+
+## Sets one component of a value-type property (Vector2/3/4, Color, Rect2,
+## Transform…), e.g. prop "position", sub "y". Value types are copies, so
+## the new whole value is worked out with set_indexed() on the owner, the
+## old one put straight back, and the change then committed as a single
+## undoable set of the whole property, verified by reading the component back.
+func _set_value_component(owner: Object, prop: String, sub: String, value_str: String, property_path: String):
+	var full := NodePath(prop + ":" + sub)
+	var current = owner.get_indexed(full)
+	if current == null:
+		return _fail("%s has no component \"%s\" (in path %s; %s is a %s)" % [prop, sub, property_path, prop, type_string(typeof(owner.get(prop)))])
+	var decoded = _decode_value(value_str)
+	var old_value = owner.get(prop)
+	owner.set_indexed(full, decoded)
+	var new_value = owner.get(prop)
+	owner.set(prop, old_value)
+	_commit_properties(owner, {prop: new_value})
+	var actual = owner.get_indexed(full)
+	if not _value_took(actual, decoded):
+		return _fail("failed to set %s — value written did not match what was requested (requested %s, component is a %s)" % [
+			property_path, var_to_str(decoded), type_string(typeof(actual))])
+	return {"value": var_to_str(actual)}
 
 ## Generic resource-property setter: instantiates a fresh Resource of any
 ## class by name, applies properties to it through the same validated path
