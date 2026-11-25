@@ -135,7 +135,7 @@ if (treeDir) {
     `# GodotLive MCP ${version}\n\nThis branch holds only the installable addon, for the Godot Asset Library. ` +
     'The project, its documentation and its source are at https://github.com/Rufussed/GodotLiveMCP.\n\n' +
     'Install: copy `addons/godot_live_mcp` into your project, enable the plugin, and press your AI app\'s button ' +
-    'on the "Connect your AI app" card in the AI Assistant tab.\n');
+    'on the "Connect your AI app" card in the Agentic Tutor tab.\n');
   const shots = path.join(repo, 'docs', 'store');
   if (fs.existsSync(shots)) {
     for (const f of fs.readdirSync(shots)) {

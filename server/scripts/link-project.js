@@ -9,7 +9,7 @@
 //        npm run link-project -- <path/to/godot/project> --unlink-xterm
 //
 // The --xterm forms only link (or unlink) the optional GodotXterm addon, which
-// gives the AI Assistant panel its in-editor CLI view. <GodotXterm addon
+// gives the Agentic Tutor panel its in-editor CLI view. <GodotXterm addon
 // folder> is the `godot_xterm` folder of a GodotXterm release (the launcher
 // downloads one for you). Nothing else in the project is touched.
 //
@@ -219,7 +219,7 @@ console.log(`Linked ${linkPath} -> ${addonSource}`);
 if (setPluginEnabled(projectFile, true)) console.log('Enabled the plugin in project.godot.');
 addClaudeMd();
 console.log('');
-console.log('Next: open the project in Godot and start a session from the AI Assistant');
+console.log('Next: open the project in Godot and start a session from the Agentic Tutor');
 console.log('panel — the server path and auth token are wired up automatically.');
 console.log('(If the project was already open, reopen it or enable "GodotLive MCP Bridge"');
 console.log('in Project > Project Settings > Plugins.)');
