@@ -123,6 +123,7 @@ var _stuck_logged := false
 
 var _overlay := HighlightOverlay.new()
 var _card: PanelContainer = null
+var _card_host_poll := 0.0   # seconds since the card last looked for a modal window
 var _card_title: Label = null
 var _card_text: RichTextLabel = null
 var _card_back: Button = null
@@ -2111,6 +2112,10 @@ func _process_inner(delta: float) -> void:
 	if not _overlay.is_empty():
 		_overlay.update()
 	_game_pump()
+	_card_host_poll += delta
+	if _card_host_poll >= 0.2:
+		_card_host_poll = 0.0
+		_update_card_host()
 	_place_card()
 	_poll += delta
 	if _poll >= POLL_SEC:
@@ -2260,6 +2265,45 @@ func _refresh_card() -> void:
 	_card_ask.visible = _has_problem() and _agent_panel() != null and not _showing
 	_card_why.visible = str(step.get("why", "")) != "" or _agent_panel() != null
 
+## A modal window (Project Settings, Editor Settings, a file dialog…)
+## blocks clicks to everything behind it, the card included. So while one
+## is open the card moves into it, and back to the editor when it closes.
+func _update_card_host() -> void:
+	if _card == null or not is_instance_valid(_card):
+		return
+	var top := _top_modal_window()
+	var want: Node = top if top != null else EditorInterface.get_base_control()
+	if _card.get_parent() == want:
+		return
+	_card_pinned = false
+	_card_dragging = false
+	_card.reparent(want, false)
+	# Dialogs stretch their child controls over their content; a top-level
+	# control is left alone, so the card keeps its own size and place.
+	_card.top_level = top != null
+	if top != null:
+		# Back out before the window hides or is freed (which would free the card).
+		var back := func() -> void: _update_card_host.call_deferred()
+		if not top.visibility_changed.is_connected(back):
+			top.visibility_changed.connect(back, CONNECT_ONE_SHOT)
+		top.tree_exiting.connect(func() -> void:
+			if _card != null and is_instance_valid(_card) and _card.get_parent() == top:
+				_card.reparent(EditorInterface.get_base_control(), false)
+				_card.top_level = false, CONNECT_ONE_SHOT)
+
+## The innermost visible exclusive (modal) window in the editor, or null.
+func _top_modal_window() -> Window:
+	var best: Window = null
+	var best_depth := -1
+	for w in get_tree().root.find_children("*", "Window", true, false):
+		var win := w as Window
+		if win.visible and win.exclusive:
+			var depth := str(win.get_path()).count("/")
+			if depth > best_depth:
+				best = win
+				best_depth = depth
+	return best
+
 ## Places the card where it doesn't cover what the user needs. When the
 ## outline is inside a narrow dock (Scene, Inspector, FileSystem), the card
 ## goes just outside that dock, towards the middle of the screen, so it
@@ -2269,8 +2313,16 @@ func _place_card() -> void:
 	if _card == null or not is_instance_valid(_card):
 		return
 	var screen := EditorInterface.get_base_control().get_global_rect()
+	var host := _card.get_parent()
 	var size := _card.get_combined_minimum_size()
 	_card.size = size
+	if host is Window:
+		# Inside a modal window: bottom-right, above its buttons, unless dragged.
+		screen = Rect2(Vector2.ZERO, Vector2((host as Window).size))
+		if not (_card_pinned or _card_dragging):
+			_card.position = Vector2(
+				maxf(8.0, screen.end.x - size.x - 16.0), maxf(8.0, screen.end.y - size.y - 96.0))
+			return
 	if _card_pinned or _card_dragging:
 		# Where the user put it; only kept on screen (e.g. after a resize).
 		_card.global_position = Vector2(
