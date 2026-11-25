@@ -82,9 +82,9 @@ func stop(title: String, exact: bool, save := true, path := "", discard := false
 	var tour := _build(title if title != "" else "Recorded tutorial", exact)
 	var out := {"tour": tour, "steps": (tour.steps as Array).size()}
 	if save:
-		_runner._tour = tour
-		_runner._source_path = ""
-		var res: Dictionary = _runner.save(path)
+		# Passed in, not put in the runner's slot, so a tutorial that is
+		# running (e.g. from Teach mode) keeps its own title and Save button.
+		var res: Dictionary = _runner.save(path, tour)
 		if res.has("error"):
 			out["error"] = res.error
 		else:

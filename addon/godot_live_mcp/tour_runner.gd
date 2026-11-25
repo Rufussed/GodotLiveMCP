@@ -270,19 +270,29 @@ func load_file(path: String) -> Dictionary:
 
 ## Writes the running (or last) tour to path, default
 ## res://tours/<title>.tour.json. Returns {"path"} or {"error"}.
-func save(path := "") -> Dictionary:
-	if _tour.is_empty():
+## Saves the running (or last) tour, or `tour` when given (a recording),
+## which leaves the running tour untouched. A recording never overwrites
+## an existing file: without a path it gets a numbered name.
+func save(path := "", tour := {}) -> Dictionary:
+	var t: Dictionary = tour if not tour.is_empty() else _tour
+	if t.is_empty():
 		return {"error": "no tour has been started in this editor session"}
 	if path == "":
-		var slug := str(_tour.get("title", "tour")).to_snake_case().validate_filename()
-		path = "%s/%s%s" % [TOURS_DIR, slug if slug != "" else "tour", TOUR_EXT]
+		var slug := str(t.get("title", "tour")).to_snake_case().validate_filename()
+		if slug == "":
+			slug = "tour"
+		path = "%s/%s%s" % [TOURS_DIR, slug, TOUR_EXT]
+		var n := 2
+		while not tour.is_empty() and FileAccess.file_exists(path):
+			path = "%s/%s_%d%s" % [TOURS_DIR, slug, n, TOUR_EXT]
+			n += 1
 	if not path.begins_with("res://") or not path.ends_with(TOUR_EXT):
 		return {"error": "path must be under res:// and end in %s" % TOUR_EXT}
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return {"error": "can't write %s (%s)" % [path, error_string(FileAccess.get_open_error())]}
-	f.store_string(JSON.stringify(_tour, "\t", false))
+	f.store_string(JSON.stringify(t, "\t", false))
 	f.close()
 	EditorInterface.get_resource_filesystem().scan()
 	_log("saved", {"path": path})
