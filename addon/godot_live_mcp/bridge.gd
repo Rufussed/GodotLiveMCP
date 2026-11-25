@@ -3389,7 +3389,7 @@ func _cmd_get_recording_status(_params: Dictionary):
 func _cmd_list_tours(_params: Dictionary):
 	return {"tours": _tours().list_files()}
 
-## Project > Tools > Guided Tours… (added by plugin.gd).
+## Project > Tools > Tutorials… (added by plugin.gd) and the panel's Tutorials button.
 func open_tour_picker() -> void:
 	_tours().open_picker()
 

@@ -9,7 +9,7 @@ var _bridge: Node
 var _mcp_endpoint: Node
 var _assistant_panel: Control
 
-const TOURS_MENU_ITEM := "Guided Tours…"
+const TOURS_MENU_ITEM := "Tutorials…"
 
 ## Plays saved .tour.json files, no agent needed.
 func _open_tours() -> void:

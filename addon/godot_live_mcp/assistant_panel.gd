@@ -369,6 +369,18 @@ func _ready() -> void:
 	_compact_button_padding(_external_button)
 	_style_mode_button(_external_button)
 
+	# Saved and starter tutorials: list, play with no AI, or record a new one.
+	var tutorials_button := Button.new()
+	tutorials_button.text = "Tutorials"
+	tutorials_button.icon = _svg_icon("tutorials.svg")
+	_tint_icon_button(tutorials_button)
+	tutorials_button.tooltip_text = "Play a saved or starter tutorial (no AI needed), or record a new one"
+	tutorials_button.pressed.connect(func() -> void:
+		if _bridge_ref:
+			_bridge_ref.open_tour_picker())
+	right_group.add_child(tutorials_button)
+	_compact_button_padding(tutorials_button)
+
 	_new_session_button = Button.new()
 	_new_session_button.icon = editor_theme.get_icon("Reload", "EditorIcons")
 	_new_session_button.flat = true
@@ -1453,7 +1465,7 @@ func _build_session_ui() -> void:
 	# agent does it; Teach sends the same text as a request for a guided tour.
 	_teach_button = Button.new()
 	_teach_button.icon = _svg_icon("teach.svg")
-	_teach_button.tooltip_text = "Teach: the Tutor guides you through this step by step, with a tour in the editor, instead of doing it for you (Ctrl+Enter)"
+	_teach_button.tooltip_text = "Teach: the Tutor guides you through this step by step, with a tutorial in the editor, instead of doing it for you (Ctrl+Enter)"
 	_teach_button.custom_minimum_size.x = 48 * EditorInterface.get_editor_scale()
 	_style_button(_teach_button, Color(0.25, 0.45, 0.85))
 	_teach_button.pressed.connect(_send_teach)
@@ -1926,7 +1938,7 @@ func _build_settings_popup() -> void:
 	_name_edit.max_length = _TUTOR_NAME_MAX
 	_name_edit.placeholder_text = _DEFAULT_TUTOR_NAME
 	_name_edit.text = _tutor_name()
-	_name_edit.tooltip_text = "What your tutor is called in this panel and in tours. Press Enter to save."
+	_name_edit.tooltip_text = "What your tutor is called in this panel and in tutorials. Press Enter to save."
 	_name_edit.text_submitted.connect(func(t: String): _save_tutor_name(t))
 	_name_edit.focus_exited.connect(func(): _save_tutor_name(_name_edit.text))
 	name_row.add_child(_name_edit)

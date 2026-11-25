@@ -2642,7 +2642,7 @@
     },
     {
       "name": "save_tour",
-      "description": "Save the running (or last) guided tour as a .tour.json file — default res://tours/<title>.tour.json — so it can be replayed later with NO agent: from Project > Tools > Guided Tours… in the editor, or start_tour {path}. Offer this after a tour went well. The user can also press Save on the tour's final card. Tours are plain data (no code), safe to share.",
+      "description": "Save the running (or last) guided tour as a .tour.json file — default res://tours/<title>.tour.json — so it can be replayed later with NO agent: from the Tutorials button in the Agentic Tutor panel (or Project > Tools > Tutorials…), or start_tour {path}. Offer this after a tour went well. The user can also press Save on the tour's final card. Tours are plain data (no code), safe to share.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -13,6 +13,10 @@ const HighlightOverlay = preload("res://addons/godot_live_mcp/highlight_overlay.
 const TourRecorder = preload("res://addons/godot_live_mcp/tour_recorder.gd")
 const FORMAT := "godot-live-tour/1"
 const TOURS_DIR := "res://tours"
+## Starter tutorials bundled with the add-on, listed in every project.
+const STARTERS_DIR := "res://addons/godot_live_mcp/tours"
+const STARTER_ORDER := ["first-label.tour.json", "collisions.tour.json",
+	"player-movement.tour.json", "ui-button.tour.json", "signals.tour.json"]
 const TOUR_EXT := ".tour.json"
 const POLL_SEC := 0.5
 const ALREADY_DONE_SEC := 1.5
@@ -282,10 +286,21 @@ func save(path := "") -> Dictionary:
 	_log("saved", {"path": path})
 	return {"path": path}
 
-## Every *.tour.json in the project (outside addons/ and .godot/).
+## Every *.tour.json in the project (outside addons/ and .godot/), then the
+## starter tutorials that ship with the add-on, in their teaching order.
 func list_files() -> Array:
 	var out := []
 	_scan_tours("res://", out)
+	var starters := []
+	_scan_tours(STARTERS_DIR, starters)
+	var order := {}
+	for i in STARTER_ORDER.size():
+		order[STARTER_ORDER[i]] = i
+	starters.sort_custom(func(a, b) -> bool:
+		return order.get(str(a.path).get_file(), 99) < order.get(str(b.path).get_file(), 99))
+	for entry in starters:
+		entry["starter"] = true
+	out.append_array(starters)
 	return out
 
 func _scan_tours(dir: String, out: Array) -> void:
@@ -328,14 +343,15 @@ func play_file(path: String) -> Dictionary:
 			await get_tree().process_frame
 	return await start(tour, false, path)
 
-## Editor menu: Project > Tools > Guided Tours… — pick a tour file and
+## Editor menu: Project > Tools > Tutorials… (also the panel's Tutorials
+## button) — pick a tour file and
 ## play it, no agent involved.
 func open_picker() -> void:
 	var dialog := ConfirmationDialog.new()
-	dialog.title = "Guided Tours"
-	dialog.ok_button_text = "Start tour"
+	dialog.title = "Tutorials"
+	dialog.ok_button_text = "Start tutorial"
 	# Record mode: do the task once yourself and get a draft tour.
-	dialog.add_button("Record new tour…", true, "record")
+	dialog.add_button("Record new tutorial…", true, "record")
 	dialog.custom_action.connect(func(action: StringName) -> void:
 		if action == &"record":
 			dialog.hide()
@@ -349,6 +365,8 @@ func open_picker() -> void:
 	list.custom_minimum_size = Vector2(460, 240)
 	for entry in tours:
 		var label := str(entry.get("title", entry.path))
+		if entry.get("starter", false):
+			label = "Starter: " + label
 		if entry.has("error"):
 			label += "  (unreadable)"
 		elif entry.has("steps"):
@@ -357,8 +375,8 @@ func open_picker() -> void:
 		list.set_item_tooltip(list.item_count - 1, str(entry.path))
 	box.add_child(list)
 	var hint := Label.new()
-	hint.text = "Tours are *%s files in your project. Record one (do the task yourself while recording), or ask the agent for a tour and press Save on its last card." % TOUR_EXT if tours.is_empty() \
-		else "Double-click a tour, or select it and press Start tour. Record new tour… captures a task you do yourself."
+	hint.text = "Tutorials are *%s files in your project. Record one (do the task yourself while recording), or ask the Tutor for one in Teach mode and press Save on its last card." % TOUR_EXT if tours.is_empty() \
+		else "Double-click a tutorial, or select it and press Start tutorial. Record new tutorial… captures a task you do yourself."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.custom_minimum_size = Vector2(460, 0)
 	box.add_child(hint)
@@ -366,7 +384,7 @@ func open_picker() -> void:
 		dialog.hide()
 		var result: Dictionary = await play_file(str(tours[i].path))
 		if not result.get("ok", false):
-			_alert("This tour can't start here:\n\n• " + "\n• ".join(result.get("errors", [])))
+			_alert("This tutorial can't start here:\n\n• " + "\n• ".join(result.get("errors", [])))
 	list.item_activated.connect(play)
 	dialog.confirmed.connect(func() -> void:
 		var sel := list.get_selected_items()
@@ -382,7 +400,7 @@ func open_picker() -> void:
 
 func _alert(text: String) -> void:
 	var d := AcceptDialog.new()
-	d.title = "Guided Tours"
+	d.title = "Tutorials"
 	d.dialog_text = text
 	d.visibility_changed.connect(func() -> void:
 		if not d.visible:
@@ -1109,7 +1127,7 @@ func _build_digest() -> String:
 				covered = true
 		if not covered and not text in uniq:
 			uniq.append(text)
-	return "[Guided tour \"%s\", step %d/%d: %s]\nSomething isn't working here:\n- %s\n\nThe step's checks: %s\n\nFix the PLAN, not the scene: call revise_tour to replace the remaining steps (from step %d) with ones that get me past this. Keep using $vars for my node names, and don't change the scene yourself. Call get_tour_status if you need more detail." % [
+	return "[Tutorial \"%s\", step %d/%d: %s]\nSomething isn't working here:\n- %s\n\nThe step's checks: %s\n\nFix the PLAN, not the scene: call revise_tour to replace the remaining steps (from step %d) with ones that get me past this. Keep using $vars for my node names, and don't change the scene yourself. Call get_tour_status if you need more detail." % [
 		str(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(str(step.get("text", ""))),
 		"\n- ".join(uniq), JSON.stringify({"done_when": step.get("done_when"), "verify": step.get("verify")}).left(500), _index + 1]
 
@@ -1217,7 +1235,7 @@ func _on_why_pressed() -> void:
 	var panel := _agent_panel()
 	if panel == null:
 		return
-	var question := "[Guided tour \"%s\", step %d/%d: %s] Why do I do this step? Explain briefly in plain language — don't do it for me, and don't change the scene." % [
+	var question := "[Tutorial \"%s\", step %d/%d: %s] Why do I do this step? Explain briefly in plain language — don't do it for me, and don't change the scene." % [
 		str(_tour.get("title", "")), _index + 1, _steps.size(), _name_vars(str(step.text))]
 	var err: String = panel.ask(question)
 	_log("why_asked", {"sent": err == ""} if err == "" else {"sent": false, "error": err})
@@ -1628,7 +1646,7 @@ func _on_save_pressed() -> void:
 		_card_text.text += "\n[color=#e0b050]Couldn't save: %s[/color]" % _escape(str(res.error))
 	else:
 		_card_save.visible = false
-		_card_text.text += "\n[color=#60e080]Saved to %s — replay it from Project ▸ Tools ▸ Guided Tours…[/color]" % _escape(str(res.path))
+		_card_text.text += "\n[color=#60e080]Saved to %s — replay it from the Tutorials button[/color]" % _escape(str(res.path))
 
 ## The node_added step's new node now needs renaming: outline its Scene
 ## dock row instead of the + button.
@@ -2030,7 +2048,7 @@ func _build_card() -> void:
 	_card_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_card_title.add_theme_color_override("font_color", Color(0.45, 1.0, 0.55))
 	head.add_child(_card_title)
-	head.add_child(_card_button("✕", "End the tour", stop, true))
+	head.add_child(_card_button("✕", "End the tutorial", stop, true))
 	_card_text = RichTextLabel.new()
 	_card_text.bbcode_enabled = true
 	_card_text.fit_content = true
@@ -2063,11 +2081,11 @@ func _build_card() -> void:
 	buttons.add_child(_card_show)
 	_card_next = _card_button("Next ▸", "Next step", _on_next_pressed)
 	buttons.add_child(_card_next)
-	_card_save = _card_button("Save tour", "Save this tour to res://tours/ so it can be replayed without the agent", _on_save_pressed)
+	_card_save = _card_button("Save tutorial", "Save this tutorial to res://tours/ so it can be replayed without the agent", _on_save_pressed)
 	_card_save.visible = false
 	buttons.add_child(_card_save)
 	# Done card: Close is the main (green) action, to the right of Save.
-	_card_close = _card_button("Close", "Close the tour", stop)
+	_card_close = _card_button("Close", "Close the tutorial", stop)
 	var green := StyleBoxFlat.new()
 	green.bg_color = Color(0.22, 0.6, 0.28)
 	green.set_corner_radius_all(4)

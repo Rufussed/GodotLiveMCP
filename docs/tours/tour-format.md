@@ -9,22 +9,27 @@ Tours come from two places:
 
 - **Spontaneous:** an AI agent connected through GodotLiveMCP writes one for
   the user's own project when asked "how do I…?" (`start_tour`).
-- **Saved:** a `*.tour.json` file in the project. Tours are played from
-  **Project ▸ Tools ▸ Guided Tours…** with **no AI involved**: no account,
-  no network, nothing leaves the machine. Any tour can be saved from its
-  last card ("Save tour") or with the `save_tour` tool, then edited by hand.
+- **Saved:** a `*.tour.json` file in the project. Tours are played from the
+  **Tutorials** button in the Agentic Tutor panel (or **Project ▸ Tools ▸
+  Tutorials…**) with **no AI involved**: no account, no network, nothing
+  leaves the machine. Any tour can be saved from its last card ("Save
+  tutorial") or with the `save_tour` tool, then edited by hand.
 
-Machine-readable schema: [`tour.schema.json`](tour.schema.json). Examples, a beginner series that works in any project with a 2D scene
-open, in this order: [`first-label`](first-label.tour.json),
-[`collisions`](collisions.tour.json),
-[`player-movement`](player-movement.tour.json),
-[`ui-button`](ui-button.tour.json), [`signals`](signals.tour.json).
+Machine-readable schema: [`tour.schema.json`](tour.schema.json).
+
+Starter tutorials ship with the add-on in
+[`addon/godot_live_mcp/tours/`](../../addon/godot_live_mcp/tours/) and are listed
+under **Tutorials** in every project: a beginner series that works in any project
+with a 2D scene open, in this order: [`first-label`](../../addon/godot_live_mcp/tours/first-label.tour.json),
+[`collisions`](../../addon/godot_live_mcp/tours/collisions.tour.json),
+[`player-movement`](../../addon/godot_live_mcp/tours/player-movement.tour.json),
+[`ui-button`](../../addon/godot_live_mcp/tours/ui-button.tour.json), [`signals`](../../addon/godot_live_mcp/tours/signals.tour.json).
 
 ## Recording a tour
 
 Instead of writing JSON, do the task once yourself:
 
-1. **Project ▸ Tools ▸ Guided Tours… ▸ Record new tour…** (or the
+1. **Tutorials ▸ Record new tutorial…** (or the
    `start_recording` tool). A red bar shows it's recording.
 2. Work normally in the open scene: add, rename, move and delete nodes,
    edit properties in the Inspector or drag things in the viewport, attach

@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { connect } from './mcp_client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const toursDir = join(here, '../docs/tours');
+const toursDir = join(here, '../addon/godot_live_mcp/tours');
 const { call, close } = await connect();
 const dir = process.env.PROJECT_DIR;
 if (!dir) { console.error('Set PROJECT_DIR to the scratch project (a scene is written there to validate tours against).'); process.exit(2); }

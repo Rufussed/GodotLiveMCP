@@ -79,7 +79,7 @@ func stop(title: String, exact: bool, save := true, path := "", discard := false
 		return {"discarded": true}
 	if _order.is_empty():
 		return {"error": "nothing was recorded — no changes to the scene"}
-	var tour := _build(title if title != "" else "Recorded tour", exact)
+	var tour := _build(title if title != "" else "Recorded tutorial", exact)
 	var out := {"tour": tour, "steps": (tour.steps as Array).size()}
 	if save:
 		_runner._tour = tour
@@ -500,7 +500,7 @@ func _show_bar() -> void:
 func _update_bar() -> void:
 	if _bar == null or not is_instance_valid(_bar):
 		return
-	_bar_label.text = "● Recording a tour — %d step%s so far" % [_order.size(), "" if _order.size() == 1 else "s"]
+	_bar_label.text = "● Recording a tutorial — %d step%s so far" % [_order.size(), "" if _order.size() == 1 else "s"]
 	var base := EditorInterface.get_base_control().get_global_rect()
 	_bar.size = _bar.get_combined_minimum_size()
 	_bar.global_position = Vector2(base.get_center().x - _bar.size.x / 2.0, base.position.y + 34)
@@ -513,12 +513,12 @@ func _hide_bar() -> void:
 ## Stop & save…: asks for a title and whether values must match exactly.
 func _ask_title() -> void:
 	var d := ConfirmationDialog.new()
-	d.title = "Save recorded tour"
+	d.title = "Save recorded tutorial"
 	d.ok_button_text = "Save"
 	var box := VBoxContainer.new()
 	d.add_child(box)
 	var name_edit := LineEdit.new()
-	name_edit.placeholder_text = "Tour title, e.g. A bouncing ball"
+	name_edit.placeholder_text = "Tutorial title, e.g. A bouncing ball"
 	name_edit.custom_minimum_size = Vector2(360, 0)
 	box.add_child(name_edit)
 	var exact := CheckBox.new()
@@ -528,9 +528,9 @@ func _ask_title() -> void:
 	d.confirmed.connect(func() -> void:
 		var res := stop(name_edit.text.strip_edges(), exact.button_pressed)
 		if res.has("error"):
-			_runner._alert("Couldn't save the tour: " + str(res.error))
+			_runner._alert("Couldn't save the tutorial: " + str(res.error))
 		else:
-			_runner._alert("Saved %d steps to %s.\n\nPlay it from Project ▸ Tools ▸ Guided Tours…, edit the text in the file, or ask the agent to add Why? explanations." % [res.steps, res.path]))
+			_runner._alert("Saved %d steps to %s.\n\nPlay it from the Tutorials button, edit the text in the file, or ask the agent to add Why? explanations." % [res.steps, res.path]))
 	d.visibility_changed.connect(func() -> void:
 		if not d.visible:
 			d.queue_free.call_deferred())
