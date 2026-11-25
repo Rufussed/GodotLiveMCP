@@ -24,6 +24,8 @@ with a 2D scene open, in this order: [`first-label`](../../addon/godot_live_mcp/
 [`collisions`](../../addon/godot_live_mcp/tours/collisions.tour.json),
 [`player-movement`](../../addon/godot_live_mcp/tours/player-movement.tour.json),
 [`ui-button`](../../addon/godot_live_mcp/tours/ui-button.tour.json), [`signals`](../../addon/godot_live_mcp/tours/signals.tour.json).
+In 3D: [`red-ball`](../../addon/godot_live_mcp/tours/red-ball.tour.json), a red ball
+bouncing on green ground.
 
 ## Recording a tour
 

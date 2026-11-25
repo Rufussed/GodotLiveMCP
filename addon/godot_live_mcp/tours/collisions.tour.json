@@ -1,7 +1,9 @@
 {
 	"format": "godot-live-tour/1",
 	"title": "Collisions: a crate lands on a floor",
-	"requires": { "root_class": "CanvasItem" },
+	"requires": {
+		"root_class": "CanvasItem"
+	},
 	"vars": {
 		"root": "."
 	},
@@ -65,16 +67,18 @@
 		},
 		{
 			"id": "floor-size",
-			"text": "Click the new **RectangleShape2D** to open it, and make **Size** wide — for example x `600`, y `40`.",
+			"text": "Click the new **RectangleShape2D** to open it, and set **Size** to x `600`, y `40`.",
 			"why": "The shape is still tiny. Making it wide gives the crate something to land on.",
 			"target": {
 				"node_path": "$floor_shape",
 				"property": "shape"
 			},
 			"done_when": {
-				"type": "property_changed",
+				"type": "property_equals",
 				"node_path": "$floor_shape",
-				"property": "shape:size"
+				"property": "shape:size",
+				"value": "Vector2(600, 40)",
+				"tolerance": 1
 			}
 		},
 		{
@@ -92,6 +96,63 @@
 					"node_path": "$floor",
 					"property_name": "position",
 					"value": "Vector2(400, 450)"
+				}
+			]
+		},
+		{
+			"id": "floor-look",
+			"text": "Collision shapes are invisible when the game runs, so give the floor a look: with **$floor** selected, add a `ColorRect` as its child.",
+			"why": "A physics body only collides; it draws nothing. A ColorRect is a plain coloured rectangle you can see.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$floor",
+				"class": "ColorRect",
+				"capture": "floor_look"
+			}
+		},
+		{
+			"id": "floor-look-size",
+			"text": "In the Inspector, open **Layout ▸ Transform** and set **Size** to x `600`, y `40` and **Position** to x `-300`, y `-20`, so the rectangle covers the floor's shape.",
+			"why": "The shape is centred on the floor, but a rectangle grows from its top-left corner, so it moves back by half its size.",
+			"target": {
+				"node_path": "$floor_look",
+				"property": "size"
+			},
+			"done_when": {
+				"type": "all",
+				"checks": [
+					{
+						"type": "property_equals",
+						"node_path": "$floor_look",
+						"property": "size",
+						"value": "Vector2(600, 40)",
+						"tolerance": 1
+					},
+					{
+						"type": "property_equals",
+						"node_path": "$floor_look",
+						"property": "position",
+						"value": "Vector2(-300, -20)",
+						"tolerance": 1
+					}
+				]
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$floor_look",
+					"property_name": "size",
+					"value": "Vector2(600, 40)"
+				},
+				{
+					"command": "set_property",
+					"node_path": "$floor_look",
+					"property_name": "position",
+					"value": "Vector2(-300, -20)"
 				}
 			]
 		},
@@ -140,6 +201,22 @@
 			}
 		},
 		{
+			"id": "crate-size",
+			"text": "Open the crate's **RectangleShape2D** and set **Size** to x `40`, y `40`.",
+			"why": "A bigger crate is easier to watch.",
+			"target": {
+				"node_path": "$crate_shape",
+				"property": "shape"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$crate_shape",
+				"property": "shape:size",
+				"value": "Vector2(40, 40)",
+				"tolerance": 1
+			}
+		},
+		{
 			"id": "crate-move",
 			"text": "Move **$crate** above the floor.",
 			"why": "It needs some room to fall.",
@@ -158,12 +235,81 @@
 			]
 		},
 		{
-			"id": "see-shapes",
-			"text": "Open the **Debug** menu in the top menu bar and tick **Visible Collision Shapes**, then press **Next**.",
-			"why": "Collision shapes are invisible in a running game. This setting draws them, so you can watch them work.",
+			"id": "crate-look",
+			"text": "Now give the crate a look: with **$crate** selected, add a `ColorRect` as its child.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
 			"done_when": {
-				"type": "manual"
+				"type": "node_added",
+				"parent": "$crate",
+				"class": "ColorRect",
+				"capture": "crate_look"
 			}
+		},
+		{
+			"id": "crate-look-size",
+			"text": "Set its **Size** to x `40`, y `40` and **Position** to x `-20`, y `-20` (under **Layout ▸ Transform**).",
+			"target": {
+				"node_path": "$crate_look",
+				"property": "size"
+			},
+			"done_when": {
+				"type": "all",
+				"checks": [
+					{
+						"type": "property_equals",
+						"node_path": "$crate_look",
+						"property": "size",
+						"value": "Vector2(40, 40)",
+						"tolerance": 1
+					},
+					{
+						"type": "property_equals",
+						"node_path": "$crate_look",
+						"property": "position",
+						"value": "Vector2(-20, -20)",
+						"tolerance": 1
+					}
+				]
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$crate_look",
+					"property_name": "size",
+					"value": "Vector2(40, 40)"
+				},
+				{
+					"command": "set_property",
+					"node_path": "$crate_look",
+					"property_name": "position",
+					"value": "Vector2(-20, -20)"
+				}
+			]
+		},
+		{
+			"id": "crate-color",
+			"text": "Click **Color** in the Inspector and pick a crate colour, such as brown.",
+			"why": "A different colour from the floor makes the landing easy to see.",
+			"target": {
+				"node_path": "$crate_look",
+				"property": "color"
+			},
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$crate_look",
+				"property": "color"
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$crate_look",
+					"property_name": "color",
+					"value": "Color(0.6, 0.4, 0.2, 1)"
+				}
+			]
 		},
 		{
 			"id": "run",

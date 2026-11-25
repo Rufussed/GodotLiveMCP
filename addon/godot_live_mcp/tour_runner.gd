@@ -16,7 +16,8 @@ const TOURS_DIR := "res://tours"
 ## Starter tutorials bundled with the add-on, listed in every project.
 const STARTERS_DIR := "res://addons/godot_live_mcp/tours"
 const STARTER_ORDER := ["first-label.tour.json", "collisions.tour.json",
-	"player-movement.tour.json", "ui-button.tour.json", "signals.tour.json"]
+	"player-movement.tour.json", "ui-button.tour.json", "signals.tour.json",
+	"red-ball.tour.json"]
 const TOUR_EXT := ".tour.json"
 const POLL_SEC := 0.5
 const ALREADY_DONE_SEC := 1.5

@@ -1,0 +1,384 @@
+{
+	"format": "godot-live-tour/1",
+	"title": "A red ball bounces on green ground",
+	"requires": {
+		"root_class": "Node3D"
+	},
+	"vars": {
+		"root": "."
+	},
+	"steps": [
+		{
+			"id": "select-root",
+			"text": "Select **$root**, the top node of your scene.",
+			"why": "New nodes are added under whatever is selected.",
+			"done_when": {
+				"type": "node_selected",
+				"node_path": "$root"
+			}
+		},
+		{
+			"id": "add-ground",
+			"text": "Click **+**, search for `StaticBody3D`, and press **Create**. This will be the ground.",
+			"why": "A StaticBody3D never moves, but other bodies collide with it.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "StaticBody3D",
+				"name": "Ground",
+				"capture": "ground"
+			}
+		},
+		{
+			"id": "ground-mesh",
+			"text": "With **$ground** selected, add a `MeshInstance3D` as its child.",
+			"why": "A physics body draws nothing; a MeshInstance3D is what you see.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$ground",
+				"class": "MeshInstance3D",
+				"capture": "ground_mesh"
+			}
+		},
+		{
+			"id": "ground-plane",
+			"text": "In the Inspector, click **<empty>** next to **Mesh** and choose **New PlaneMesh**.",
+			"target": {
+				"node_path": "$ground_mesh",
+				"property": "mesh"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ground_mesh",
+				"property": "mesh",
+				"class": "PlaneMesh"
+			}
+		},
+		{
+			"id": "ground-size",
+			"text": "Click the new **PlaneMesh** to open it, and set **Size** to x `20`, y `20`.",
+			"why": "A bigger plane gives the ball room to land.",
+			"target": {
+				"node_path": "$ground_mesh",
+				"property": "mesh"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$ground_mesh",
+				"property": "mesh:size",
+				"value": "Vector2(20, 20)",
+				"tolerance": 0.01
+			}
+		},
+		{
+			"id": "ground-material",
+			"text": "Set **Geometry ▸ Material Override** to **New StandardMaterial3D**.",
+			"why": "A material decides how a surface looks: its colour, shine and so on.",
+			"target": {
+				"node_path": "$ground_mesh",
+				"property": "material_override"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ground_mesh",
+				"property": "material_override",
+				"class": "StandardMaterial3D"
+			}
+		},
+		{
+			"id": "ground-green",
+			"text": "Open the material and set **Albedo ▸ Color** to green.",
+			"why": "Albedo is the surface's base colour.",
+			"target": {
+				"node_path": "$ground_mesh",
+				"property": "material_override"
+			},
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$ground_mesh",
+				"property": "material_override:albedo_color"
+			},
+			"show_me": [
+				{
+					"command": "set_nested_property",
+					"node_path": "$ground_mesh",
+					"value": "Color(0.2, 0.75, 0.25, 1)",
+					"property_path": "material_override:albedo_color"
+				}
+			]
+		},
+		{
+			"id": "ground-shape",
+			"text": "Select **$ground** again and add a `CollisionShape3D` as its child.",
+			"why": "The mesh is only how it looks. The collision shape is what the ball actually hits.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$ground",
+				"class": "CollisionShape3D",
+				"capture": "ground_shape"
+			}
+		},
+		{
+			"id": "ground-boundary",
+			"text": "Set its **Shape** to **New WorldBoundaryShape3D**.",
+			"why": "A world boundary is an endless flat floor, so the ball can't miss it.",
+			"target": {
+				"node_path": "$ground_shape",
+				"property": "shape"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ground_shape",
+				"property": "shape",
+				"class": "WorldBoundaryShape3D"
+			}
+		},
+		{
+			"id": "add-ball",
+			"text": "Select **$root** again and add a `RigidBody3D`. This will be the ball.",
+			"why": "A RigidBody3D is moved by physics: gravity pulls it down and it bounces off what it hits.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "RigidBody3D",
+				"name": "Ball",
+				"capture": "ball"
+			}
+		},
+		{
+			"id": "ball-up",
+			"text": "Set **$ball**'s **Position** (under Transform) to x `0`, y `10`, z `0`.",
+			"why": "Y is up in Godot 3D, so the ball starts 10 metres above the ground.",
+			"target": {
+				"node_path": "$ball",
+				"property": "position"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$ball",
+				"property": "position",
+				"value": "Vector3(0, 10, 0)",
+				"tolerance": 0.01
+			}
+		},
+		{
+			"id": "ball-mesh",
+			"text": "With **$ball** selected, add a `MeshInstance3D` as its child.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$ball",
+				"class": "MeshInstance3D",
+				"capture": "ball_mesh"
+			}
+		},
+		{
+			"id": "ball-sphere",
+			"text": "Set its **Mesh** to **New SphereMesh**.",
+			"target": {
+				"node_path": "$ball_mesh",
+				"property": "mesh"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ball_mesh",
+				"property": "mesh",
+				"class": "SphereMesh"
+			}
+		},
+		{
+			"id": "ball-material",
+			"text": "Set **Geometry ▸ Material Override** to **New StandardMaterial3D**.",
+			"target": {
+				"node_path": "$ball_mesh",
+				"property": "material_override"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ball_mesh",
+				"property": "material_override",
+				"class": "StandardMaterial3D"
+			}
+		},
+		{
+			"id": "ball-red",
+			"text": "Open the material and set **Albedo ▸ Color** to red.",
+			"target": {
+				"node_path": "$ball_mesh",
+				"property": "material_override"
+			},
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$ball_mesh",
+				"property": "material_override:albedo_color"
+			},
+			"show_me": [
+				{
+					"command": "set_nested_property",
+					"node_path": "$ball_mesh",
+					"value": "Color(0.9, 0.1, 0.1, 1)",
+					"property_path": "material_override:albedo_color"
+				}
+			]
+		},
+		{
+			"id": "ball-shape",
+			"text": "Select **$ball** again and add a `CollisionShape3D` as its child.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$ball",
+				"class": "CollisionShape3D",
+				"capture": "ball_shape"
+			}
+		},
+		{
+			"id": "ball-sphere-shape",
+			"text": "Set its **Shape** to **New SphereShape3D**.",
+			"why": "The sphere shape is the same size as the sphere mesh, so what you see is what collides.",
+			"target": {
+				"node_path": "$ball_shape",
+				"property": "shape"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ball_shape",
+				"property": "shape",
+				"class": "SphereShape3D"
+			}
+		},
+		{
+			"id": "ball-physics",
+			"text": "Select **$ball** and set **Physics Material Override** to **New PhysicsMaterial**.",
+			"why": "A physics material decides how a body feels: how bouncy and how slippery.",
+			"target": {
+				"node_path": "$ball",
+				"property": "physics_material_override"
+			},
+			"done_when": {
+				"type": "property_class",
+				"node_path": "$ball",
+				"property": "physics_material_override",
+				"class": "PhysicsMaterial"
+			}
+		},
+		{
+			"id": "ball-bounce",
+			"text": "Open the physics material and set **Bounce** to `0.8`.",
+			"why": "0 doesn't bounce at all, 1 bounces back to the same height. 0.8 loses a little each time.",
+			"target": {
+				"node_path": "$ball",
+				"property": "physics_material_override"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$ball",
+				"property": "physics_material_override:bounce",
+				"value": "0.8",
+				"tolerance": 0.01
+			}
+		},
+		{
+			"id": "add-camera",
+			"text": "Select **$root** and add a `Camera3D`.",
+			"why": "A 3D game shows the world through a camera. Without one you'd see nothing.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "Camera3D",
+				"capture": "camera"
+			}
+		},
+		{
+			"id": "camera-move",
+			"text": "Set the camera's **Position** to x `0`, y `4`, z `12`.",
+			"why": "This puts it back and a little up, looking at the ground and the ball.",
+			"target": {
+				"node_path": "$camera",
+				"property": "position"
+			},
+			"done_when": {
+				"type": "property_equals",
+				"node_path": "$camera",
+				"property": "position",
+				"value": "Vector3(0, 4, 12)",
+				"tolerance": 0.01
+			}
+		},
+		{
+			"id": "add-light",
+			"text": "Select **$root** and add a `DirectionalLight3D`.",
+			"why": "A directional light is like the sun. Without light the game would be dark.",
+			"target": {
+				"root": "scene_tree",
+				"tooltip": "Add/Create a New Node"
+			},
+			"done_when": {
+				"type": "node_added",
+				"parent": "$root",
+				"class": "DirectionalLight3D",
+				"capture": "sun"
+			}
+		},
+		{
+			"id": "light-angle",
+			"text": "Set the light's **Rotation** to x `-50`, y `30`, z `0`, so it shines down at an angle.",
+			"why": "A light pointing straight ahead would barely light the ground.",
+			"target": {
+				"node_path": "$sun",
+				"property": "rotation"
+			},
+			"done_when": {
+				"type": "property_changed",
+				"node_path": "$sun",
+				"property": "rotation"
+			},
+			"show_me": [
+				{
+					"command": "set_property",
+					"node_path": "$sun",
+					"property_name": "rotation_degrees",
+					"value": "Vector3(-50, 30, 0)"
+				}
+			]
+		},
+		{
+			"id": "run",
+			"text": "Press **F6** (Play the currently edited scene) and watch the red ball drop onto the green ground and bounce. Close the game window when you're done.",
+			"why": "F6 runs just this scene. Godot saves your work first.",
+			"target": {
+				"root": "editor",
+				"tooltip": "Play the currently edited scene"
+			},
+			"done_when": {
+				"type": "game_running"
+			}
+		}
+	]
+}
