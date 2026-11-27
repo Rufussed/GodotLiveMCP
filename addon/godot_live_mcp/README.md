@@ -88,7 +88,7 @@ Both are optional; defaults shown.
 | `GODOT_LIVE_MCP_PORT` | `9080` | TCP port the editor bridge listens on |
 | `GODOT_LIVE_MCP_TOKEN` | (generated) | Overrides the auto-generated token (shared by both bridges) |
 | `GODOT_LIVE_MCP_RUNTIME_PORT` | `9090` | TCP port the runtime (game) bridge listens on |
-| `GODOT_LIVE_MCP_HTTP` | on | `off` stops the in-editor MCP server |
+| `GODOT_LIVE_MCP_HTTP` | off | `on` starts the experimental in-editor MCP server |
 | `GODOT_LIVE_MCP_HTTP_PORT` | (saved, picked per project) | Port of the in-editor MCP server |
 | `GODOT_LIVE_MCP_PROFILE` | (saved) | `lite` or `full`: which tools the in-editor server offers |
 

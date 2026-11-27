@@ -6,7 +6,7 @@ extends Node
 ## Settings live in user://godot_live_mcp_http.cfg ([http] enabled, port,
 ## profile), per project. The bearer token is the bridge's own token. Overrides:
 ## GODOT_LIVE_MCP_HTTP_PORT, GODOT_LIVE_MCP_PROFILE (lite|full),
-## GODOT_LIVE_MCP_HTTP=off.
+## GODOT_LIVE_MCP_HTTP=on|off. Experimental and off by default.
 
 ## The endpoint settled (or stopped): the URL from get_url() is now valid (or empty).
 signal availability_changed
@@ -33,7 +33,10 @@ func start(bridge: Node) -> void:
 	_token = bridge.get_token()
 	var cfg := ConfigFile.new()
 	cfg.load(CONFIG_PATH)
-	var enabled := OS.get_environment("GODOT_LIVE_MCP_HTTP").to_lower() != "off" and bool(cfg.get_value("http", "enabled", true))
+	# Off by default for now: the Node server is the supported path. Turn it on
+	# with GODOT_LIVE_MCP_HTTP=on or [http] enabled=true in the config file.
+	var env_http := OS.get_environment("GODOT_LIVE_MCP_HTTP").to_lower()
+	var enabled := env_http == "on" if env_http != "" else bool(cfg.get_value("http", "enabled", false))
 	if not enabled:
 		return
 	var profile := OS.get_environment("GODOT_LIVE_MCP_PROFILE").to_lower()
