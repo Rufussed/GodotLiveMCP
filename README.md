@@ -1,10 +1,23 @@
-# GodotLiveMCP
+# Godot Tutor
 
-**[Watch the one-minute Godot Tutor explainer](https://rufussed.github.io/GodotLiveMCP/explainer/)**:
-real screenshots of the in-editor tutor teaching a bouncing ball, step by step.
+[![Godot Tutor: say what you want to do with your game, be taught each process step by step, or have it done for you while you watch](docs/hero.webp)](https://rufussed.github.io/GodotLiveMCP/explainer/)
 
-An MCP server that lets an AI coding agent drive a **running** Godot 4.x editor
-session directly, not just edit files on disk. See
+**Godot Tutor** is an AI assistant inside Godot, the free, open-source game
+engine: ask for something, like a bouncing ball, and it builds it or teaches
+you, highlighting each step in the editor.
+
+Most AI assistants do the work for you. Godot Tutor teaches you to do it, as a
+human would: it points to one button or setting at a time and checks each step
+is done. Tutorials save as files that teachers can replay without AI.
+
+**[Watch the one-minute explainer](https://rufussed.github.io/GodotLiveMCP/explainer/)**:
+real screenshots of the tutor teaching a bouncing ball, step by step.
+
+## How it works
+
+Godot Tutor runs on **GodotLiveMCP**, this repository: an MCP server that lets
+an AI coding agent drive a **running** Godot 4.x editor session directly, not
+just edit files on disk. See
 [GodotLive_Project_Brief.md](GodotLive_Project_Brief.md) for the full rationale and scope.
 
 Two parts:
@@ -29,7 +42,7 @@ Two parts:
   [README](addon/godot_live_mcp/README.md) for install steps for both.
 - **`server/`** — the MCP server (Node.js/TypeScript, forked from
   [`Coding-Solo/godot-mcp`](https://github.com/Coding-Solo/godot-mcp), MIT).
-  Adds ~70 bridge-backed tools (`eval_expression`, `set_property`,
+  Adds about 100 bridge-backed tools (`eval_expression`, `set_property`,
   `set_nested_property`, `game_eval_expression`, `simulate_key`, etc.) on
   top of godot-mcp's existing project-lifecycle tools (`launch_editor`,
   `create_scene`, ...) — prefer this project's own `play_scene`/
